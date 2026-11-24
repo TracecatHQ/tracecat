@@ -4,12 +4,12 @@ import { ArrowUpRight, Info, Loader2, Plus } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { type ReactNode, useState } from "react"
 import type { AgentChannelBotRead, AgentPresetReadMinimal } from "@/client"
+import { AgentSelect } from "@/components/agents/external-channels/channel-bot-fields"
 import {
   channelBotReturnUrl,
   goToChannelBotAuthorization,
 } from "@/components/agents/external-channels/channel-bot-utils"
 import { ChannelsSideSheet } from "@/components/agents/external-channels/channels-side-sheet"
-import { AgentSelect } from "@/components/agents/external-channels/platform-channel-routes"
 import { ProviderIcon } from "@/components/icons"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"

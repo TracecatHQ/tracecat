@@ -7,6 +7,7 @@ import type {
   AgentPresetReadMinimal,
   ChannelBotChannel,
 } from "@/client"
+import { AgentSelect } from "@/components/agents/external-channels/channel-bot-fields"
 import {
   CHANNEL_BOT_PROVIDER_NAMES,
   channelConventions,
@@ -27,54 +28,11 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
-  useAddChannelBotRoute,
   useChannelBotChannels,
   useChannelBotRoutableChannels,
   useChannelBotsBusy,
+  useSetChannelBotRoute,
 } from "@/hooks/use-agent-channel-bots"
-import { cn } from "@/lib/utils"
-
-/** Picks one of the workspace's agents. */
-export function AgentSelect({
-  label,
-  value,
-  agents,
-  disabled,
-  onChange,
-  className,
-}: {
-  label: string
-  value: string
-  agents: Pick<AgentPresetReadMinimal, "id" | "name">[]
-  disabled: boolean
-  onChange: (agentPresetId: string) => void
-  className?: string
-}) {
-  return (
-    <Select value={value} onValueChange={onChange} disabled={disabled}>
-      <SelectTrigger
-        aria-label={label}
-        className={cn("h-8 w-48 text-xs", className)}
-      >
-        <SelectValue placeholder="Choose an agent" />
-      </SelectTrigger>
-      <SelectContent>
-        {agents.map((agent) => (
-          <SelectItem key={agent.id} value={agent.id} className="text-xs">
-            {agent.name}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  )
-}
 
 /** Why the channels cannot be picked, or null while the picker works. */
 function listingFailure(
@@ -124,13 +82,14 @@ export function AddChannelRouteDialog({
   workspaceId: string
   install: AgentChannelBotRead
   title: string
-  /** Channels already routed; the API refuses them anyway. */
+  /** Channels the table already lists with their own agent. */
   routedIds: Set<string>
   agents: AgentPresetReadMinimal[]
   onClose: () => void
 }) {
   const running = install.status === "active"
-  const { addRoute, addRouteIsPending } = useAddChannelBotRoute(
+  // An upsert: a route to a deleted agent is hidden from the table, yet still exists.
+  const { setRoute, setRouteIsPending } = useSetChannelBotRoute(
     workspaceId,
     install.provider
   )
@@ -178,7 +137,7 @@ export function AddChannelRouteDialog({
     if (!canAdd) {
       return
     }
-    addRoute(
+    setRoute(
       {
         botId: install.id,
         requestBody: {
@@ -283,7 +242,7 @@ export function AddChannelRouteDialog({
             form={formId}
             disabled={busy || !canAdd}
           >
-            {addRouteIsPending ? (
+            {setRouteIsPending ? (
               <Loader2 className="mr-2 size-4 animate-spin" />
             ) : null}
             Add channel

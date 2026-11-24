@@ -333,7 +333,7 @@ export function ChannelBotDialog({
 }
 
 /** Pausing, resuming and disconnecting a bot, with their toasts. */
-export function useChannelBotLifecycle(
+function useChannelBotLifecycle(
   workspaceId: string,
   bot: AgentChannelBotRead,
   onDisconnected?: () => void
@@ -370,12 +370,10 @@ export function useChannelBotLifecycle(
   return { busy, providerName, setRunState, disconnect }
 }
 
-/** What disconnecting a bot does, unless its card says otherwise. */
-export const DEFAULT_DISCONNECT_DESCRIPTION =
+const DEFAULT_DISCONNECT_DESCRIPTION =
   "The stored credentials are deleted and the bot stops answering until you connect it again."
 
-/** Confirms disconnecting a bot. */
-export function DisconnectConfirm({
+function DisconnectConfirm({
   open,
   onOpenChange,
   providerName,
@@ -406,60 +404,96 @@ export function DisconnectConfirm({
   )
 }
 
-/** Pause, resume and disconnect for an installed bot. */
+/**
+ * Pause, resume and disconnect for an installed bot. `split` puts Disconnect
+ * on the right as a quiet destructive link, after `leading` and the run toggle.
+ */
 export function ChannelBotLifecycleActions({
   workspaceId,
   bot,
   state,
   onDisconnected,
   disconnectDescription = DEFAULT_DISCONNECT_DESCRIPTION,
+  layout = "row",
+  leading,
 }: {
   workspaceId: string
   bot: AgentChannelBotRead
   state: ChannelBotState
   onDisconnected?: () => void
   disconnectDescription?: string
+  layout?: "row" | "split"
+  /** Actions before Pause or Resume, such as Reconnect. */
+  leading?: ReactNode
 }) {
   const { busy, providerName, setRunState, disconnect } =
     useChannelBotLifecycle(workspaceId, bot, onDisconnected)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const split = layout === "split"
+  const icons = !split
 
-  return (
-    <div className="flex flex-wrap gap-2">
-      {state === "active" ? (
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => setRunState("paused")}
-          disabled={busy}
-        >
-          <Pause className="mr-2 size-4" />
-          Pause
-        </Button>
-      ) : null}
-      {state === "paused" ? (
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => setRunState("active")}
-          disabled={busy}
-        >
-          <Play className="mr-2 size-4" />
-          Resume
-        </Button>
-      ) : null}
+  let runToggle: ReactNode = null
+  if (state === "active") {
+    runToggle = (
       <Button
         type="button"
         size="sm"
         variant="outline"
-        onClick={() => setConfirmOpen(true)}
+        onClick={() => setRunState("paused")}
         disabled={busy}
       >
-        <Unplug className="mr-2 size-4" />
-        Disconnect
+        {icons ? <Pause className="mr-2 size-4" /> : null}
+        Pause
       </Button>
+    )
+  } else if (state === "paused") {
+    runToggle = (
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        onClick={() => setRunState("active")}
+        disabled={busy}
+      >
+        {icons ? <Play className="mr-2 size-4" /> : null}
+        Resume
+      </Button>
+    )
+  }
+  const disconnectButton = (
+    <Button
+      type="button"
+      size="sm"
+      variant={split ? "ghost" : "outline"}
+      className={split ? "text-destructive hover:text-destructive" : undefined}
+      onClick={() => setConfirmOpen(true)}
+      disabled={busy}
+    >
+      {icons ? <Unplug className="mr-2 size-4" /> : null}
+      Disconnect
+    </Button>
+  )
+
+  return (
+    <div
+      className={
+        split
+          ? "flex items-center justify-between gap-2"
+          : "flex flex-wrap gap-2"
+      }
+    >
+      {split ? (
+        <div className="flex items-center gap-2">
+          {leading}
+          {runToggle}
+        </div>
+      ) : (
+        <>
+          {leading}
+          {runToggle}
+        </>
+      )}
+      {disconnectButton}
       <DisconnectConfirm
         open={confirmOpen}
         onOpenChange={setConfirmOpen}

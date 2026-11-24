@@ -122,6 +122,7 @@ export function WorkspaceChannelsView({
         bots={shownBots}
         rows={rows}
         chatAgents={chatPresets ?? []}
+        agentName={agentName}
         routesLoading={routesLoading}
         routesError={routesError}
         listingFailures={listingFailures}

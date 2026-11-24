@@ -13,50 +13,36 @@ import {
   type Table as TanstackTable,
   useReactTable,
 } from "@tanstack/react-table"
-import {
-  Check,
-  ChevronDown,
-  CircleCheck,
-  CircleDashed,
-  CirclePause,
-  type LucideIcon,
-  MousePointerClickIcon,
-  Plus,
-  SlidersHorizontalIcon,
-  Trash2,
-  TriangleAlert,
-} from "lucide-react"
+import { Check, ChevronDown, SlidersHorizontalIcon } from "lucide-react"
 import { type ReactNode, useState } from "react"
 import type {
   AgentChannelBotRead,
   AgentPresetReadMinimal,
   ChannelBotListingFailure,
 } from "@/client"
-import { ChannelBotStatus } from "@/components/agents/external-channels/channel-bot-card"
-import { StatusLabel } from "@/components/agents/external-channels/channel-bot-fields"
+import { AddChannelRouteDialog } from "@/components/agents/external-channels/add-channel-route-dialog"
 import {
-  channelBotDetails,
-  channelBotState,
-  channelConventions,
-  slackUpdateNeeded,
-} from "@/components/agents/external-channels/channel-bot-utils"
-import { ChannelIcon } from "@/components/agents/external-channels/channel-picker"
+  AgentGroup,
+  BotGroup,
+  ChannelRow,
+  type ChannelsRowContext,
+  columnSpan,
+} from "@/components/agents/external-channels/workspace-channels-groups"
 import {
-  AddChannelRouteDialog,
-  AgentSelect,
-} from "@/components/agents/external-channels/platform-channel-routes"
-import {
-  botSummary,
-  type ChannelRowStatus,
+  CHANNELS_LAYOUT,
+  type ChannelsColumn,
   type ChannelsGroupBy,
   type ChannelTableRow,
+  channelBotTitle,
   channelCount,
+  FACETS,
+  groupByAgent,
+  groupByBot,
+  matchesChannelSearch,
 } from "@/components/agents/external-channels/workspace-channels-rows"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { DataTableColumnHeader } from "@/components/data-table"
 import { DataTableFacetedFilter } from "@/components/data-table/faceted-filter"
-import { ProviderIcon } from "@/components/icons"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -72,21 +58,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import {
-  useChannelBotsBusy,
-  useDeleteChannelBotRoute,
-  useSetChannelBotRoute,
-  useUpdateAgentChannelBot,
-} from "@/hooks/use-agent-channel-bots"
 import { getApiErrorDetail, type TracecatApiError } from "@/lib/errors"
 import { cn } from "@/lib/utils"
-
-const FACETS = [
-  { column: "provider", title: "Provider" },
-  { column: "app", title: "App" },
-  { column: "agent", title: "Agent" },
-  { column: "status", title: "Status" },
-] as const
 
 const GROUP_BY_OPTIONS: ReadonlyArray<[ChannelsGroupBy, string]> = [
   ["bot", "Bot"],
@@ -94,74 +67,37 @@ const GROUP_BY_OPTIONS: ReadonlyArray<[ChannelsGroupBy, string]> = [
   ["none", "None"],
 ]
 
-const STATUS_ICONS: Partial<Record<ChannelRowStatus, LucideIcon>> = {
-  Active: CircleCheck,
-  "Not in channel": CircleDashed,
-  Unknown: CircleDashed,
-  Paused: CirclePause,
-  "Needs reconnect": TriangleAlert,
-}
-
-function matchesSearch(label: string, search: unknown): boolean {
-  const q = String(search ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/^#/, "")
-  return label.toLowerCase().includes(q)
-}
-
-/** A facet column over one row field; facets match any picked value. */
-function facetColumn(
-  id: string,
-  value: (row: ChannelTableRow) => string,
-  sortable = true
-): ColumnDef<ChannelTableRow> {
-  return {
-    id,
-    accessorFn: value,
-    filterFn: "arrIncludesSome",
-    enableSorting: sortable,
-    enableHiding: false,
-  }
+const COLUMN_TITLES: Record<ChannelsColumn, string> = {
+  channel: "Channel",
+  agent: "Agent",
+  bot: "Bot",
+  status: "Status",
 }
 
 const COLUMNS: ColumnDef<ChannelTableRow>[] = [
   {
     id: "channel",
     accessorFn: (row) => row.label,
-    filterFn: (row, _id, value) => matchesSearch(row.original.label, value),
+    filterFn: (row, _id, value) =>
+      matchesChannelSearch(row.original, String(value ?? "")),
     enableHiding: false,
   },
-  facetColumn("agent", (row) => row.agentName),
-  facetColumn("status", (row) => row.status),
-  facetColumn("bot", (row) => row.botTitle),
-  facetColumn("provider", (row) => row.provider, false),
-  facetColumn("app", (row) => row.app, false),
+  {
+    id: "bot",
+    accessorFn: (row) => row.botTitle,
+    enableHiding: false,
+  },
+  // Facets match any picked value; Provider and App only filter.
+  ...FACETS.map(
+    ({ column, value }): ColumnDef<ChannelTableRow> => ({
+      id: column,
+      accessorFn: value,
+      filterFn: "arrIncludesSome",
+      enableSorting: column === "agent" || column === "status",
+      enableHiding: false,
+    })
+  ),
 ]
-
-/** The distinct values of a row field, as facet options. */
-function facetOptions(
-  rows: ChannelTableRow[],
-  column: (typeof FACETS)[number]["column"]
-): { label: string; value: string }[] {
-  const pick: Record<typeof column, (row: ChannelTableRow) => string> = {
-    provider: (row) => row.provider,
-    app: (row) => row.app,
-    agent: (row) => row.agentName,
-    status: (row) => row.status,
-  }
-  return [...new Set(rows.map(pick[column]))]
-    .sort()
-    .map((value) => ({ label: value, value }))
-}
-
-/** Rows of one group, the install's default first. */
-function defaultFirst(rows: ChannelTableRow[]): ChannelTableRow[] {
-  return [
-    ...rows.filter((row) => row.route === null),
-    ...rows.filter((row) => row.route !== null),
-  ]
-}
 
 /**
  * Every bot's channels, filtered, sorted and grouped in the browser: the rows
@@ -172,6 +108,7 @@ export function WorkspaceChannelsTable({
   bots,
   rows,
   chatAgents,
+  agentName,
   routesLoading,
   routesError,
   listingFailures,
@@ -184,6 +121,7 @@ export function WorkspaceChannelsTable({
   rows: ChannelTableRow[]
   /** Agents a Tracecat channel can be given. */
   chatAgents: AgentPresetReadMinimal[]
+  agentName: (id: string) => string
   routesLoading: boolean
   routesError: TracecatApiError | null
   /** Running bots Slack would not list, by bot ID. */
@@ -213,6 +151,13 @@ export function WorkspaceChannelsTable({
   const shown = table.getRowModel().rows.map((row) => row.original)
   const filtering = columnFilters.length > 0
   const search = (table.getColumn("channel")?.getFilterValue() as string) ?? ""
+  const context: ChannelsRowContext = {
+    workspaceId,
+    chatAgents,
+    canUpdate,
+    managingBotId,
+    onManage,
+  }
 
   function toggle(key: string): void {
     setCollapsed((previous) => {
@@ -226,31 +171,19 @@ export function WorkspaceChannelsTable({
     })
   }
 
-  const context: RowContext = {
-    workspaceId,
-    chatAgents,
-    canUpdate,
-    managingBotId,
-    onManage,
-  }
   let body: ReactNode
   if (groupBy === "bot") {
-    body = bots.map((bot) => {
-      const groupRows = defaultFirst(
-        shown.filter((row) => row.bot.id === bot.id)
-      )
-      if (filtering && groupRows.length === 0) {
-        return null
-      }
-      const key = `bot:${bot.id}`
-      return (
+    body = groupByBot(bots, shown)
+      .filter((group) => !filtering || group.rows.length > 0)
+      .map(({ bot, rows: groupRows }) => (
         <BotGroup
           key={bot.id}
           bot={bot}
           rows={groupRows}
           allRows={rows.filter((row) => row.bot.id === bot.id)}
-          open={!collapsed.has(key)}
-          onToggle={() => toggle(key)}
+          defaultAgentName={agentName(bot.agent_preset_id)}
+          open={!collapsed.has(`bot:${bot.id}`)}
+          onToggle={() => toggle(`bot:${bot.id}`)}
           filtering={filtering}
           loading={routesLoading}
           unavailable={routesError !== null}
@@ -258,35 +191,23 @@ export function WorkspaceChannelsTable({
           onAddChannel={() => setAddingTo(bot)}
           context={context}
         />
-      )
-    })
+      ))
   } else if (groupBy === "agent") {
-    const byAgent = new Map<string, ChannelTableRow[]>()
-    for (const row of shown) {
-      byAgent.set(row.agentName, [...(byAgent.get(row.agentName) ?? []), row])
-    }
-    body = [...byAgent.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([agentName, agentRows]) => {
-        const key = `agent:${agentName}`
-        return (
-          <AgentGroup
-            key={key}
-            agentName={agentName}
-            rows={agentRows}
-            open={!collapsed.has(key)}
-            onToggle={() => toggle(key)}
-            context={context}
-          />
-        )
-      })
+    body = groupByAgent(shown).map((group) => (
+      <AgentGroup
+        key={group.agentId}
+        agentName={group.agentName}
+        rows={group.rows}
+        open={!collapsed.has(`agent:${group.agentId}`)}
+        onToggle={() => toggle(`agent:${group.agentId}`)}
+        context={context}
+      />
+    ))
   } else {
     body = shown.map((row) => (
-      <ChannelTableRowView key={row.key} row={row} mode="none" {...context} />
+      <ChannelRow key={row.key} row={row} groupBy="none" context={context} />
     ))
   }
-  const columns = groupBy === "none" ? 5 : 4
-  const nothingMatches = filtering && shown.length === 0
 
   return (
     <div className="space-y-3">
@@ -302,12 +223,14 @@ export function WorkspaceChannelsTable({
             }
             className="h-8 w-[150px] text-xs lg:w-[250px]"
           />
-          {FACETS.map(({ column, title }) => (
+          {FACETS.map(({ column, title, value }) => (
             <DataTableFacetedFilter
               key={column}
               column={table.getColumn(column)}
               title={title}
-              options={facetOptions(rows, column)}
+              options={[...new Set(rows.map(value))]
+                .sort()
+                .map((option) => ({ label: option, value: option }))}
             />
           ))}
           {filtering ? (
@@ -323,7 +246,7 @@ export function WorkspaceChannelsTable({
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">
-            {channelCount(shown.filter((row) => row.route !== null).length)}
+            {channelCount(shown.filter((row) => row.kind !== "default").length)}
           </span>
           <DisplayMenu groupBy={groupBy} onChange={setGroupBy} />
         </div>
@@ -335,10 +258,10 @@ export function WorkspaceChannelsTable({
           </TableHeader>
           <TableBody>
             {body}
-            {nothingMatches ? (
+            {filtering && shown.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={columns}
+                  colSpan={columnSpan(groupBy)}
                   className="h-16 text-center text-muted-foreground"
                 >
                   No channels match. Invite a bot to the channel, then add it
@@ -361,12 +284,14 @@ export function WorkspaceChannelsTable({
         <AddChannelRouteDialog
           workspaceId={workspaceId}
           install={addingTo}
-          title={rows.find((row) => row.bot.id === addingTo.id)?.botTitle ?? ""}
+          title={channelBotTitle(addingTo)}
           routedIds={
             new Set(
-              rows
-                .filter((row) => row.bot.id === addingTo.id && row.route)
-                .map((row) => row.route?.provider_channel_id ?? "")
+              rows.flatMap((row) =>
+                row.bot.id === addingTo.id && row.kind === "routed"
+                  ? [row.channel.provider_channel_id]
+                  : []
+              )
             )
           }
           agents={chatAgents}
@@ -428,7 +353,7 @@ function DisplayMenu({
   )
 }
 
-/** Sortable headers; the second column is the bot when grouped by agent. */
+/** Sortable headers for the grouping's columns. */
 function HeaderRow({
   table,
   groupBy,
@@ -436,465 +361,28 @@ function HeaderRow({
   table: TanstackTable<ChannelTableRow>
   groupBy: ChannelsGroupBy
 }) {
-  const ids: string[] = ["channel"]
-  if (groupBy === "bot") {
-    ids.push("agent")
-  } else if (groupBy === "agent") {
-    ids.push("bot")
-  } else {
-    ids.push("bot", "agent")
-  }
-  ids.push("status")
-  const titles: Record<string, string> = {
-    channel: "Channel",
-    agent: "Agent",
-    bot: "Bot",
-    status: "Status",
-  }
-  const widths: Record<string, string> = {
-    channel: groupBy === "none" ? "w-[32%]" : "w-[38%]",
-    agent: groupBy === "none" ? "w-[20%]" : "w-[24%]",
-    bot: groupBy === "none" ? "w-[20%]" : "w-[24%]",
+  const flat = groupBy === "none"
+  const widths: Partial<Record<ChannelsColumn, string>> = {
+    channel: flat ? "w-[32%]" : "w-[38%]",
+    agent: flat ? "w-[20%]" : "w-[24%]",
+    bot: flat ? "w-[20%]" : "w-[24%]",
   }
   return (
     <TableRow>
-      {ids.map((id) => {
+      {CHANNELS_LAYOUT[groupBy].map((id) => {
         const column = table.getColumn(id)
         return (
           <TableHead key={id} className={cn("h-8 text-xs", widths[id])}>
             {column ? (
-              <DataTableColumnHeader column={column} title={titles[id]} />
+              <DataTableColumnHeader
+                column={column}
+                title={COLUMN_TITLES[id]}
+              />
             ) : null}
           </TableHead>
         )
       })}
       <TableHead className="h-8 w-[90px]" />
     </TableRow>
-  )
-}
-
-type RowContext = {
-  workspaceId: string
-  chatAgents: AgentPresetReadMinimal[]
-  canUpdate: boolean
-  managingBotId: string | null
-  onManage: (botId: string) => void
-}
-
-function Chevron({
-  open,
-  label,
-  onToggle,
-}: {
-  open: boolean
-  label: string
-  onToggle: () => void
-}) {
-  return (
-    <button
-      type="button"
-      aria-expanded={open}
-      aria-label={label}
-      onClick={onToggle}
-      className="-ml-1 inline-flex size-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-    >
-      <ChevronDown
-        className={cn("size-3.5 transition-transform", !open && "-rotate-90")}
-      />
-    </button>
-  )
-}
-
-function ManageButton({
-  botId,
-  context,
-}: {
-  botId: string
-  context: RowContext
-}) {
-  return (
-    <Button
-      type="button"
-      size="sm"
-      variant="outline"
-      className={cn(
-        "h-7 px-2.5 text-xs",
-        context.managingBotId === botId && "bg-muted font-semibold"
-      )}
-      aria-pressed={context.managingBotId === botId}
-      onClick={() => context.onManage(botId)}
-    >
-      Manage
-    </Button>
-  )
-}
-
-function BotName({ row }: { row: ChannelTableRow }) {
-  return (
-    <div className="flex min-w-0 items-center gap-1.5">
-      <ProviderIcon providerId={row.bot.provider} className="size-3.5 p-0" />
-      <span className="truncate">{row.botTitle}</span>
-      {row.platform ? null : <CustomBadge />}
-    </div>
-  )
-}
-
-function CustomBadge() {
-  return (
-    <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
-      Custom
-    </Badge>
-  )
-}
-
-/** A bot's group: its row, then its channels, then a way to add one. */
-function BotGroup({
-  bot,
-  rows,
-  allRows,
-  open,
-  onToggle,
-  filtering,
-  loading,
-  unavailable,
-  listingFailure,
-  onAddChannel,
-  context,
-}: {
-  bot: AgentChannelBotRead
-  rows: ChannelTableRow[]
-  allRows: ChannelTableRow[]
-  open: boolean
-  onToggle: () => void
-  filtering: boolean
-  loading: boolean
-  unavailable: boolean
-  /** Slack would not list this bot's channels. */
-  listingFailure: ChannelBotListingFailure | null
-  onAddChannel: () => void
-  context: RowContext
-}) {
-  const platform = bot.app_owner === "platform"
-  const title = allRows[0]?.botTitle ?? ""
-  const state = channelBotState(bot, bot.provider_app_id != null)
-  const updateNeeded = slackUpdateNeeded(channelBotDetails(bot, "slack"), state)
-  const channelRows = allRows.filter((row) => row.route !== null)
-  let note: ReactNode = null
-  if (filtering) {
-    note = null
-  } else if (loading) {
-    note = "Loading channels…"
-  } else if (unavailable) {
-    note = "Channels unavailable"
-  } else if (listingFailure) {
-    note = listingFailure.needs_reinstall
-      ? "Slack won't list this bot's channels until its app is reinstalled."
-      : "Slack couldn't list this bot's channels."
-  } else if (!platform && channelRows.length === 0) {
-    note =
-      bot.status === "active"
-        ? "Not in any channel yet. Invite it to one in Slack."
-        : "Channels load while the bot is active."
-  } else if (platform && bot.status === "active" && channelRows.length === 0) {
-    const invite = channelConventions(bot.provider).inviteCommand
-    note = invite ? (
-      <>
-        Next: run <code className="font-mono text-foreground">{invite}</code> in
-        a channel, then give it its own agent.
-      </>
-    ) : null
-  }
-  return (
-    <>
-      <TableRow className="bg-muted/40 hover:bg-muted/40" aria-label={title}>
-        <TableCell className="h-11 py-2">
-          <div className="flex items-center gap-2">
-            <Chevron
-              open={open}
-              label={`Show channels of ${title}`}
-              onToggle={onToggle}
-            />
-            <ProviderIcon providerId={bot.provider} className="size-4 p-0" />
-            <span className="font-semibold">{title}</span>
-            {platform ? null : <CustomBadge />}
-          </div>
-        </TableCell>
-        <TableCell className="py-2 text-muted-foreground">
-          {botSummary(bot, allRows)}
-        </TableCell>
-        <TableCell className="py-2">
-          <ChannelBotStatus state={state} updateNeeded={updateNeeded} />
-        </TableCell>
-        <TableCell className="py-2 text-right">
-          <ManageButton botId={bot.id} context={context} />
-        </TableCell>
-      </TableRow>
-      {open ? (
-        <>
-          {rows.map((row) => (
-            <ChannelTableRowView
-              key={row.key}
-              row={row}
-              mode="bot"
-              {...context}
-            />
-          ))}
-          {note ? (
-            <TableRow>
-              <TableCell
-                colSpan={4}
-                className="py-2 pl-8 text-muted-foreground"
-              >
-                {note}
-              </TableCell>
-            </TableRow>
-          ) : null}
-          {platform && context.canUpdate ? (
-            <TableRow className="hover:bg-transparent">
-              <TableCell colSpan={4} className="py-1 pl-8">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 px-0 text-xs text-muted-foreground hover:bg-transparent"
-                  onClick={onAddChannel}
-                >
-                  <Plus className="mr-1.5 size-3.5" />
-                  Add channel to {title}
-                </Button>
-              </TableCell>
-            </TableRow>
-          ) : null}
-        </>
-      ) : null}
-    </>
-  )
-}
-
-/** An agent's group: the channels it answers in, across bots. */
-function AgentGroup({
-  agentName,
-  rows,
-  open,
-  onToggle,
-  context,
-}: {
-  agentName: string
-  rows: ChannelTableRow[]
-  open: boolean
-  onToggle: () => void
-  context: RowContext
-}) {
-  const channels = rows.filter((row) => row.route !== null).length
-  return (
-    <>
-      <TableRow className="bg-muted/40 hover:bg-muted/40">
-        <TableCell colSpan={4} className="h-11 py-2">
-          <div className="flex items-center gap-2">
-            <Chevron
-              open={open}
-              label={`Show channels for ${agentName}`}
-              onToggle={onToggle}
-            />
-            <MousePointerClickIcon
-              className="size-3.5 text-muted-foreground"
-              aria-hidden
-            />
-            <span className="font-semibold">{agentName}</span>
-            <span className="text-muted-foreground">
-              {channelCount(channels)}
-            </span>
-          </div>
-        </TableCell>
-      </TableRow>
-      {open
-        ? rows.map((row) => (
-            <ChannelTableRowView
-              key={row.key}
-              row={row}
-              mode="agent"
-              {...context}
-            />
-          ))
-        : null}
-    </>
-  )
-}
-
-/** One channel, or a Tracecat install's "Everywhere else", in any grouping. */
-function ChannelTableRowView({
-  row,
-  mode,
-  workspaceId,
-  chatAgents,
-  canUpdate,
-  managingBotId,
-  onManage,
-}: { row: ChannelTableRow; mode: ChannelsGroupBy } & RowContext) {
-  const context = {
-    workspaceId,
-    chatAgents,
-    canUpdate,
-    managingBotId,
-    onManage,
-  }
-  const indent = mode === "none" ? "" : "pl-8"
-  let action: ReactNode = null
-  if (mode !== "bot") {
-    action = <ManageButton botId={row.bot.id} context={context} />
-  } else if (row.platform && row.route && canUpdate) {
-    action = <RemoveRouteButton workspaceId={workspaceId} row={row} />
-  }
-  return (
-    <TableRow>
-      <TableCell className={cn("py-2", indent)}>
-        <ChannelName row={row} />
-      </TableCell>
-      {mode === "bot" ? null : (
-        <TableCell className="py-2">
-          <BotName row={row} />
-        </TableCell>
-      )}
-      {mode === "agent" ? null : (
-        <TableCell className="py-1.5">
-          <AgentCell row={row} {...context} />
-        </TableCell>
-      )}
-      <TableCell className="py-2">
-        <RowStatus row={row} />
-      </TableCell>
-      <TableCell className="py-1.5 text-right">{action}</TableCell>
-    </TableRow>
-  )
-}
-
-function ChannelName({ row }: { row: ChannelTableRow }) {
-  const { route } = row
-  if (!route) {
-    return (
-      <span>
-        <span className="italic">{row.label}</span>{" "}
-        <span className="text-muted-foreground">DMs and unlisted channels</span>
-      </span>
-    )
-  }
-  return (
-    <div className="flex min-w-0 items-center gap-1.5">
-      <ChannelIcon
-        channel={{
-          id: route.provider_channel_id,
-          name: row.label,
-          is_private: route.is_private === true,
-          is_member: route.is_member === true,
-        }}
-        conventions={channelConventions(route.provider)}
-      />
-      <span className={cn("truncate", !route.channel_name && "font-mono")}>
-        {row.label}
-      </span>
-      {route.name_unavailable ? (
-        <span className="shrink-0 text-muted-foreground">Name unavailable</span>
-      ) : null}
-    </div>
-  )
-}
-
-function RowStatus({ row }: { row: ChannelTableRow }) {
-  const Icon = STATUS_ICONS[row.status]
-  if (!Icon) {
-    return <span className="text-muted-foreground">{row.status}</span>
-  }
-  const invite = channelConventions(row.bot.provider).inviteCommand
-  const label =
-    row.status === "Not in channel" && row.platform && invite
-      ? `Not in channel · ${invite}`
-      : row.status
-  return (
-    <StatusLabel icon={Icon} destructive={row.status === "Needs reconnect"}>
-      {label}
-    </StatusLabel>
-  )
-}
-
-/** Tracecat's agents are picked per channel; a custom app's is set in Manage. */
-function AgentCell({
-  row,
-  workspaceId,
-  chatAgents,
-  canUpdate,
-}: { row: ChannelTableRow } & RowContext) {
-  const busy = useChannelBotsBusy(workspaceId)
-  const { updateBot } = useUpdateAgentChannelBot(workspaceId, row.bot.provider)
-  const { setRoute } = useSetChannelBotRoute(workspaceId, row.bot.provider)
-  if (!row.platform || !canUpdate) {
-    return <span>{row.agentName}</span>
-  }
-  // The current agent stays pickable after Use in chat is turned off.
-  const agents = chatAgents.some((agent) => agent.id === row.agentId)
-    ? chatAgents
-    : [{ id: row.agentId, name: row.agentName }, ...chatAgents]
-
-  function change(agentId: string): void {
-    if (row.route === null) {
-      updateBot({
-        botId: row.bot.id,
-        requestBody: { agent_preset_id: agentId },
-      })
-      return
-    }
-    setRoute({
-      botId: row.bot.id,
-      requestBody: {
-        provider_channel_id: row.route.provider_channel_id,
-        agent_preset_id: agentId,
-      },
-    })
-  }
-
-  return (
-    <AgentSelect
-      label={`Agent for ${row.label}`}
-      value={row.agentId}
-      agents={agents}
-      disabled={busy}
-      onChange={change}
-      className="h-7 w-[150px]"
-    />
-  )
-}
-
-function RemoveRouteButton({
-  workspaceId,
-  row,
-}: {
-  workspaceId: string
-  row: ChannelTableRow
-}) {
-  const busy = useChannelBotsBusy(workspaceId)
-  const { deleteRoute } = useDeleteChannelBotRoute(
-    workspaceId,
-    row.bot.provider
-  )
-  const route = row.route
-  if (!route) {
-    return null
-  }
-  return (
-    <Button
-      type="button"
-      size="icon"
-      variant="ghost"
-      className="size-7"
-      aria-label={`Remove ${row.label}`}
-      disabled={busy}
-      onClick={() =>
-        deleteRoute({
-          botId: row.bot.id,
-          providerChannelId: route.provider_channel_id,
-        })
-      }
-    >
-      <Trash2 className="size-3.5" />
-    </Button>
   )
 }

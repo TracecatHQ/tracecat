@@ -7,7 +7,6 @@ import {
   type AgentChannelRouteSet,
   type AgentChannelWorkspaceRouteRead,
   type AgentChannelWorkspaceRoutesPage,
-  agentChannelBotsAddBotRoute,
   agentChannelBotsCreateBot,
   agentChannelBotsDeleteBotRoute,
   agentChannelBotsDisconnectBot,
@@ -784,12 +783,12 @@ export function useDisconnectAgentChannelBot(
   return { disconnectBot }
 }
 
-/** Routes a channel that has no route yet; the API refuses one that has. */
-export function useAddChannelBotRoute(
+/** Gives a channel's new threads their own agent, adding or replacing its route. */
+export function useSetChannelBotRoute(
   workspaceId: string,
   provider: ChannelBotProvider
 ) {
-  const { mutate: addRoute, isPending: addRouteIsPending } =
+  const { mutate: setRoute, isPending: setRouteIsPending } =
     useChannelBotMutation(
       workspaceId,
       provider,
@@ -800,32 +799,10 @@ export function useAddChannelBotRoute(
         botId: string
         requestBody: AgentChannelRouteSet
       }) =>
-        await agentChannelBotsAddBotRoute({ workspaceId, botId, requestBody }),
-      "route a channel for",
-      "This channel is already routed. Change its agent in the list instead."
+        await agentChannelBotsSetBotRoute({ workspaceId, botId, requestBody }),
+      "route a channel for"
     )
-  return { addRoute, addRouteIsPending }
-}
-
-/** Changes the agent a routed channel's new threads go to. */
-export function useSetChannelBotRoute(
-  workspaceId: string,
-  provider: ChannelBotProvider
-) {
-  const { mutate: setRoute } = useChannelBotMutation(
-    workspaceId,
-    provider,
-    async ({
-      botId,
-      requestBody,
-    }: {
-      botId: string
-      requestBody: AgentChannelRouteSet
-    }) =>
-      await agentChannelBotsSetBotRoute({ workspaceId, botId, requestBody }),
-    "route a channel for"
-  )
-  return { setRoute }
+  return { setRoute, setRouteIsPending }
 }
 
 /** Sends a channel's new threads back to the install's default agent. */

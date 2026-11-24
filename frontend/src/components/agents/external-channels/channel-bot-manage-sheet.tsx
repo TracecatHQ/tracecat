@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowUpRight, Hash, Loader2, Lock } from "lucide-react"
+import { ArrowUpRight, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { type ReactNode, useState } from "react"
 import type { AgentChannelBotRead, AgentPresetReadMinimal } from "@/client"
@@ -12,21 +12,26 @@ import {
 import { LogoTile } from "@/components/agents/agent-preset-rail-primitives"
 import { ChannelAccessSelect } from "@/components/agents/external-channels/channel-access-select"
 import {
+  ChannelBotLifecycleActions,
   ChannelBotStatus,
-  DEFAULT_DISCONNECT_DESCRIPTION,
-  DisconnectConfirm,
-  useChannelBotLifecycle,
 } from "@/components/agents/external-channels/channel-bot-card"
+import {
+  type AgentOption,
+  AgentSelect,
+  CustomBadge,
+  withCurrentAgent,
+} from "@/components/agents/external-channels/channel-bot-fields"
 import {
   CHANNEL_BOT_PROVIDER_NAMES,
   channelBotDetails,
   channelBotReturnUrl,
   channelBotState,
+  channelConventions,
   goToChannelBotAuthorization,
   slackUpdateNeeded,
 } from "@/components/agents/external-channels/channel-bot-utils"
+import { ChannelIcon } from "@/components/agents/external-channels/channel-picker"
 import { ChannelsSideSheet } from "@/components/agents/external-channels/channels-side-sheet"
-import { AgentSelect } from "@/components/agents/external-channels/platform-channel-routes"
 import {
   type ChannelTableRow,
   channelBotTitle,
@@ -43,7 +48,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { toast } from "@/components/ui/use-toast"
@@ -78,19 +82,16 @@ export function ChannelBotManageSheet({
   const agentName =
     allPresets?.find((preset) => preset.id === bot.agent_preset_id)?.name ?? ""
   const { hasEntitlement } = useEntitlements()
+  const busy = useChannelBotsBusy(workspaceId)
   return (
     <ChannelsSideSheet
       label={`Manage ${title}`}
       providerId={bot.provider}
       title={title}
-      badge={
-        platform ? null : (
-          <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
-            Custom
-          </Badge>
-        )
-      }
+      badge={platform ? null : <CustomBadge />}
       onClose={onClose}
+      // Closing mid-request would drop a Reconnect's redirect.
+      closeDisabled={busy}
     >
       <div className="space-y-5">
         <AgentSection
@@ -98,7 +99,7 @@ export function ChannelBotManageSheet({
           bot={bot}
           title={title}
           agentName={agentName}
-          channels={rows.filter((row) => row.route !== null)}
+          channels={rows.filter((row) => row.kind !== "default")}
           allPresets={allPresets ?? []}
         />
         <Separator />
@@ -151,14 +152,12 @@ function AgentSection({
   const { updateBot } = useUpdateAgentChannelBot(workspaceId, bot.provider)
   const busy = useChannelBotsBusy(workspaceId)
   const canUpdate = useScopeCheck("agent:update") === true
-  const [switchTo, setSwitchTo] = useState<AgentPresetReadMinimal | null>(null)
-  const listed = (platform ? chatPresets : allPresets) ?? []
+  const [switchTo, setSwitchTo] = useState<AgentOption | null>(null)
   // The current agent stays pickable after Use in chat is turned off.
-  const current = allPresets.find((preset) => preset.id === bot.agent_preset_id)
-  const agents =
-    current && !listed.some((preset) => preset.id === current.id)
-      ? [current, ...listed]
-      : listed
+  const agents = withCurrentAgent(
+    (platform ? chatPresets : allPresets) ?? [],
+    allPresets.find((preset) => preset.id === bot.agent_preset_id)
+  )
 
   function apply(agentId: string): void {
     const providerName = CHANNEL_BOT_PROVIDER_NAMES[bot.provider]
@@ -228,17 +227,19 @@ function AgentSection({
                 key={row.key}
                 className="flex h-7 items-center gap-1.5 text-xs"
               >
-                {row.route?.is_private ? (
-                  <Lock
-                    className="size-3.5 text-muted-foreground"
-                    aria-label="Private channel"
-                  />
-                ) : (
-                  <Hash
-                    className="size-3.5 text-muted-foreground"
-                    aria-hidden
-                  />
-                )}
+                <ChannelIcon
+                  channel={
+                    row.kind === "default"
+                      ? undefined
+                      : {
+                          id: row.channel.provider_channel_id,
+                          name: row.label,
+                          is_private: row.channel.is_private === true,
+                          is_member: row.channel.is_member === true,
+                        }
+                  }
+                  conventions={channelConventions(bot.provider)}
+                />
                 <span className="truncate">{row.label}</span>
               </li>
             ))}
@@ -354,11 +355,9 @@ function ConnectionSection({
   const missing = details?.missing_scopes.length ?? 0
   const updateNeeded = slackUpdateNeeded(details, state)
   const canUpdate = useScopeCheck("agent:update") === true
-  const { busy, providerName, setRunState, disconnect } =
-    useChannelBotLifecycle(workspaceId, bot, onDisconnected)
+  const busy = useChannelBotsBusy(workspaceId)
   const { installPlatformBot, installPlatformBotIsPending } =
     useInstallPlatformChannelBot(workspaceId, bot.provider)
-  const [confirmDisconnect, setConfirmDisconnect] = useState(false)
   const urgent = updateNeeded || state === "needs_reconnect"
 
   function reconnectPlatform(): void {
@@ -414,33 +413,6 @@ function ConnectionSection({
     )
   }
 
-  let runToggle: ReactNode = null
-  if (state === "active") {
-    runToggle = (
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        onClick={() => setRunState("paused")}
-        disabled={busy}
-      >
-        Pause
-      </Button>
-    )
-  } else if (state === "paused") {
-    runToggle = (
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        onClick={() => setRunState("active")}
-        disabled={busy}
-      >
-        Resume
-      </Button>
-    )
-  }
-
   return (
     <div className="space-y-2">
       <SectionTitle>Connection</SectionTitle>
@@ -462,32 +434,18 @@ function ConnectionSection({
         </dd>
       </dl>
       {canUpdate ? (
-        <div className="mt-2 flex items-center justify-between gap-2 border-t pt-3">
-          <div className="flex items-center gap-2">
-            {reconnect}
-            {runToggle}
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="text-destructive hover:text-destructive"
-            onClick={() => setConfirmDisconnect(true)}
-            disabled={busy}
-          >
-            Disconnect
-          </Button>
+        <div className="mt-2 border-t pt-3">
+          <ChannelBotLifecycleActions
+            workspaceId={workspaceId}
+            bot={bot}
+            state={state}
+            onDisconnected={onDisconnected}
+            disconnectDescription={platform ? PLATFORM_DISCONNECT : undefined}
+            layout="split"
+            leading={reconnect}
+          />
         </div>
       ) : null}
-      <DisconnectConfirm
-        open={confirmDisconnect}
-        onOpenChange={setConfirmDisconnect}
-        providerName={providerName}
-        description={
-          platform ? PLATFORM_DISCONNECT : DEFAULT_DISCONNECT_DESCRIPTION
-        }
-        onDisconnect={disconnect}
-      />
     </div>
   )
 }

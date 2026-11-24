@@ -2,16 +2,28 @@
 
 import { Copy, Download, type LucideIcon } from "lucide-react"
 import type { ReactNode } from "react"
-import type { ChannelBotAppManifest, ChannelBotProvider } from "@/client"
+import type {
+  AgentPresetReadMinimal,
+  ChannelBotAppManifest,
+  ChannelBotProvider,
+} from "@/client"
 import {
   CHANNEL_BOT_PROVIDER_NAMES,
   copyOrDownloadAppManifest,
   isUnreachableEndpoint,
 } from "@/components/agents/external-channels/channel-bot-utils"
 import { CopyField } from "@/components/copy-field"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 
 /** A setup state as an icon and a short label; red only when it needs action. */
@@ -133,5 +145,63 @@ export function CredentialField({
         </p>
       ) : null}
     </div>
+  )
+}
+
+/** An agent a picker can offer. */
+export type AgentOption = Pick<AgentPresetReadMinimal, "id" | "name">
+
+/** `agents`, with the current agent first when the list leaves it out. */
+export function withCurrentAgent(
+  agents: AgentOption[],
+  current: AgentOption | undefined
+): AgentOption[] {
+  if (!current || agents.some((agent) => agent.id === current.id)) {
+    return agents
+  }
+  return [current, ...agents]
+}
+
+/** Picks one of the workspace's agents. */
+export function AgentSelect({
+  label,
+  value,
+  agents,
+  disabled,
+  onChange,
+  className,
+}: {
+  label: string
+  value: string
+  agents: AgentOption[]
+  disabled: boolean
+  onChange: (agentPresetId: string) => void
+  className?: string
+}) {
+  return (
+    <Select value={value} onValueChange={onChange} disabled={disabled}>
+      <SelectTrigger
+        aria-label={label}
+        className={cn("h-8 w-48 text-xs", className)}
+      >
+        <SelectValue placeholder="Choose an agent" />
+      </SelectTrigger>
+      <SelectContent>
+        {agents.map((agent) => (
+          <SelectItem key={agent.id} value={agent.id} className="text-xs">
+            {agent.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
+/** Marks a bot that runs on the customer's own app. */
+export function CustomBadge() {
+  return (
+    <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
+      Custom
+    </Badge>
   )
 }
