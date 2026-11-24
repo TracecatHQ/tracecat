@@ -34,6 +34,8 @@ jest.mock("@/components/auth/scope-guard", () => ({
 
 const goTo = jest.mocked(goToChannelBotAuthorization)
 const AUTHORIZE_URL = "https://slack.com/oauth/v2/authorize?client_id=123.456"
+const USE_IN_CHAT_TIP =
+  "Don't see an agent? Turn on Use in chat in its settings."
 const PAGE_PATH = "/workspaces/workspace-1/agents/channels"
 
 function servePlatform(installs = [platformSlackBot()]): void {
@@ -109,7 +111,10 @@ describe("Channels page", () => {
     })
     renderChannelsPage()
     expect(await screen.findByText("No bots yet")).toBeInTheDocument()
-    await userEvent.click(screen.getByRole("button", { name: "Add Tracecat" }))
+    const addTracecat = screen.getByRole("button", { name: "Add Tracecat" })
+    expect(addTracecat.parentElement).toHaveTextContent("Recommended")
+    expect(screen.getAllByText("Recommended")).toHaveLength(1)
+    await userEvent.click(addTracecat)
     const dialog = await screen.findByRole("dialog", { name: "Add Tracecat" })
     const go = within(dialog).getByRole("button", { name: "Continue in Slack" })
     expect(go).toBeDisabled()
@@ -132,15 +137,47 @@ describe("Channels page", () => {
     await waitFor(() => expect(goTo).toHaveBeenCalledWith(AUTHORIZE_URL))
   })
 
+  it("explains which agents the Add Tracecat picker lists", async () => {
+    servePlatform([])
+    renderChannelsPage()
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Add Tracecat" })
+    )
+    const dialog = await screen.findByRole("dialog", { name: "Add Tracecat" })
+    await userEvent.hover(
+      within(dialog).getByRole("button", { name: USE_IN_CHAT_TIP })
+    )
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      USE_IN_CHAT_TIP
+    )
+  })
+
+  it("says it inline when no agent has Use in chat on", async () => {
+    servePlatform([])
+    api.listPresets.mockResolvedValue([])
+    renderChannelsPage()
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Add Tracecat" })
+    )
+    const dialog = await screen.findByRole("dialog", { name: "Add Tracecat" })
+    expect(await within(dialog).findByText(USE_IN_CHAT_TIP)).toBeInTheDocument()
+    expect(
+      within(dialog).queryByRole("button", { name: USE_IN_CHAT_TIP })
+    ).toBeNull()
+  })
+
   it("offers Tracecat, a custom Slack app and a disabled Teams from Add bot", async () => {
     servePlatform([])
     renderChannelsPage()
     await userEvent.click(
       await screen.findByRole("button", { name: "Add bot" })
     )
+    const tracecat = screen.getByRole("menuitem", { name: /Tracecat/ })
+    expect(tracecat).not.toHaveAttribute("aria-disabled")
+    expect(tracecat).toHaveTextContent("Recommended")
     expect(
-      screen.getByRole("menuitem", { name: /Tracecat/ })
-    ).not.toHaveAttribute("aria-disabled")
+      screen.getByRole("menuitem", { name: /Custom Slack app/ })
+    ).not.toHaveTextContent("Recommended")
     expect(
       screen.getByRole("menuitem", { name: /Microsoft Teams/ })
     ).toHaveAttribute("aria-disabled", "true")

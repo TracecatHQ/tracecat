@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowUpRight, Loader2, Plus } from "lucide-react"
+import { ArrowUpRight, Info, Loader2, Plus } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { type ReactNode, useState } from "react"
 import type { AgentChannelBotRead, AgentPresetReadMinimal } from "@/client"
@@ -10,6 +10,7 @@ import {
 } from "@/components/agents/external-channels/channel-bot-utils"
 import { AgentSelect } from "@/components/agents/external-channels/platform-channel-routes"
 import { ProviderIcon } from "@/components/icons"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -26,6 +27,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import {
   useChannelBotsBusy,
   useInstallPlatformChannelBot,
@@ -52,15 +58,32 @@ const PLATFORM_HELP: Record<PlatformOption, string> = {
   failed: "Couldn't check whether Tracecat is set up here.",
 }
 
+const USE_IN_CHAT_TIP =
+  "Don't see an agent? Turn on Use in chat in its settings."
+
+/** Marks Tracecat as the suggested way in; neutral, no accent. */
+function RecommendedBadge() {
+  return (
+    <Badge
+      variant="outline"
+      className="rounded px-1.5 py-0 text-[11px] font-normal text-muted-foreground"
+    >
+      Recommended
+    </Badge>
+  )
+}
+
 function MenuOption({
   icon,
   title,
+  badge,
   help,
   disabled = false,
   onSelect,
 }: {
   icon: ReactNode
   title: string
+  badge?: ReactNode
   help: string
   disabled?: boolean
   onSelect?: () => void
@@ -73,7 +96,10 @@ function MenuOption({
     >
       {icon}
       <div className="space-y-0.5">
-        <p className="font-medium">{title}</p>
+        <p className="flex items-center gap-1.5 font-medium">
+          {title}
+          {badge}
+        </p>
         <p className="text-muted-foreground">{help}</p>
       </div>
     </DropdownMenuItem>
@@ -101,6 +127,7 @@ export function AddChannelBotMenu({
         <MenuOption
           icon={slackIcon}
           title="Tracecat"
+          badge={<RecommendedBadge />}
           help={PLATFORM_HELP[platform]}
           disabled={platform !== "ready"}
           onSelect={() => onChoose("tracecat")}
@@ -145,13 +172,16 @@ export function NoChannelBots({
       {canUpdateAgent ? (
         <div className="mt-2 flex flex-wrap justify-center gap-2">
           {platform === "ready" ? (
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => onChoose("tracecat")}
-            >
-              Add Tracecat
-            </Button>
+            <div className="flex items-center gap-1.5">
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => onChoose("tracecat")}
+              >
+                Add Tracecat
+              </Button>
+              <RecommendedBadge />
+            </div>
           ) : null}
           <Button
             type="button"
@@ -181,6 +211,7 @@ function PickAgentDialog({
   title,
   description,
   label,
+  labelTip,
   hint,
   agents,
   initialAgentId,
@@ -193,6 +224,8 @@ function PickAgentDialog({
   title: string
   description: string
   label: string
+  /** Shown from an info icon beside the label. */
+  labelTip?: string
   hint: string
   agents: AgentPresetReadMinimal[]
   initialAgentId: string
@@ -223,7 +256,25 @@ function PickAgentDialog({
         </DialogHeader>
         <DialogBody>
           <div className="space-y-1.5">
-            <p className="text-xs font-medium">{label}</p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-xs font-medium">{label}</p>
+              {labelTip ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={labelTip}
+                      className="rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+                    >
+                      <Info className="size-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-60">
+                    {labelTip}
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
+            </div>
             <AgentSelect
               label={label}
               value={agentId}
@@ -277,6 +328,7 @@ export function AddTracecatDialog({
     useInstallPlatformChannelBot(workspaceId, "slack")
   const busy = useChannelBotsBusy(workspaceId)
   const agents = presets ?? []
+  const noEligibleAgents = presets !== undefined && agents.length === 0
   // Adding an install again offers its last default agent.
   const previousAgentId =
     install && agents.some((agent) => agent.id === install.agent_preset_id)
@@ -287,10 +339,9 @@ export function AddTracecatDialog({
       title="Add Tracecat"
       description="People talk to your agents as @Tracecat. You approve the install in Slack, then come back here."
       label="Agent for DMs and unlisted channels"
+      labelTip={noEligibleAgents ? undefined : USE_IN_CHAT_TIP}
       hint={
-        agents.length > 0 || !presets
-          ? "Lists agents with Use in chat on."
-          : "No agent has Use in chat on. Turn it on for an agent first."
+        noEligibleAgents ? USE_IN_CHAT_TIP : "Lists agents with Use in chat on."
       }
       agents={agents}
       initialAgentId={previousAgentId}
