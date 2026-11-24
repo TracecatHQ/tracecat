@@ -6,11 +6,11 @@ import {
   MessageContent,
 } from "@/components/ai-elements/message"
 import {
+  botMentions,
   ChannelMessageContext,
   channelPerson,
   channelPersonClassName,
   channelSender,
-  splitBotMentions,
   withChannelMentionNames,
 } from "@/components/chat/channel-message-context"
 import { SmoothResponse } from "@/components/chat/smooth-response"
@@ -25,7 +25,8 @@ export const SessionChannelThreadContext =
 
 /**
  * A user's message: its author, text, and a channel message's forwards and thread.
- * Earlier-thread lines that mention the bot come first, each as its own message.
+ * Earlier-thread lines that mention the bot come first, each as its own message;
+ * the rest of the thread is agent context only.
  */
 export function UserBubble(props: Parameters<typeof MessageBubble>[0]) {
   const { channelMessage } = props
@@ -33,10 +34,9 @@ export function UserBubble(props: Parameters<typeof MessageBubble>[0]) {
     SessionChannelThreadContext
   )?.provider_bot_user_id
   if (!channelMessage || !botUserId) return <MessageBubble {...props} />
-  const { mentions, rest } = splitBotMentions(channelMessage, botUserId)
   return (
     <>
-      {mentions.map((line, index) => (
+      {botMentions(channelMessage, botUserId).map((line, index) => (
         <MessageBubble
           key={index}
           text={withChannelMentionNames(line.text, channelMessage)}
@@ -49,7 +49,7 @@ export function UserBubble(props: Parameters<typeof MessageBubble>[0]) {
           }}
         />
       ))}
-      <MessageBubble {...props} channelMessage={rest} />
+      <MessageBubble {...props} />
     </>
   )
 }

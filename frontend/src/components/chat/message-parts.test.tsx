@@ -954,7 +954,8 @@ describe("a message that joined the turn", () => {
       lifted.compareDocumentPosition(screen.getByText("and db-2")) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
-    expect(screen.getByText(/Earlier thread · 1/)).toBeInTheDocument()
+    expect(screen.queryByText("lunch?")).not.toBeInTheDocument()
+    expect(screen.queryByText(/Earlier thread/)).not.toBeInTheDocument()
   })
 
   it("marks another person's Slack message by the badge on their avatar", () => {
