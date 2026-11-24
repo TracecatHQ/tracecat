@@ -2266,14 +2266,16 @@ class AgentSessionService(BaseWorkspaceService):
         except ValueError:
             row_id = None
         row_run_id = None
-        if row_id is not None:
+        # History stamps only a user role's prompts; others never relay a prompt.
+        author_id = self.role.user_id if self.role.type == "user" else None
+        if row_id is not None and author_id is not None:
             row_run_id = await self.session.scalar(
                 select(AgentSessionHistory.curr_run_id).where(
                     AgentSessionHistory.id == row_id,
                     AgentSessionHistory.session_id == session_id,
                     AgentSessionHistory.workspace_id == self.workspace_id,
                     # Only the sender's own prompt: another row's id must not hide a post.
-                    AgentSessionHistory.author_id == self.role.user_id,
+                    AgentSessionHistory.author_id == author_id,
                 )
             )
         return await resolve_prompt_origin(

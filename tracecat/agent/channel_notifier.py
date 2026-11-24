@@ -129,8 +129,13 @@ def turn_started_updates(
     ``prompt_run_id`` when the prompt is a retry of the one that run sent.
     """
     started = TurnStarted(session_id=session_id, run_id=run_id)
-    # Channel messages run as the bot's service role, so only Tracecat users relay.
-    if role.user_id is None or prompt is None or not prompt.strip():
+    # Only a user role authors a prompt, as history stamps it; service roles never relay.
+    if (
+        role.type != "user"
+        or role.user_id is None
+        or prompt is None
+        or not prompt.strip()
+    ):
         return [started]
     # A web Retry of a Slack message resends its envelope; the thread already has it.
     if ChannelMessage.parse(prompt.lstrip()) is not None:

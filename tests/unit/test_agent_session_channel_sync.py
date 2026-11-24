@@ -196,6 +196,11 @@ def test_a_retried_message_is_relayed_under_the_run_that_first_sent_it() -> None
     ("role", "prompt"),
     [
         pytest.param(CHANNEL_ROLE, "From the channel", id="channel-message"),
+        pytest.param(
+            _user_role().model_copy(update={"type": "service"}),
+            "From a workflow",
+            id="service-role-with-user",
+        ),
         pytest.param(_user_role(), None, id="resumed-run"),
         pytest.param(_user_role(), "  ", id="blank-prompt"),
     ],
@@ -370,6 +375,17 @@ async def test_every_retry_of_a_web_message_names_the_run_that_first_sent_it(
     await session.flush()
     assert (
         await svc._prompt_origin_run_id(web.id, str(teammate_row.id), uuid.uuid4())
+        is None
+    )
+
+    # A service role carrying the sender's id authors nothing, as history stamps it.
+    as_service = AgentSessionService(
+        session, svc_role.model_copy(update={"type": "service", "user_id": sender.id})
+    )
+    assert (
+        await as_service._prompt_origin_run_id(
+            web.id, str(retried_row.id), uuid.uuid4()
+        )
         is None
     )
 
