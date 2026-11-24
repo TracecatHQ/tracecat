@@ -20,18 +20,17 @@ from tracecat.agent.mcp.internal_tools import InternalToolError
 from tracecat.agent.mcp.plugin_tools import (
     PluginInternalTool,
     PluginToolGroup,
+    SessionPluginTools,
     agent_plugin_tools,
-    granted_plugin_internal_tools,
     is_superseded,
     plugin_internal_tools,
-    session_superseded_namespaces,
+    session_plugin_grant,
 )
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.tokens import MCPTokenClaims
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
-from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.models import AgentPreset, AgentSession, Workspace
+from tracecat.db.models import AgentPreset
 from tracecat.exceptions import TracecatNotFoundError
 
 READ = "internal.demo.read"
@@ -63,21 +62,28 @@ class _Plugin:
         tools: Sequence[PluginInternalTool],
         granted: Collection[str] = (),
         *,
+        supersedes: tuple[str, ...] = (),
         fails: bool = False,
         groups: dict[uuid.UUID, Sequence[PluginToolGroup]] | None = None,
     ) -> None:
         self._tools = tools
         self._granted = granted
+        self._supersedes = supersedes
         self._fails = fails
         self._groups = groups or {}
 
     def tools(self) -> Sequence[PluginInternalTool]:
         return self._tools
 
-    async def granted_tools(self, role: Role, session_id: uuid.UUID) -> Collection[str]:
+    async def session_tools(
+        self, role: Role, session_id: uuid.UUID
+    ) -> SessionPluginTools:
         if self._fails:
             raise RuntimeError("boom")
-        return self._granted
+        return SessionPluginTools(
+            tools=cast(tuple[str, ...], self._granted),
+            superseded_namespaces=self._supersedes,
+        )
 
     async def agent_tool_groups(
         self, role: Role, preset_id: uuid.UUID
@@ -165,14 +171,16 @@ async def test_a_session_gets_only_granted_tools_and_a_failing_plugin_grants_non
         ),
         _Plugin([_tool("internal.none.tool")], granted=cast(Collection[str], None)),
     )
-    granted = await granted_plugin_internal_tools(_role(), uuid.uuid4())
-    assert [tool.name for tool in granted] == [WRITE]
+    grant = await session_plugin_grant(_role(), uuid.uuid4())
+    assert [tool.name for tool in grant.tools] == [WRITE]
 
 
 class _StuckPlugin(_Plugin):
-    async def granted_tools(self, role: Role, session_id: uuid.UUID) -> Collection[str]:
+    async def session_tools(
+        self, role: Role, session_id: uuid.UUID
+    ) -> SessionPluginTools:
         await asyncio.sleep(60)
-        return self._granted
+        return SessionPluginTools()
 
 
 @pytest.mark.anyio
@@ -181,12 +189,14 @@ async def test_a_stuck_grant_gives_up_and_grants_nothing(
 ) -> None:
     monkeypatch.setattr(plugin_tools, "PLUGIN_GRANT_TIMEOUT_SECONDS", 0.01)
     install(
-        _StuckPlugin([_tool(READ)], granted=[READ]), _Plugin([_tool(WRITE)], [WRITE])
+        _StuckPlugin([_tool(READ)], granted=[READ], supersedes=("tools.stuck",)),
+        _Plugin([_tool(WRITE)], [WRITE]),
     )
 
-    granted = await granted_plugin_internal_tools(_role(), uuid.uuid4())
+    grant = await session_plugin_grant(_role(), uuid.uuid4())
 
-    assert [tool.name for tool in granted] == [WRITE]
+    assert [tool.name for tool in grant.tools] == [WRITE]
+    assert grant.superseded_namespaces == frozenset()
 
 
 @pytest.mark.anyio
@@ -310,66 +320,21 @@ def test_a_superseded_namespace_matches_whole_segments() -> None:
 
 
 @pytest.mark.anyio
-async def test_a_session_supersedes_namespaces_only_while_its_agent_is_connected(
-    install: InstallPlugins, svc_workspace: Workspace
+async def test_a_session_supersedes_the_namespaces_its_plugins_name(
+    install: InstallPlugins,
 ) -> None:
-    presets = {
-        name: AgentPreset(
-            id=uuid.uuid4(),
-            workspace_id=svc_workspace.id,
-            name=name,
-            slug=f"{name}-{uuid.uuid4().hex[:8]}",
-            model_name="m",
-            model_provider="p",
-        )
-        for name in ("connected", "unconnected")
-    }
-    sessions = {
-        name: AgentSession(
-            id=uuid.uuid4(),
-            workspace_id=svc_workspace.id,
-            title="t",
-            entity_type="agent_preset",
-            entity_id=preset.id if preset else svc_workspace.id,
-            agent_preset_id=preset.id if preset else None,
-        )
-        for name, preset in (*presets.items(), ("no preset", None))
-    }
-    # The global engine: the lookup opens its own session.
-    async with get_async_session_context_manager() as db:
-        db.add_all(presets.values())
-        await db.flush()
-        db.add_all(sessions.values())
-        await db.commit()
     install(
-        _Plugin(
-            [_tool(READ)],
-            groups={
-                presets["connected"].id: [_group(READ, supersedes=("tools.demo",))]
-            },
-        )
+        _Plugin([_tool(READ)], [READ], supersedes=("tools.demo",)),
+        _Plugin([_tool(WRITE)], supersedes=("tools.other", "tools.demo")),
+        # An internal namespace or a failing plugin keeps its namespaces usable.
+        _Plugin([_tool("internal.claims.tool")], supersedes=("internal",)),
+        _Plugin([_tool("internal.broken.tool")], supersedes=("tools.x",), fails=True),
     )
 
-    def role(workspace_id: uuid.UUID) -> Role:
-        return Role(
-            type="service",
-            service_id="tracecat-agent-executor",
-            workspace_id=workspace_id,
-            organization_id=svc_workspace.organization_id,
-        )
+    grant = await session_plugin_grant(_role(), uuid.uuid4())
 
-    here = role(svc_workspace.id)
-    assert await session_superseded_namespaces(here, sessions["connected"].id) == {
-        "tools.demo"
-    }
-    for name in ("unconnected", "no preset"):
-        assert await session_superseded_namespaces(here, sessions[name].id) == set()
-    # The session must belong to the role's workspace.
-    elsewhere = role(uuid.uuid4())
-    assert (
-        await session_superseded_namespaces(elsewhere, sessions["connected"].id)
-        == set()
-    )
+    assert [tool.name for tool in grant.tools] == [READ]
+    assert grant.superseded_namespaces == {"tools.demo", "tools.other"}
 
 
 @pytest.mark.anyio

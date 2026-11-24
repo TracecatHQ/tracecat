@@ -76,8 +76,13 @@ from tracecat.agent.executor.loopback import (
     LoopbackInput,
     LoopbackResult,
 )
-from tracecat.agent.mcp import user_client
-from tracecat.agent.mcp.plugin_tools import PluginInternalTool
+from tracecat.agent.mcp import plugin_tools, user_client
+from tracecat.agent.mcp.plugin_tools import (
+    PluginInternalTool,
+    PluginToolGroup,
+    SessionPluginGrant,
+    SessionPluginTools,
+)
 from tracecat.agent.metrics import TurnOutcome
 from tracecat.agent.otel_config import AgentOtelConfig, ResolvedAgentOtelConfig
 from tracecat.agent.otel_delivery import OtelDeliveryPool
@@ -409,14 +414,16 @@ class TestBuildToolDefinitionsActivity:
                 title=name,
             )
 
-        granted = AsyncMock(
-            return_value=[
-                plugin_tool("internal.demo.read", False),
-                plugin_tool("internal.demo.write", True),
-                plugin_tool("internal.demo.waived", True),
-            ]
+        grant = AsyncMock(
+            return_value=SessionPluginGrant(
+                tools=(
+                    plugin_tool("internal.demo.read", False),
+                    plugin_tool("internal.demo.waived", True),
+                    plugin_tool("internal.demo.write", True),
+                )
+            )
         )
-        monkeypatch.setattr(agent_activities, "granted_plugin_internal_tools", granted)
+        monkeypatch.setattr(agent_activities, "session_plugin_grant", grant)
 
         result = await AgentActivities().build_tool_definitions(
             BuildToolDefsArgs(
@@ -460,18 +467,30 @@ class TestBuildToolDefinitionsActivity:
                 collected_secrets=set(),
             )
 
-        superseded = frozenset({"tools.slack"} if connected else ())
+        calls: list[str] = []
+
+        class Plugin:
+            def tools(self) -> list[PluginInternalTool]:
+                return []
+
+            async def session_tools(
+                self, role: Role, session_id: uuid.UUID
+            ) -> SessionPluginTools:
+                calls.append("session_tools")
+                return SessionPluginTools(
+                    superseded_namespaces=("tools.slack",) if connected else ()
+                )
+
+            async def agent_tool_groups(
+                self, role: Role, preset_id: uuid.UUID
+            ) -> list[PluginToolGroup]:
+                calls.append("agent_tool_groups")
+                return []
+
+        entry_point = SimpleNamespace(name="plugin", load=lambda: Plugin)
+        plugin_tools._loaded_plugins.cache_clear()
+        monkeypatch.setattr(plugin_tools, "entry_points", lambda group: [entry_point])
         _patch_registry(monkeypatch, build_tools=build_tools)
-        monkeypatch.setattr(
-            agent_activities,
-            "session_superseded_namespaces",
-            AsyncMock(return_value=superseded),
-        )
-        monkeypatch.setattr(
-            agent_activities,
-            "granted_plugin_internal_tools",
-            AsyncMock(return_value=[]),
-        )
         selected = [
             "tools.slack.post_message",
             "tools.slack_bot.post",
@@ -485,8 +504,13 @@ class TestBuildToolDefinitionsActivity:
             session_id=uuid.uuid4(),
         )
 
-        result = await AgentActivities().build_tool_definitions(args)
+        try:
+            result = await AgentActivities().build_tool_definitions(args)
+        finally:
+            plugin_tools._loaded_plugins.cache_clear()
 
+        # One plugin call per turn serves both the superseded drop and the grant.
+        assert calls == ["session_tools"]
         assert built == (selected[1:] if connected else selected)
         # A superseded tool's tunnel goes with it instead of failing the turn.
         assert result.tool_tunnels == (

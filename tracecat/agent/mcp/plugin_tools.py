@@ -16,8 +16,6 @@ from importlib.metadata import entry_points
 from types import MappingProxyType
 from typing import Protocol
 
-from sqlalchemy import select
-
 from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.mcp.internal_tools import (
     INTERNAL_TOOL_HANDLERS,
@@ -25,8 +23,6 @@ from tracecat.agent.mcp.internal_tools import (
     InternalToolHandler,
 )
 from tracecat.auth.types import Role
-from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.models import AgentSession
 from tracecat.logger import logger
 
 INTERNAL_TOOL_PLUGIN_ENTRY_POINT_GROUP = "tracecat.agent_internal_tools"
@@ -66,6 +62,24 @@ class PluginToolGroup:
 
 
 @dataclass(frozen=True, slots=True)
+class SessionPluginTools:
+    """What one plugin gives a session's turn."""
+
+    tools: tuple[str, ...] = ()
+    """Names of this plugin's tools the session gets."""
+    superseded_namespaces: tuple[str, ...] = ()
+    """Registry action namespaces the session's agent stops using while connected."""
+
+
+@dataclass(frozen=True, slots=True)
+class SessionPluginGrant:
+    """Every plugin's tools and superseded namespaces for a session's turn."""
+
+    tools: tuple[PluginInternalTool, ...] = ()
+    superseded_namespaces: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True, slots=True)
 class AgentPluginTools:
     """A plugin tool group with its tools resolved."""
 
@@ -79,16 +93,19 @@ class AgentPluginTools:
 class InternalToolPlugin(Protocol):
     """Registers internal tools and grants them per session.
 
-    `tools` is read once per process. `granted_tools` and `agent_tool_groups`
-    run under the caller's role and must not block the event loop.
+    `tools` is read once per process. `session_tools` runs once per turn and
+    `agent_tool_groups` per builder read; both run under the caller's role and
+    must not block the event loop.
     """
 
     def tools(self) -> Sequence[PluginInternalTool]:
         """Every tool this plugin serves."""
         ...
 
-    async def granted_tools(self, role: Role, session_id: uuid.UUID) -> Collection[str]:
-        """Names of this plugin's tools the session gets; empty for none."""
+    async def session_tools(
+        self, role: Role, session_id: uuid.UUID
+    ) -> SessionPluginTools:
+        """The session's tools and superseded namespaces; empty for none."""
         ...
 
     async def agent_tool_groups(
@@ -177,24 +194,23 @@ def plugin_internal_tool_definitions() -> dict[str, MCPToolDefinition]:
     return {name: tool.definition for name, tool in plugin_internal_tools().items()}
 
 
-async def granted_plugin_internal_tools(
-    role: Role, session_id: uuid.UUID
-) -> list[PluginInternalTool]:
-    """The plugin tools a session gets, in name order.
+async def session_plugin_grant(role: Role, session_id: uuid.UUID) -> SessionPluginGrant:
+    """Every plugin's answer for a session's turn, one call per plugin.
 
-    A plugin that fails to answer grants nothing: its tools are omitted
-    rather than failing the turn.
+    A plugin that fails to answer gives nothing: its tools are omitted and its
+    namespaces stay usable, rather than failing the turn.
     """
     loaded = _loaded_plugins()
-    granted: list[PluginInternalTool] = []
+    tools: list[PluginInternalTool] = []
+    namespaces: set[str] = set()
     for plugin, own in loaded.plugins:
         try:
-            names = frozenset(
-                await asyncio.wait_for(
-                    plugin.granted_tools(role, session_id),
-                    timeout=PLUGIN_GRANT_TIMEOUT_SECONDS,
-                )
+            answered = await asyncio.wait_for(
+                plugin.session_tools(role, session_id),
+                timeout=PLUGIN_GRANT_TIMEOUT_SECONDS,
             )
+            names = frozenset(answered.tools)
+            superseded = _checked_namespaces(answered.superseded_namespaces)
         except Exception as e:
             logger.warning(
                 "Internal tool plugin failed to grant tools; omitting them",
@@ -209,8 +225,12 @@ async def granted_plugin_internal_tools(
                 plugin=type(plugin).__name__,
                 tools=foreign,
             )
-        granted.extend(loaded.tools[name] for name in names & own)
-    return sorted(granted, key=lambda tool: tool.name)
+        tools.extend(loaded.tools[name] for name in names & own)
+        namespaces.update(superseded)
+    return SessionPluginGrant(
+        tools=tuple(sorted(tools, key=lambda tool: tool.name)),
+        superseded_namespaces=frozenset(namespaces),
+    )
 
 
 def is_superseded(action: str, namespaces: Collection[str]) -> bool:
@@ -254,35 +274,18 @@ def _resolved_group(
     """Raises `ValueError` for a foreign tool or a namespace that is not a registry one."""
     if foreign := sorted(set(group.tools) - own):
         raise ValueError(f"Group names tools its plugin does not serve: {foreign}")
-    for namespace in group.supersedes:
-        if not namespace or f"{namespace}.".startswith(INTERNAL_TOOL_PREFIX):
-            raise ValueError(f"Cannot supersede namespace {namespace!r}")
     return AgentPluginTools(
         provider=group.provider,
         title=group.title,
         label=group.label,
         tools=tuple(tools[name] for name in sorted(set(group.tools))),
-        supersedes=tuple(sorted(set(group.supersedes))),
+        supersedes=tuple(sorted(_checked_namespaces(group.supersedes))),
     )
 
 
-async def session_superseded_namespaces(
-    role: Role, session_id: uuid.UUID
-) -> frozenset[str]:
-    """Registry namespaces the session's agent stops using while a plugin connects it."""
-    if role.workspace_id is None or not _loaded_plugins().plugins:
-        return frozenset()
-    async with get_async_session_context_manager() as db:
-        preset_id = await db.scalar(
-            select(AgentSession.agent_preset_id).where(
-                AgentSession.id == session_id,
-                AgentSession.workspace_id == role.workspace_id,
-            )
-        )
-    if preset_id is None:
-        return frozenset()
-    return frozenset(
-        namespace
-        for group in await agent_plugin_tools(role, preset_id)
-        for namespace in group.supersedes
-    )
+def _checked_namespaces(namespaces: Collection[str]) -> frozenset[str]:
+    """Raises `ValueError` for a namespace that is not a registry one."""
+    for namespace in namespaces:
+        if not namespace or f"{namespace}.".startswith(INTERNAL_TOOL_PREFIX):
+            raise ValueError(f"Cannot supersede namespace {namespace!r}")
+    return frozenset(namespaces)

@@ -37,9 +37,9 @@ from tracecat.agent.mcp.internal_tools import (
     get_builder_internal_tool_definitions,
 )
 from tracecat.agent.mcp.plugin_tools import (
-    granted_plugin_internal_tools,
+    SessionPluginGrant,
     is_superseded,
-    session_superseded_namespaces,
+    session_plugin_grant,
 )
 from tracecat.agent.mcp.stdio_runner import (
     stdio_mcp_tool_definition,
@@ -379,6 +379,14 @@ async def _build_stdio_mcp_tool_definitions(
     )
 
 
+async def _session_plugin_grant(
+    role: Role, session_id: uuid.UUID | None
+) -> SessionPluginGrant:
+    if session_id is None:
+        return SessionPluginGrant()
+    return await session_plugin_grant(role, session_id)
+
+
 class AgentActivities:
     """Activities for agent execution."""
 
@@ -390,6 +398,7 @@ class AgentActivities:
         args: BuildAgentScopeToolDefsArgs,
         *,
         role: Role,
+        plugin_grant: SessionPluginGrant,
     ) -> BuildToolDefsResult:
         if any(is_http_mcp_server(server) for server in args.mcp_servers or ()):
             # Authored approval rules may still use an HTTP integration's old
@@ -440,9 +449,7 @@ class AgentActivities:
                     actions_to_build.append(action)
 
         tool_tunnels = dict(args.tool_tunnels or {})
-        if args.session_id is not None and (
-            superseded := await session_superseded_namespaces(role, args.session_id)
-        ):
+        if superseded := plugin_grant.superseded_namespaces:
             # A plugin connection replaces these; the preset keeps its selection.
             actions_to_build = [
                 action
@@ -490,17 +497,14 @@ class AgentActivities:
                 tool_count=len(internal_defs),
                 tools=list(internal_defs.keys()),
             )
-        if args.session_id is not None:
-            for plugin_tool in await granted_plugin_internal_tools(
-                role, args.session_id
-            ):
-                defs[plugin_tool.name] = plugin_tool.definition
-                allowed_internal_tools = [
-                    *(allowed_internal_tools or []),
-                    plugin_tool.name,
-                ]
-                if plugin_tool.requires_approval:
-                    effective_tool_approvals.setdefault(plugin_tool.name, True)
+        for plugin_tool in plugin_grant.tools:
+            defs[plugin_tool.name] = plugin_tool.definition
+            allowed_internal_tools = [
+                *(allowed_internal_tools or []),
+                plugin_tool.name,
+            ]
+            if plugin_tool.requires_approval:
+                effective_tool_approvals.setdefault(plugin_tool.name, True)
 
         # Discover user MCP tools if configured
         user_mcp_claims: list[UserMCPServerClaim] | None = None
@@ -863,7 +867,14 @@ class AgentActivities:
     ) -> BuildToolDefsResult:
         # Set role context for services that require organization context
         ctx_role.set(args.role)
+        return await self.build_tool_definitions_with_grant(
+            args, await _session_plugin_grant(args.role, args.session_id)
+        )
 
+    async def build_tool_definitions_with_grant(
+        self, args: BuildToolDefsArgs, plugin_grant: SessionPluginGrant
+    ) -> BuildToolDefsResult:
+        """Build the root scope from a plugin grant the caller already resolved."""
         return await self._build_scope_tool_definitions(
             BuildAgentScopeToolDefsArgs(
                 scope="root",
@@ -872,11 +883,11 @@ class AgentActivities:
                 tool_tunnels=args.tool_tunnels,
                 mcp_servers=args.mcp_servers,
                 internal_tool_context=args.internal_tool_context,
-                session_id=args.session_id,
                 fail_on_mcp_discovery_error=args.fail_on_mcp_discovery_error,
                 include_stdio_mcp_servers=args.include_stdio_mcp_servers,
             ),
             role=args.role,
+            plugin_grant=plugin_grant,
         )
 
     @activity.defn
@@ -896,6 +907,7 @@ class AgentActivities:
             results[scope.scope] = await self._build_scope_tool_definitions(
                 scope,
                 role=args.role,
+                plugin_grant=await _session_plugin_grant(args.role, scope.session_id),
             )
 
         return BuildAgentToolDefsResult(scopes=results)
