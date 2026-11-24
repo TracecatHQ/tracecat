@@ -231,6 +231,7 @@ def test_list_sessions_http_fork_filter_compatibility(
         spawned_by_session_id=None,
         forked_from_session_id=source_id if filter_names else None,
         include_children=False,
+        participating=False,
         limit=1,
     )
 
@@ -258,6 +259,7 @@ async def test_list_sessions_service_account_defaults_to_workspace_sessions() ->
             spawned_by_session_id=None,
             forked_from_session_id=None,
             include_children=False,
+            participating=False,
             limit=100,
         )
 
@@ -270,6 +272,7 @@ async def test_list_sessions_service_account_defaults_to_workspace_sessions() ->
         spawned_by_session_id=None,
         forked_from_session_id=None,
         include_children=False,
+        participating=False,
         limit=100,
     )
 
@@ -304,6 +307,7 @@ async def test_list_sessions_user_defaults_to_workspace_sessions() -> None:
             spawned_by_session_id=None,
             forked_from_session_id=None,
             include_children=False,
+            participating=False,
             limit=100,
         )
 
@@ -316,6 +320,7 @@ async def test_list_sessions_user_defaults_to_workspace_sessions() -> None:
         spawned_by_session_id=None,
         forked_from_session_id=None,
         include_children=False,
+        participating=False,
         limit=100,
     )
 
