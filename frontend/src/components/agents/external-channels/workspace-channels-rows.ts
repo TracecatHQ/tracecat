@@ -86,15 +86,21 @@ export function isPlatformRow(row: ChannelTableRow): boolean {
   return row.bot.app_owner === "platform"
 }
 
+/** A stopped bot's state, which every one of its rows shows; null while it runs. */
+function stoppedStatus(bot: AgentChannelBotRead): ChannelRowStatus | null {
+  if (bot.status === "paused") {
+    return "Paused"
+  }
+  return bot.status === "needs_reconnect" ? "Needs reconnect" : null
+}
+
 function channelStatus(
   bot: AgentChannelBotRead,
   channel: AgentChannelWorkspaceRouteRead
 ): ChannelRowStatus {
-  if (bot.status === "paused") {
-    return "Paused"
-  }
-  if (bot.status === "needs_reconnect") {
-    return "Needs reconnect"
+  const stopped = stoppedStatus(bot)
+  if (stopped) {
+    return stopped
   }
   if (channel.is_member === true) {
     return "Active"
@@ -139,7 +145,7 @@ export function buildChannelRows(
         label: EVERYWHERE_ELSE,
         agentId: bot.agent_preset_id,
         agentName: agentName(bot.agent_preset_id) || UNKNOWN_AGENT,
-        status: "Default",
+        status: stoppedStatus(bot) ?? "Default",
       },
       ...rows,
     ]
