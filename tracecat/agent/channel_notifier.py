@@ -25,7 +25,10 @@ from temporalio.exceptions import ApplicationError
 from tracecat.agent.channel_bots.messages import ChannelMessage
 from tracecat.auth.types import Role
 from tracecat.core.schemas import Variant
+from tracecat.db.engine import get_async_session_context_manager
 from tracecat.logger import logger
+from tracecat.tiers.access import is_org_entitled
+from tracecat.tiers.enums import Entitlement
 
 CHANNEL_NOTIFIER_ENTRY_POINT_GROUP = "tracecat.agent_channel_notifier"
 
@@ -147,9 +150,16 @@ class ChannelDestinationRef(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     kind: Literal["direct_message", "channel"]
+    # Only a workflow's reply thread reads a DM's id, as its recipient's email.
     id: str | None = Field(
         default=None, max_length=255, description="The channel's id; None for a DM"
     )
+
+    @classmethod
+    def from_input(cls, value: str) -> ChannelDestinationRef:
+        """An action's ``channel`` input: an email names a DM, anything else a channel."""
+        value = value.strip()
+        return cls(kind="direct_message" if "@" in value else "channel", id=value)
 
 
 class ChannelDestination(ChannelDestinationRef):
@@ -159,6 +169,26 @@ class ChannelDestination(ChannelDestinationRef):
     recent: bool = Field(
         default=False, description="The user's sessions synced here lately"
     )
+
+
+class ChannelReplyError(Exception):
+    """A workflow's agent reply cannot open a thread where the action asked."""
+
+
+class ChannelsNotEntitled(ChannelReplyError):
+    """The organization has no Agent Channels preview."""
+
+
+class NoChannelBot(ChannelReplyError):
+    """The preset has no live bot that opens threads."""
+
+
+class ChannelDestinationNotRoutable(ChannelReplyError):
+    """The preset's bot cannot reach the destination."""
+
+
+class ChannelRecipientNotLinked(ChannelDestinationNotRoutable):
+    """The DM's recipient has not linked their provider account."""
 
 
 class ChannelPushRetryAfter(Exception):
@@ -215,6 +245,21 @@ class ChannelNotifier(Protocol):
 
     async def sync_stopped(self, role: Role, session_id: uuid.UUID) -> None:
         """Tell the linked thread that ``role.user_id`` stopped syncing the session."""
+        ...
+
+    async def check_reply_thread(
+        self, role: Role, preset_id: uuid.UUID, destination: ChannelDestinationRef
+    ) -> None:
+        """Raise a ``ChannelReplyError`` unless the preset's bot can open a thread there."""
+        ...
+
+    async def open_reply_thread(
+        self, role: Role, session_id: uuid.UUID, destination: ChannelDestinationRef
+    ) -> None:
+        """Root a synced thread there with the session's latest reply, and link it.
+
+        Raises as ``check_reply_thread`` does; a linked session is left as is.
+        """
         ...
 
 
@@ -381,3 +426,39 @@ async def _push(role: Role, update: RunUpdate, budget: timedelta) -> str | None:
             error=repr(e),
         )
     return None
+
+
+async def _reply_notifier(role: Role) -> ChannelNotifier:
+    """The notifier, for an entitled organization; raises a ``ChannelReplyError``."""
+    if not await _channels_entitled(role):
+        raise ChannelsNotEntitled("Agent Channels is not enabled for this organization")
+    if (notifier := get_channel_notifier()) is None:
+        raise NoChannelBot("No channel bots are installed")
+    return notifier
+
+
+async def _channels_entitled(role: Role) -> bool:
+    if role.organization_id is None:
+        return False
+    async with get_async_session_context_manager() as session:
+        return await is_org_entitled(
+            session, role.organization_id, Entitlement.AGENT_CHANNELS_PREVIEW
+        )
+
+
+async def check_channel_reply_thread(
+    role: Role, preset_id: uuid.UUID, destination: ChannelDestinationRef
+) -> None:
+    """Raise a ``ChannelReplyError`` unless a preset run can post its reply there."""
+    notifier = await _reply_notifier(role)
+    async with asyncio.timeout(PUSH_BUDGET.total_seconds()):
+        await notifier.check_reply_thread(role, preset_id, destination)
+
+
+async def open_channel_reply_thread(
+    role: Role, session_id: uuid.UUID, destination: ChannelDestinationRef
+) -> None:
+    """Open the session's synced thread rooted at its reply; raises, never falls back."""
+    notifier = await _reply_notifier(role)
+    async with asyncio.timeout(PUSH_BUDGET.total_seconds()):
+        await notifier.open_reply_thread(role, session_id, destination)

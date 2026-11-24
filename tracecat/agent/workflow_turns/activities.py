@@ -25,6 +25,11 @@ from tracecat.agent.backends.schemas import AgentWorkflowArgs, ChildAgentTurn
 from tracecat.agent.backends.selection import select_backend_id
 from tracecat.agent.backends.turns import build_child_agent_turn
 from tracecat.agent.backends.types import SessionTurnContext
+from tracecat.agent.channel_notifier import (
+    ChannelReplyError,
+    check_channel_reply_thread,
+    open_channel_reply_thread,
+)
 from tracecat.agent.error_policy import (
     agent_provider_credentials_missing,
     invalid_agent_configuration,
@@ -44,6 +49,7 @@ from tracecat.agent.types import (
     clamp_agent_timeout_seconds,
 )
 from tracecat.agent.workflow_turns.schemas import (
+    ChannelReplyThreadInput,
     ReadWorkflowAgentTurnInput,
     ReadWorkflowAgentTurnResult,
     SelectWorkflowAgentBackendResult,
@@ -250,6 +256,24 @@ async def select_workflow_agent_backend_activity(
     if backend_id == DEFAULT_AGENT_BACKEND:
         return SelectWorkflowAgentBackendResult()
     return SelectWorkflowAgentBackendResult(backend_id=backend_id)
+
+
+@activity.defn
+async def check_channel_reply_thread_activity(input: ChannelReplyThreadInput) -> None:
+    """Refuse a preset action's channel before its turn runs."""
+    try:
+        await check_channel_reply_thread(input.role, input.preset_id, input.destination)
+    except ChannelReplyError as e:
+        raise ApplicationError(str(e), type=type(e).__name__, non_retryable=True) from e
+
+
+@activity.defn
+async def open_channel_reply_thread_activity(input: ChannelReplyThreadInput) -> None:
+    """Root the action's synced thread at its destination with the turn's reply."""
+    try:
+        await open_channel_reply_thread(input.role, input.session_id, input.destination)
+    except ChannelReplyError as e:
+        raise ApplicationError(str(e), type=type(e).__name__, non_retryable=True) from e
 
 
 @activity.defn

@@ -103,3 +103,11 @@ class PresetAgentActionArgs(BaseModel):
         ge=1,
         description="The maximum number of model requests per agent run. None is unlimited.",
     )
+    # A Slack channel ID, or a linked user's email for a DM; see `ai.preset_agent`.
+    channel: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def channel_starts_a_session(self) -> "PresetAgentActionArgs":
+        if self.channel is not None and self.session_id is not None:
+            raise ValueError("`channel` starts a new session; drop `session_id`")
+        return self

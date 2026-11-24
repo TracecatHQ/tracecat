@@ -22,13 +22,18 @@ from tracecat.agent.channel_bots.messages import ChannelMessage, ChannelMessageS
 from tracecat.agent.channel_bots.schemas import ChannelBotProvider, InboxChannelThread
 from tracecat.agent.channel_notifier import (
     ChannelDestination,
+    ChannelDestinationNotRoutable,
     ChannelDestinationRef,
+    ChannelsNotEntitled,
     MessageSent,
+    NoChannelBot,
     RunUpdate,
     TurnStarted,
     can_open_channel_thread,
+    check_channel_reply_thread,
     list_channel_destinations,
     notify_sync_stopped,
+    open_channel_reply_thread,
     open_channel_thread,
     turn_started_updates,
 )
@@ -757,3 +762,73 @@ def test_opting_in_passes_the_picked_destination() -> None:
     assert set_sync.await_args.kwargs["destination"] == ChannelDestinationRef(
         kind="direct_message"
     )
+
+
+# A workflow's preset action posting its reply: every refusal is raised, typed.
+
+
+class UnroutableNotifier(FakeNotifier):
+    async def check_reply_thread(
+        self, role: Role, preset_id: uuid.UUID, destination: ChannelDestinationRef
+    ) -> None:
+        raise ChannelDestinationNotRoutable(f"Not in {destination.id}")
+
+    async def open_reply_thread(
+        self, role: Role, session_id: uuid.UUID, destination: ChannelDestinationRef
+    ) -> None:
+        raise ChannelDestinationNotRoutable(f"Not in {destination.id}")
+
+
+def _entitled(monkeypatch: pytest.MonkeyPatch, entitled: bool) -> None:
+    async def channels_entitled(role: Role) -> bool:
+        del role
+        return entitled
+
+    monkeypatch.setattr(channel_notifier, "_channels_entitled", channels_entitled)
+
+
+REPLY_TO = ChannelDestinationRef.from_input("C1")
+
+
+def test_an_email_names_a_dm_and_anything_else_a_channel() -> None:
+    assert ChannelDestinationRef.from_input(" alice@example.com ") == (
+        ChannelDestinationRef(kind="direct_message", id="alice@example.com")
+    )
+    assert REPLY_TO == ChannelDestinationRef(kind="channel", id="C1")
+
+
+@pytest.mark.anyio
+async def test_a_reply_thread_needs_the_channels_entitlement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install(monkeypatch, FakeNotifier())
+    _entitled(monkeypatch, False)
+
+    with pytest.raises(ChannelsNotEntitled):
+        await check_channel_reply_thread(CHANNEL_ROLE, uuid.uuid4(), REPLY_TO)
+    with pytest.raises(ChannelsNotEntitled):
+        await open_channel_reply_thread(CHANNEL_ROLE, SESSION_ID, REPLY_TO)
+
+
+@pytest.mark.anyio
+async def test_a_reply_thread_needs_an_installed_bot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install(monkeypatch, None)
+    _entitled(monkeypatch, True)
+
+    with pytest.raises(NoChannelBot):
+        await check_channel_reply_thread(CHANNEL_ROLE, uuid.uuid4(), REPLY_TO)
+
+
+@pytest.mark.anyio
+async def test_an_unroutable_reply_thread_is_raised_not_swallowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install(monkeypatch, UnroutableNotifier())
+    _entitled(monkeypatch, True)
+
+    with pytest.raises(ChannelDestinationNotRoutable, match="Not in C1"):
+        await check_channel_reply_thread(CHANNEL_ROLE, uuid.uuid4(), REPLY_TO)
+    with pytest.raises(ChannelDestinationNotRoutable, match="Not in C1"):
+        await open_channel_reply_thread(CHANNEL_ROLE, SESSION_ID, REPLY_TO)

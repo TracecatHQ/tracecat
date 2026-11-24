@@ -35,6 +35,8 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.agent.session.activities import get_session_activities
     from tracecat.agent.workflow_turns.activities import (
+        check_channel_reply_thread_activity,
+        open_channel_reply_thread_activity,
         prepare_workflow_agent_turn_activity,
         read_workflow_agent_turn_activity,
         select_workflow_agent_backend_activity,
@@ -116,6 +118,8 @@ def get_activities() -> list[Callable[..., object]]:
     activities.append(prepare_workflow_agent_turn_activity)
     activities.append(read_workflow_agent_turn_activity)
     activities.append(select_workflow_agent_backend_activity)
+    activities.append(check_channel_reply_thread_activity)
+    activities.append(open_channel_reply_thread_activity)
     return activities
 
 
