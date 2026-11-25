@@ -25,8 +25,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { useWorkspaceChannelBots } from "@/hooks/use-agent-channel-bots"
-import { useEntitlements } from "@/hooks/use-entitlements"
+import {
+  useChannelBotReadsAllowed,
+  useWorkspaceChannelBots,
+} from "@/hooks/use-agent-channel-bots"
 import {
   channelDestinationLabel,
   useSessionChannelDestinations,
@@ -155,7 +157,6 @@ export function SlackSyncButton({
   )
 }
 
-/** The Slack mark: full color when syncing, grey with a strike when off, plain grey when unlinked. */
 /**
  * A draft chat's Slack button, shown when the workspace has an active bot.
  * Clicking creates the session; its own button then opens the picker.
@@ -169,10 +170,9 @@ export function DraftSlackSyncButton({
   disabled?: boolean
   onCreateSession: () => Promise<void>
 }) {
-  const { hasEntitlement } = useEntitlements()
   const { data: bots } = useWorkspaceChannelBots(
     workspaceId,
-    hasEntitlement("agent_channels_preview")
+    useChannelBotReadsAllowed()
   )
   const [creating, setCreating] = useState(false)
   if (!bots?.some((bot) => bot.status === "active")) {
@@ -206,6 +206,7 @@ export function DraftSlackSyncButton({
   )
 }
 
+/** The Slack mark: full color when syncing, grey with a strike when off, plain grey when unlinked. */
 export function SlackSyncIcon({ state }: { state: SlackSyncState }) {
   return (
     <span className="relative inline-flex size-4 items-center justify-center">

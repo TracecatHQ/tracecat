@@ -31,6 +31,10 @@ jest.mock("@/hooks/use-entitlements", () => ({
   useEntitlements: () => ({ hasEntitlement: () => true, isLoading: false }),
 }))
 
+jest.mock("@/components/auth/scope-guard", () => ({
+  useScopeCheck: () => true,
+}))
+
 const getSync = jest.mocked(agentSessionsGetSessionChannelSync)
 const listDestinations = jest.mocked(
   agentSessionsListSessionChannelDestinations
