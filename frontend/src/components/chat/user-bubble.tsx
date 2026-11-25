@@ -8,6 +8,7 @@ import {
 import {
   botMentions,
   ChannelMessageContext,
+  channelMarkdownComponents,
   channelPerson,
   channelPersonClassName,
   channelSender,
@@ -41,6 +42,7 @@ export function UserBubble(props: Parameters<typeof MessageBubble>[0]) {
           key={index}
           text={withChannelMentionNames(line.text, channelMessage)}
           channelMessage={null}
+          linksFrom={channelMessage}
           author={{
             ...(line.is_bot
               ? { name: line.author, linked: false }
@@ -60,9 +62,12 @@ function MessageBubble({
   channelMessage,
   author,
   own = false,
+  linksFrom = channelMessage,
 }: {
   text: string
   channelMessage: ChannelMessageData | null
+  /** The channel message whose links the text shows; an earlier-thread line borrows its parent's. */
+  linksFrom?: ChannelMessageData | null
   author: MessageActor | null
   /** The viewer wrote this message. */
   own?: boolean
@@ -83,6 +88,9 @@ function MessageBubble({
               : text
           }
           animate={false}
+          components={
+            linksFrom ? channelMarkdownComponents(linksFrom) : undefined
+          }
         />
       )}
       {channelMessage && <ChannelMessageContext message={channelMessage} />}

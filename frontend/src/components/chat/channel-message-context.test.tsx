@@ -1,8 +1,10 @@
 import { render, screen } from "@testing-library/react"
 import {
   ChannelMessageContext,
+  channelMarkdownComponents,
   withChannelMentionNames,
 } from "@/components/chat/channel-message-context"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import {
   type ChannelMessageData,
   getUserMessageData,
@@ -133,6 +135,126 @@ describe("ChannelMessageContext names", () => {
     expect(withChannelMentionNames(NAMED.text, NAMED)).toBe(
       "ask @Ada Lovelace and @Slack user"
     )
+  })
+})
+
+describe("ChannelMessageContext links", () => {
+  const PERMALINK = "https://example.slack.com/archives/C9/p1700000000000100"
+  const LINKED: ChannelMessageData = {
+    provider: "slack",
+    text: "see these",
+    sender: { provider_user_id: "U1", name: "Dana" },
+    quoted: [
+      {
+        kind: "forwarded",
+        author: "alice",
+        text: `same ${PERMALINK}, other https://example.slack.com/archives/C8/p2?thread_ts=1.2&cid=C8 and https://docs.example.com/runbooks/disk-full-on-db-hosts.`,
+        is_preview: false,
+        where: "alerts",
+        link: PERMALINK,
+      },
+    ],
+  }
+
+  it("shows URLs as short labels, never in full", () => {
+    const { container } = render(
+      <TooltipProvider>
+        <ChannelMessageContext message={LINKED} />
+      </TooltipProvider>
+    )
+    const body = container.querySelector("blockquote p")
+
+    expect(body?.textContent).toBe(
+      "same #alerts message ↗, other Slack thread ↗ and docs.example.com ↗."
+    )
+    expect(
+      screen.getByRole("link", { name: "docs.example.com ↗" })
+    ).toHaveAttribute(
+      "href",
+      "https://docs.example.com/runbooks/disk-full-on-db-hosts"
+    )
+    // The forward header keeps its own link.
+    expect(screen.getByRole("link", { name: "Open" })).toHaveAttribute(
+      "href",
+      PERMALINK
+    )
+  })
+
+  it("keeps a closing paren the URL opened", () => {
+    const url = "https://en.example.org/wiki/Alert_(monitoring)"
+    render(
+      <TooltipProvider>
+        <ChannelMessageContext
+          message={{
+            ...LINKED,
+            quoted: [{ ...LINKED.quoted![0], text: `(see ${url})` }],
+          }}
+        />
+      </TooltipProvider>
+    )
+    expect(
+      screen.getByRole("link", { name: "en.example.org ↗" })
+    ).toHaveAttribute("href", url)
+  })
+
+  it("strips only marks that wrap the URL", () => {
+    const text = "*https://a.example/x* and https://b.example/t?k=abc_"
+    render(
+      <TooltipProvider>
+        <ChannelMessageContext
+          message={{ ...LINKED, quoted: [{ ...LINKED.quoted![0], text }] }}
+        />
+      </TooltipProvider>
+    )
+    expect(screen.getByRole("link", { name: "a.example ↗" })).toHaveAttribute(
+      "href",
+      "https://a.example/x"
+    )
+    expect(screen.getByRole("link", { name: "b.example ↗" })).toHaveAttribute(
+      "href",
+      "https://b.example/t?k=abc_"
+    )
+  })
+
+  it("leaves URLs in a quoted body's code as typed", () => {
+    const text = "run `curl https://a.example/x` then https://b.example/y"
+    render(
+      <TooltipProvider>
+        <ChannelMessageContext
+          message={{ ...LINKED, quoted: [{ ...LINKED.quoted![0], text }] }}
+        />
+      </TooltipProvider>
+    )
+    expect(screen.getByText(/curl https:\/\/a\.example\/x/)).toBeVisible()
+    expect(screen.getByRole("link", { name: "b.example ↗" })).toBeVisible()
+  })
+
+  it("labels an autolinked URL in the message's own markdown", () => {
+    const { a: Link } = channelMarkdownComponents(LINKED)
+    render(
+      <TooltipProvider>
+        <Link href={PERMALINK}>{PERMALINK}</Link>
+        <Link href="https://a.example/">https://a.example</Link>
+      </TooltipProvider>
+    )
+    expect(
+      screen.getByRole("link", { name: "#alerts message ↗" })
+    ).toHaveAttribute("href", PERMALINK)
+    expect(screen.getByRole("link", { name: "a.example ↗" })).toBeVisible()
+  })
+
+  it("keeps a written link's own text", () => {
+    const { a: Link } = channelMarkdownComponents(LINKED)
+    render(
+      <>
+        <Link href="https://a.example/">x</Link>
+        <Link href="https://b.example/">https://a.example</Link>
+      </>
+    )
+    expect(screen.getByRole("link", { name: "x" })).toBeVisible()
+    expect(
+      screen.getByRole("link", { name: "https://a.example" })
+    ).toHaveAttribute("href", "https://b.example/")
   })
 })
 

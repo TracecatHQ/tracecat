@@ -118,6 +118,27 @@ function CaseMentionChip({
   )
 }
 
+/** Mirrors Streamdown's default link, which it does not export. */
+export function MarkdownLink({
+  href,
+  children,
+  ...props
+}: ComponentProps<"a">) {
+  return (
+    <a
+      className="wrap-anywhere font-medium text-primary underline"
+      data-incomplete={href === "streamdown:incomplete-link"}
+      data-streamdown="link"
+      href={href}
+      rel="noreferrer"
+      target="_blank"
+      {...props}
+    >
+      {children}
+    </a>
+  )
+}
+
 /** The `a` component for agent replies: case mentions become chips; other links are unchanged. */
 export function ArtifactMentionLink({
   href,
@@ -130,19 +151,10 @@ export function ArtifactMentionLink({
   // A reserved path that is not a case mention is a dead link: show its text.
   if (!mention && isMentionPath(href)) return <span>{children}</span>
   if (!mention) {
-    // Mirrors Streamdown's default link, which it does not export.
     return (
-      <a
-        className="wrap-anywhere font-medium text-primary underline"
-        data-incomplete={href === "streamdown:incomplete-link"}
-        data-streamdown="link"
-        href={href}
-        rel="noreferrer"
-        target="_blank"
-        {...props}
-      >
+      <MarkdownLink href={href} {...props}>
         {children}
-      </a>
+      </MarkdownLink>
     )
   }
   if (!workspaceId) return <span>{children}</span>

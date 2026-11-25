@@ -1,11 +1,17 @@
 "use client"
 
-import type { ReactNode } from "react"
+import type { ComponentProps, ReactNode } from "react"
 import type {
   EarlierThreadMessage,
   QuotedMessage as QuotedMessageData,
   QuotedMessageKind,
 } from "@/client"
+import { MarkdownLink } from "@/components/chat/artifact-mention"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import type { ChannelMessageData } from "@/lib/chat"
 
 const QUOTED_LABELS: Record<QuotedMessageKind, string> = {
@@ -18,6 +24,16 @@ export const UNKNOWN_CHANNEL_PERSON = "Slack user"
 
 // A Slack user or enterprise user ID after `@`, as mist's plain text leaves it.
 const SLACK_MENTION = /@([UW][A-Z0-9]{6,})\b/g
+// An https URL; trailing punctuation stays text. Stored text is editable, so no other scheme.
+const URL_PATTERN = /https:\/\/[^\s<>`|]*[^\s<>`|.,;:!?)\]'"]/g
+const FORMATTING_MARKS = "*_~"
+const SLACK_PERMALINK_PATH = /^\/archives\/([A-Z0-9]+)\/p\d+/
+// Code in a quoted body (a fence runs to the end when unclosed) keeps its URLs as typed.
+const QUOTED_CODE = /```[\s\S]*?(?:```|$)|`[^`\n]*`/
+const CODE_OR_URL = new RegExp(
+  `${QUOTED_CODE.source}|${URL_PATTERN.source}`,
+  "g"
+)
 
 /** A person the message names, and whether the name is a linked Tracecat member's. */
 export type ChannelPersonLabel = { name: string; linked: boolean }
@@ -85,7 +101,106 @@ export function channelPersonClassName(linked: boolean): string {
   return linked ? "font-medium text-foreground" : "text-muted-foreground"
 }
 
-/** The text with Slack user mentions as styled names instead of IDs. */
+/** The channel a Slack permalink points to, or null for any other URL. */
+function slackPermalinkChannel(url: URL): string | null {
+  if (!url.hostname.endsWith(".slack.com")) return null
+  return url.pathname.match(SLACK_PERMALINK_PATH)?.[1] ?? null
+}
+
+function parseUrlOrNull(url: string): URL | null {
+  try {
+    return new URL(url)
+  } catch {
+    return null
+  }
+}
+
+/** A short label for a URL: "#alerts message ↗" for a permalink, else its host. */
+function channelLinkLabel(url: string, message: ChannelMessageData): string {
+  const parsed = parseUrlOrNull(url)
+  if (!parsed) return url
+  const channelId = slackPermalinkChannel(parsed)
+  if (!channelId) return `${parsed.hostname} ↗`
+  // A forward from the same channel names it.
+  const name = message.quoted?.find((quoted) => {
+    const link = quoted.link ? parseUrlOrNull(quoted.link) : null
+    return quoted.where && link && slackPermalinkChannel(link) === channelId
+  })?.where
+  const kind = parsed.searchParams.has("thread_ts") ? "thread" : "message"
+  return `${name ? `#${name}` : "Slack"} ${kind} ↗`
+}
+
+/** Markdown links for a channel message: a bare https URL shows its short label. */
+export function channelMarkdownComponents(message: ChannelMessageData) {
+  return {
+    a: ({
+      href,
+      children,
+      node: _node,
+      ...props
+    }: ComponentProps<"a"> & { node?: unknown }) => {
+      const typed =
+        typeof children === "string" ? parseUrlOrNull(children) : null
+      // Only an autolink: a written link keeps its own text.
+      if (
+        href &&
+        typed?.protocol === "https:" &&
+        typed.href === parseUrlOrNull(href)?.href
+      )
+        return <ChannelLink url={href} message={message} />
+      return (
+        <MarkdownLink href={href} {...props}>
+          {children}
+        </MarkdownLink>
+      )
+    },
+  }
+}
+
+function ChannelLink({
+  url,
+  message,
+}: {
+  url: string
+  message: ChannelMessageData
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline underline-offset-2"
+        >
+          {channelLinkLabel(url, message)}
+        </a>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-sm break-all">{url}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+/** The https URLs in plain text outside code; a closing paren stays in when the URL opened one. */
+function* textUrls(text: string): Generator<{ index: number; url: string }> {
+  for (const match of text.matchAll(CODE_OR_URL)) {
+    if (match[0].startsWith("`")) continue
+    const index = match.index ?? 0
+    let url = match[0]
+    // A mark wrapping the URL (`*https://…*`) is formatting; one only at the end is part of it.
+    const mark = text[index - 1]
+    if (mark && FORMATTING_MARKS.includes(mark))
+      while (url.endsWith(mark)) url = url.slice(0, -1)
+    while (
+      url.split("(").length > url.split(")").length &&
+      text[index + url.length] === ")"
+    )
+      url += ")"
+    yield { index, url }
+  }
+}
+
+/** The text with Slack user mentions as styled names and URLs as short links. */
 export function ChannelMentionText({
   text,
   message,
@@ -93,7 +208,23 @@ export function ChannelMentionText({
   text: string
   message: ChannelMessageData
 }) {
-  if (message.provider !== "slack") return <>{text}</>
+  const nodes: ReactNode[] = []
+  let last = 0
+  for (const { index, url } of textUrls(text)) {
+    nodes.push(...mentionNodes(text.slice(last, index), message, last))
+    nodes.push(<ChannelLink key={index} url={url} message={message} />)
+    last = index + url.length
+  }
+  nodes.push(...mentionNodes(text.slice(last), message, last))
+  return <>{nodes}</>
+}
+
+function mentionNodes(
+  text: string,
+  message: ChannelMessageData,
+  offset: number
+): ReactNode[] {
+  if (message.provider !== "slack") return [text]
   const nodes: ReactNode[] = []
   let last = 0
   for (const match of text.matchAll(SLACK_MENTION)) {
@@ -101,14 +232,17 @@ export function ChannelMentionText({
     nodes.push(text.slice(last, index))
     const person = channelPerson(message, match[1])
     nodes.push(
-      <span key={index} className={channelPersonClassName(person.linked)}>
+      <span
+        key={offset + index}
+        className={channelPersonClassName(person.linked)}
+      >
         @{person.name}
       </span>
     )
     last = index + match[0].length
   }
   nodes.push(text.slice(last))
-  return <>{nodes}</>
+  return nodes
 }
 
 /** The earlier-thread lines that mention the bot; each reads as its own message. */
