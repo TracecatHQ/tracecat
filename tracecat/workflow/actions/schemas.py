@@ -20,6 +20,7 @@ from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.action import ActionID
 from tracecat.identifiers.action import ref as _ref
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort
+from tracecat.integrations.types import OAuthConnectionRef
 from tracecat.validation.schemas import ValidationDetail
 
 
@@ -72,6 +73,13 @@ class ActionControlFlow(Schema):
         min_length=1,
         max_length=63,
         description="Workspace tunnel to route this action's HTTP(S) traffic through",
+    )
+    oauth_connection: OAuthConnectionRef | None = Field(
+        default=None,
+        description=(
+            "Preferred OAuth connection for this action. Falls back to the "
+            "default order if it isn't connected."
+        ),
     )
     mask_output: bool = Field(
         default=False,

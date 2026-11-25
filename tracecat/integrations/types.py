@@ -8,6 +8,17 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 type MCPServerType = Literal["http", "stdio"]
 
 
+class OAuthConnectionRef(BaseModel):
+    """An OAuth integration connection, identified by provider and grant type."""
+
+    provider_id: str = Field(
+        min_length=1, max_length=100, description="OAuth provider ID"
+    )
+    grant_type: Literal["authorization_code", "client_credentials"] = Field(
+        description="OAuth grant type"
+    )
+
+
 class OAuthServerMetadata(BaseModel):
     """Authorization-server / protected-resource metadata (untrusted RFC 8414/9728)."""
 

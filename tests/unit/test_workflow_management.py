@@ -14,6 +14,7 @@ from tracecat.dsl.schemas import ActionRetryPolicy, ActionStatement
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.integrations.types import OAuthConnectionRef
 from tracecat.mcp.schemas import WorkflowEditDocument
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.workflow.actions.schemas import ActionControlFlow
@@ -1341,6 +1342,9 @@ def test_control_flow_from_statement_copies_every_field() -> None:
         join_strategy=JoinStrategy.ANY,
         environment="prod",
         tunnel="edge",
+        oauth_connection=OAuthConnectionRef(
+            provider_id="github_app", grant_type="authorization_code"
+        ),
         mask_output=True,
         unsafe_disable_secret_error_withholding=True,
     )

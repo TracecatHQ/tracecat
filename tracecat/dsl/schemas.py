@@ -24,6 +24,7 @@ from tracecat.dsl.enums import (
 from tracecat.expressions.validation import ExpressionStr, RequiredExpressionStr
 from tracecat.identifiers import WorkflowExecutionID, WorkflowRunID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
+from tracecat.integrations.types import OAuthConnectionRef
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.storage.object import InlineObject, StoredObject
@@ -374,6 +375,13 @@ class ActionStatement(BaseModel):
         description=(
             "Name of a workspace tunnel to route this action's HTTP(S) traffic through. "
             "Overrides the workflow's default tunnel."
+        ),
+    )
+    oauth_connection: OAuthConnectionRef | None = Field(
+        default=None,
+        description=(
+            "Preferred OAuth connection for this action. Falls back to the "
+            "default order if it isn't connected."
         ),
     )
     mask_output: bool = Field(

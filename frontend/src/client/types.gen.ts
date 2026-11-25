@@ -34,6 +34,10 @@ export type ActionControlFlow = {
    */
   tunnel?: string | null
   /**
+   * Preferred OAuth connection for this action. Falls back to the default order if it isn't connected.
+   */
+  oauth_connection?: OAuthConnectionRef | null
+  /**
    * If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.
    */
   mask_output?: boolean
@@ -199,6 +203,10 @@ export type ActionStatement_Input = {
    */
   tunnel?: string | null
   /**
+   * Preferred OAuth connection for this action. Falls back to the default order if it isn't connected.
+   */
+  oauth_connection?: OAuthConnectionRef | null
+  /**
    * If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.
    */
   mask_output?: boolean
@@ -260,6 +268,10 @@ export type ActionStatement_Output = {
    * Name of a workspace tunnel to route this action's HTTP(S) traffic through. Overrides the workflow's default tunnel.
    */
   tunnel?: string | null
+  /**
+   * Preferred OAuth connection for this action. Falls back to the default order if it isn't connected.
+   */
+  oauth_connection?: OAuthConnectionRef | null
   /**
    * If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.
    */
@@ -9110,6 +9122,25 @@ export type OAuth2AuthorizeResponse = {
 }
 
 /**
+ * An OAuth integration connection, identified by provider and grant type.
+ */
+export type OAuthConnectionRef = {
+  /**
+   * OAuth provider ID
+   */
+  provider_id: string
+  /**
+   * OAuth grant type
+   */
+  grant_type: "authorization_code" | "client_credentials"
+}
+
+/**
+ * OAuth grant type
+ */
+export type grant_type = "authorization_code" | "client_credentials"
+
+/**
  * Grant type for OAuth 2.0.
  */
 export type OAuthGrantType = "authorization_code" | "client_credentials"
@@ -10327,8 +10358,6 @@ export type RegistryOAuthSecret = {
   optional?: boolean
   readonly name: string
 }
-
-export type grant_type = "authorization_code" | "client_credentials"
 
 export type RegistryRepositoryCreate = {
   /**

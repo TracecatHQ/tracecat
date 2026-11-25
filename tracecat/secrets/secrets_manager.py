@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import builtins
 import contextlib
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Iterator, Set
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, overload
 
@@ -12,9 +12,10 @@ from tracecat.auth.sandbox import AuthSandbox
 from tracecat.contexts import ctx_env, ctx_role, ctx_run, get_env
 from tracecat.exceptions import ScopeDeniedError, TracecatCredentialsError
 from tracecat.integrations.aws_assume_role import build_workspace_external_id
-from tracecat.integrations.enums import OAuthGrantType
+from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
+from tracecat.integrations.types import OAuthConnectionRef
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
@@ -146,6 +147,8 @@ async def get_action_secrets(
 async def resolve_action_secrets(
     secret_exprs: builtins.set[str],
     action_secrets: builtins.set[RegistrySecretType],
+    *,
+    preferred_oauth_connection: OAuthConnectionRef | None = None,
 ) -> ActionSecrets:
     """Resolve an action's secrets and OAuth tokens, with the earliest token expiry."""
     # Handle secrets from the task args
@@ -215,6 +218,7 @@ async def resolve_action_secrets(
     secrets: dict[str, Any] = {}
     expires_at: datetime | None = None
     partial = False
+    connected_keys: builtins.set[ProviderKey] = builtins.set()
     async with AuthSandbox(
         secrets=all_basic_secrets,
         environment=get_runtime_env(),
@@ -257,6 +261,9 @@ async def resolve_action_secrets(
                             provider_secrets[token_name] = (
                                 access_token.get_secret_value()
                             )
+                            # Failed refreshes return the stale row; status says if it's usable.
+                            if integration.status == IntegrationStatus.CONNECTED:
+                                connected_keys.add(provider_key)
                             if integration.expires_at is not None and (
                                 expires_at is None
                                 or integration.expires_at < expires_at
@@ -325,7 +332,42 @@ async def resolve_action_secrets(
         except Exception as e:
             partial = True
             logger.warning("Could not get oauth secrets", error=e)
+    _prefer_oauth_connection(
+        secrets,
+        oauth_secrets,
+        preferred=preferred_oauth_connection,
+        connected_keys=connected_keys,
+        explicit_keys=args_oauth_token_names.keys(),
+    )
     return ActionSecrets(values=secrets, expires_at=expires_at, partial=partial)
+
+
+def _prefer_oauth_connection(
+    secrets: dict[str, Any],
+    oauth_secrets: dict[ProviderKey, RegistryOAuthSecret],
+    *,
+    preferred: OAuthConnectionRef | None,
+    connected_keys: Set[ProviderKey],
+    explicit_keys: Set[ProviderKey],
+) -> None:
+    """If the preferred connection is connected, drop the action's other declared
+    OAuth tokens so its fallback chain lands on it. Tokens referenced from args
+    are always kept; otherwise secrets are left unchanged.
+    """
+    if preferred is None:
+        return
+    preferred_key = ProviderKey(
+        id=preferred.provider_id, grant_type=OAuthGrantType(preferred.grant_type)
+    )
+    if preferred_key not in oauth_secrets or preferred_key not in connected_keys:
+        return
+    for key, secret in oauth_secrets.items():
+        if key == preferred_key or key in explicit_keys:
+            continue
+        tokens = secrets.get(secret.name, {})
+        tokens.pop(secret.token_name, None)
+        if not tokens:
+            secrets.pop(secret.name, None)
 
 
 def flatten_secrets(secrets: dict[str, Any]) -> dict[str, str]:
