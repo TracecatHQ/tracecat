@@ -8,8 +8,8 @@ from collections.abc import Sequence
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.agent.channel_bots.provider import get_channel_bot_admin
-from tracecat.agent.channel_bots.schemas import (
+from tracecat.agent.channels.bots.provider import get_channel_bot_admin
+from tracecat.agent.channels.bots.schemas import (
     ChannelBotProvider,
     InboxChannelThread,
 )

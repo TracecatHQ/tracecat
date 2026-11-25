@@ -21,13 +21,13 @@ from tracecat.agent.adapter.vercel import (
     convert_chat_messages_to_ui,
 )
 from tracecat.agent.approvals.enums import ApprovalStatus
-from tracecat.agent.channel_bots.messages import (
+from tracecat.agent.channels.bots.schemas import ChannelBotProvider
+from tracecat.agent.channels.messages import (
     ChannelMessage,
     ChannelMessageSender,
     QuotedMessage,
     QuotedMessageKind,
 )
-from tracecat.agent.channel_bots.schemas import ChannelBotProvider
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
 from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.service import _extract_vercel_user_prompt

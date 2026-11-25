@@ -23,7 +23,7 @@ from tracecat.admin.slack_app.schemas import (
     SlackPlatformAppUpdate,
 )
 from tracecat.admin.slack_app.service import SlackPlatformAppService
-from tracecat.agent.channel_bots.platform_app import (
+from tracecat.agent.channels.bots.platform_app import (
     SLACK_PLATFORM_APP_KEY,
     SlackPlatformApp,
     lock_slack_platform_app_for_refresh,
@@ -31,7 +31,7 @@ from tracecat.agent.channel_bots.platform_app import (
     store_slack_platform_app_tokens,
     write_slack_platform_app,
 )
-from tracecat.agent.channel_bots.schemas import (
+from tracecat.agent.channels.bots.schemas import (
     ChannelBotAppManifest,
     ChannelBotPlatformAppSetup,
     ChannelBotTransport,

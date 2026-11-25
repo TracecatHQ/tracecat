@@ -17,13 +17,13 @@ from fastapi.testclient import TestClient
 
 from tests._route_utils import iter_effective_api_routes
 from tracecat import config
-from tracecat.agent.channel_bots import provider as provider_module
-from tracecat.agent.channel_bots import router as router_module
-from tracecat.agent.channel_bots.provider import (
+from tracecat.agent.channels.bots import provider as provider_module
+from tracecat.agent.channels.bots import router as router_module
+from tracecat.agent.channels.bots.provider import (
     ChannelListingNeedsReinstall,
     ChannelListingNotSupported,
 )
-from tracecat.agent.channel_bots.schemas import (
+from tracecat.agent.channels.bots.schemas import (
     AgentChannelBotRead,
     AgentChannelBotUpdate,
     AgentChannelRouteRead,
@@ -47,7 +47,7 @@ from tracecat.agent.channel_bots.schemas import (
     SlackBotInstall,
     oauth_callback_path,
 )
-from tracecat.agent.channel_users.enums import ChannelAccessPolicy
+from tracecat.agent.channels.users.enums import ChannelAccessPolicy
 from tracecat.api import extensions
 from tracecat.api.app import (
     app,

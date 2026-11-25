@@ -14,14 +14,14 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from fastapi.responses import PlainTextResponse, RedirectResponse, Response
 
 from tracecat import config
-from tracecat.agent.channel_bots.provider import (
+from tracecat.agent.channels.bots.provider import (
     ChannelBotAdmin,
     ChannelListingNeedsReinstall,
     ChannelListingNotSupported,
     get_channel_bot_admin,
     require_channel_bot_admin,
 )
-from tracecat.agent.channel_bots.schemas import (
+from tracecat.agent.channels.bots.schemas import (
     CHANNEL_BOTS_PREFIX,
     OAUTH_CALLBACK_ROUTE,
     AgentChannelBotCreate,

@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from tracecat.agent.channel_bots.schemas import InboxChannelThread
+from tracecat.agent.channels.bots.schemas import InboxChannelThread
 from tracecat.inbox.types import InboxItemStatus, InboxItemType
 
 

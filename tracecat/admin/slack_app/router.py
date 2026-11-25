@@ -14,9 +14,9 @@ from tracecat.admin.slack_app.service import (
     SlackPlatformAppService,
     SlackPlatformAppStillInstalled,
 )
-from tracecat.agent.channel_bots.platform_app import clear_slack_platform_app_cache
-from tracecat.agent.channel_bots.provider import get_channel_bot_admin
-from tracecat.agent.channel_bots.schemas import (
+from tracecat.agent.channels.bots.platform_app import clear_slack_platform_app_cache
+from tracecat.agent.channels.bots.provider import get_channel_bot_admin
+from tracecat.agent.channels.bots.schemas import (
     ChannelBotPlatformAppSetup,
     ChannelBotProvider,
 )

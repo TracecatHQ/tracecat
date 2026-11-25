@@ -12,8 +12,8 @@ from pydantic import JsonValue
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.agent.channel_bots import channel_threads
-from tracecat.agent.channel_bots.schemas import ChannelBotProvider, InboxChannelThread
+from tracecat.agent.channels.bots import channel_threads
+from tracecat.agent.channels.bots.schemas import ChannelBotProvider, InboxChannelThread
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role

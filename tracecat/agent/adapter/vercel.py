@@ -35,7 +35,7 @@ from claude_agent_sdk.types import (
 from pydantic_core import to_json
 
 from tracecat.agent.approvals.enums import ApprovalStatus
-from tracecat.agent.channel_bots.messages import ChannelMessage
+from tracecat.agent.channels.messages import ChannelMessage
 from tracecat.agent.common.stream_types import (
     StreamEventType,
     ToolCallContent,

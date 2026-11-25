@@ -3,7 +3,8 @@ import random
 import orjson
 import pytest
 
-from tracecat.agent.channel_bots.messages import (
+from tracecat.agent.channels.bots.schemas import ChannelBotProvider
+from tracecat.agent.channels.messages import (
     CHANNEL_MESSAGE_MAX_CHARACTERS,
     PEOPLE_MAX,
     ChannelMessage,
@@ -16,7 +17,6 @@ from tracecat.agent.channel_bots.messages import (
     _capped_thread,
     _dump,
 )
-from tracecat.agent.channel_bots.schemas import ChannelBotProvider
 
 SENDER = ChannelMessageSender(provider_user_id="U1", name="Dana")
 

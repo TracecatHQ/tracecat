@@ -9,8 +9,8 @@ import orjson
 import pytest
 from claude_agent_sdk.types import AssistantMessage, ThinkingBlock, UserMessage
 
-from tracecat.agent.channel_bots.messages import ChannelMessage, ChannelMessageSender
-from tracecat.agent.channel_bots.schemas import ChannelBotProvider
+from tracecat.agent.channels.bots.schemas import ChannelBotProvider
+from tracecat.agent.channels.messages import ChannelMessage, ChannelMessageSender
 from tracecat.agent.runtime.claude_code.session_lines import (
     APPROVAL_CONTINUATION_PROMPT,
     MODEL_CONTEXT_PROMPT_PREFIX,

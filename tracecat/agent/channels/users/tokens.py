@@ -11,8 +11,8 @@ import jwt
 from jwt import PyJWTError
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from tracecat.agent.channel_users.enums import ChannelLinkError
-from tracecat.agent.channel_users.types import ChannelIdentity
+from tracecat.agent.channels.users.enums import ChannelLinkError
+from tracecat.agent.channels.users.types import ChannelIdentity
 from tracecat.auth.secrets import get_service_key
 from tracecat.exceptions import TracecatValidationError
 

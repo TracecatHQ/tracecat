@@ -16,8 +16,8 @@ from fastapi.testclient import TestClient
 from tracecat.agent.backends import registry
 from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.backends.types import AgentControlRejected, PendingMessage
-from tracecat.agent.channel_bots.messages import ChannelMessage, ChannelMessageSender
-from tracecat.agent.channel_bots.schemas import ChannelBotProvider
+from tracecat.agent.channels.bots.schemas import ChannelBotProvider
+from tracecat.agent.channels.messages import ChannelMessage, ChannelMessageSender
 from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.router import router
 from tracecat.agent.session.service import AgentSessionService

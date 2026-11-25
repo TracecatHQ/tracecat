@@ -22,7 +22,7 @@ from typing import Annotated, Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field
 from temporalio.exceptions import ApplicationError
 
-from tracecat.agent.channel_bots.messages import ChannelMessage
+from tracecat.agent.channels.messages import ChannelMessage
 from tracecat.auth.types import Role
 from tracecat.core.schemas import Variant
 from tracecat.db.engine import get_async_session_context_manager

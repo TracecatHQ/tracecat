@@ -46,14 +46,14 @@ from tracecat_ee.agent.activities import (
 
 from tracecat import config
 from tracecat.agent import channel_notifier
-from tracecat.agent.channel_bots.messages import ChannelMessage, ChannelMessageSender
-from tracecat.agent.channel_bots.schemas import ChannelBotProvider
 from tracecat.agent.channel_notifier import (
     TURN_STARTED_PUSH_BUDGET,
     MessageSent,
     RunUpdate,
     TurnStarted,
 )
+from tracecat.agent.channels.bots.schemas import ChannelBotProvider
+from tracecat.agent.channels.messages import ChannelMessage, ChannelMessageSender
 from tracecat.agent.common.config import build_agent_runtime_uv_env
 from tracecat.agent.common.exceptions import (
     AgentToolLimitExceededError,
@@ -83,7 +83,7 @@ from tracecat.agent.executor.loopback import (
     LoopbackResult,
 )
 from tracecat.agent.mcp import plugin_tools, user_client
-from tracecat.agent.mcp.plugin_tools import (
+from tracecat.agent.mcp.types import (
     PluginInternalTool,
     PluginToolGroup,
     SessionPluginGrant,

@@ -37,7 +37,6 @@ from tracecat.agent.mcp.internal_tools import (
     get_builder_internal_tool_definitions,
 )
 from tracecat.agent.mcp.plugin_tools import (
-    SessionPluginGrant,
     is_superseded,
     session_plugin_grant,
 )
@@ -45,6 +44,7 @@ from tracecat.agent.mcp.stdio_runner import (
     stdio_mcp_tool_definition,
     usable_stdio_mcp_tools,
 )
+from tracecat.agent.mcp.types import SessionPluginGrant
 from tracecat.agent.mcp.utils import (
     MCP_TOOL_NAME_RE,
     REGISTRY_MCP_SERVER_NAME,

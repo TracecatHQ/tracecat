@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
 from tests.database import TEST_DB_CONFIG
-from tracecat.agent.channel_bots.schemas import (
+from tracecat.agent.channels.bots.schemas import (
     ChannelBotAppOwner,
     ChannelBotProvider,
     ChannelBotStatus,

@@ -15,7 +15,7 @@ from sqlalchemy import ColumnElement, and_, delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.agent.channel_bots.schemas import ChannelBotAppOwner, ChannelBotStatus
+from tracecat.agent.channels.bots.schemas import ChannelBotAppOwner, ChannelBotStatus
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import AgentChannelBot, PlatformSetting

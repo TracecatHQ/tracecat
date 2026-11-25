@@ -59,19 +59,19 @@ from tracecat.agent.approvals.schemas import (
 from tracecat.agent.backends.registry import get_agent_backends
 from tracecat.agent.catalog.loader import load_platform_catalog_on_startup
 from tracecat.agent.catalog.router import router as agent_catalog_router
-from tracecat.agent.channel_bots.provider import get_channel_bot_admin
-from tracecat.agent.channel_bots.router import (
+from tracecat.agent.channels.bots.provider import get_channel_bot_admin
+from tracecat.agent.channels.bots.router import (
     public_router as agent_channel_bots_public_router,
 )
-from tracecat.agent.channel_bots.router import router as agent_channel_bots_router
-from tracecat.agent.channel_users.router import (
-    link_router as agent_channel_links_router,
-)
-from tracecat.agent.channel_users.router import router as agent_channel_users_router
+from tracecat.agent.channels.bots.router import router as agent_channel_bots_router
 from tracecat.agent.channels.management_router import (
     router as agent_channels_management_router,
 )
 from tracecat.agent.channels.router import router as agent_channels_router
+from tracecat.agent.channels.users.router import (
+    link_router as agent_channel_links_router,
+)
+from tracecat.agent.channels.users.router import router as agent_channel_users_router
 from tracecat.agent.folders.router import router as agent_folders_router
 from tracecat.agent.preset.router import router as agent_preset_router
 from tracecat.agent.provider.router import router as agent_custom_provider_router

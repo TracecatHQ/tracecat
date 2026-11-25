@@ -18,11 +18,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.support.membership import grant_workspace_membership
 from tracecat import config
-from tracecat.agent.channel_users import router as channel_users_router
-from tracecat.agent.channel_users import service as channel_users_service
-from tracecat.agent.channel_users import tokens
-from tracecat.agent.channel_users.enums import ChannelAccessPolicy, ChannelAction
-from tracecat.agent.channel_users.service import (
+from tracecat.agent.channels.users import router as channel_users_router
+from tracecat.agent.channels.users import service as channel_users_service
+from tracecat.agent.channels.users import tokens
+from tracecat.agent.channels.users.enums import ChannelAccessPolicy, ChannelAction
+from tracecat.agent.channels.users.service import (
     ChannelApproverNotAllowed,
     ChannelLinkRequired,
     check_channel_access,
@@ -32,14 +32,14 @@ from tracecat.agent.channel_users.service import (
     start_provider_sign_in,
     unlink_channel_user,
 )
-from tracecat.agent.channel_users.tokens import (
+from tracecat.agent.channels.users.tokens import (
     ChannelLinkInvalid,
     mint_link_token,
     mint_sign_in_state,
     read_link_token,
     read_sign_in_state,
 )
-from tracecat.agent.channel_users.types import ChannelIdentity, ProviderSignIn
+from tracecat.agent.channels.users.types import ChannelIdentity, ProviderSignIn
 from tracecat.api.app import (
     entitlement_exception_handler,
     scope_denied_exception_handler,

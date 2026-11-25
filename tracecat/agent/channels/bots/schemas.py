@@ -9,7 +9,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from tracecat.agent.channel_users.enums import ChannelAccessPolicy
+from tracecat.agent.channels.users.enums import ChannelAccessPolicy
 from tracecat.pagination import CursorPaginatedResponse
 
 CHANNEL_BOTS_PREFIX = "/agent/channel-bots"

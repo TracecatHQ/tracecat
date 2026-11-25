@@ -10,7 +10,6 @@ import uuid
 
 from sqlalchemy import exists, select, update
 
-from tracecat.agent.channel_bots.channel_threads import channel_threads
 from tracecat.agent.channel_notifier import (
     ChannelDestinationRef,
     ChannelReplyError,
@@ -25,6 +24,7 @@ from tracecat.agent.channel_notifier import (
     open_channel_thread,
     push_updates,
 )
+from tracecat.agent.channels.bots.channel_threads import channel_threads
 from tracecat.agent.session.schemas import AgentSessionChannelSyncRead
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.stream.feed import publish_channel_sync_failed
