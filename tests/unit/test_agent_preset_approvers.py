@@ -827,11 +827,14 @@ async def test_org_wide_member_managers_are_offered_and_addable(
     session.add(
         RoleScope(
             role_id=inviter_role.id,
-            scope_id=await session.scalar(
-                select(Scope.id).where(
-                    Scope.organization_id.is_(None), Scope.name == "org:member:invite"
+            scope_id=(
+                await session.execute(
+                    select(Scope.id).where(
+                        Scope.organization_id.is_(None),
+                        Scope.name == "org:member:invite",
+                    )
                 )
-            ),
+            ).scalar_one(),
         )
     )
     inviter = await _make_user(session, svc_role, workspace_role=None)
@@ -844,7 +847,8 @@ async def test_org_wide_member_managers_are_offered_and_addable(
         )
     )
     await session.commit()
-    stranger = await _make_user(session, svc_role, workspace_role=None)
+    # Holds an org-wide role, but not one with the invite scope.
+    stranger = await _org_user(session, svc_role, "organization-member")
     service = AgentPresetApproverService(session, role=svc_role)
     preset_id = preset.id
 
