@@ -172,7 +172,10 @@ class ChannelDestinationRef(BaseModel):
 
 
 class LateChannelDelivery(BaseModel):
-    """A turn that started unlinked: open its destination, then post its reply if linked."""
+    """A turn that started unlinked: open its destination, then post its reply if linked.
+
+    Without a destination, the end only re-reads the link (sync turned on mid-turn).
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 

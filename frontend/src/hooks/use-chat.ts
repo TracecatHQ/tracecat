@@ -36,7 +36,6 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import {
   channelDestinationFromOptions,
-  isChannelDestinationRefused,
   sessionChannelSyncQueryKey,
 } from "@/hooks/use-session-channel-sync"
 import { useSessionFeed } from "@/hooks/use-session-feed"
@@ -169,6 +168,30 @@ function parseValidationError(error: unknown): string | null {
   }
 
   return messages.length > 0 ? messages.join(" ") : null
+}
+
+/** The `detail` of a send the API rejected; the transport throws its body as the message. */
+function sendErrorDetail(error: unknown): unknown {
+  if (!(error instanceof Error)) return undefined
+  try {
+    const parsed: unknown = JSON.parse(error.message)
+    return parsed && typeof parsed === "object" && "detail" in parsed
+      ? parsed.detail
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** Whether a failed send is the API refusing its Slack destination. */
+export function isChannelDestinationRefused(error: unknown): boolean {
+  const detail = sendErrorDetail(error)
+  return (
+    !!detail &&
+    typeof detail === "object" &&
+    "type" in detail &&
+    detail.type === "ChannelDestinationRefused"
+  )
 }
 
 export function parseChatError(error: unknown): string {

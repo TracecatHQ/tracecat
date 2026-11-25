@@ -75,26 +75,6 @@ export function usePickedChannelDestination(
   }
 }
 
-/** Whether a failed send is the API refusing its Slack destination. */
-export function isChannelDestinationRefused(error: unknown): boolean {
-  if (!(error instanceof Error)) return false
-  try {
-    const parsed: unknown = JSON.parse(error.message)
-    const detail =
-      parsed && typeof parsed === "object" && "detail" in parsed
-        ? parsed.detail
-        : null
-    return (
-      !!detail &&
-      typeof detail === "object" &&
-      "type" in detail &&
-      detail.type === "ChannelDestinationRefused"
-    )
-  } catch {
-    return false
-  }
-}
-
 /** The destination a send's options carry; the turn's end opens its thread there. */
 export function channelDestinationFromOptions(
   body: Record<string, unknown> | undefined
