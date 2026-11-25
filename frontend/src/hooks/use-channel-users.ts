@@ -3,6 +3,7 @@
 import {
   type AgentChannelUserRead,
   agentChannelUsersListMyChannelUsers,
+  agentChannelUsersStartMyChannelLinkSignIn,
   agentChannelUsersUnlinkMyChannelUser,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
@@ -47,5 +48,27 @@ export function useMyChannelUsers() {
       })
     },
   })
-  return { links, isLoading, error, unlink, unlinkPending }
+  const { mutate: startSignIn, isPending: signInPending } = useMutation<
+    { sign_in_url: string },
+    TracecatApiError
+  >({
+    mutationFn: async () => await agentChannelUsersStartMyChannelLinkSignIn(),
+    onSuccess: ({ sign_in_url }) => window.location.assign(sign_in_url),
+    onError: (error) => {
+      toast({
+        title: "Couldn't start linking",
+        description: getApiErrorDetail(error) ?? "Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+  return {
+    links,
+    isLoading,
+    error,
+    unlink,
+    unlinkPending,
+    startSignIn,
+    signInPending,
+  }
 }

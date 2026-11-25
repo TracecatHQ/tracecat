@@ -19,9 +19,20 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { useMyChannelUsers } from "@/hooks/use-channel-users"
+import { useEntitlements } from "@/hooks/use-entitlements"
 
 export function LinkedAccountsSettings() {
-  const { links, isLoading, error, unlink, unlinkPending } = useMyChannelUsers()
+  const {
+    links,
+    isLoading,
+    error,
+    unlink,
+    unlinkPending,
+    startSignIn,
+    signInPending,
+  } = useMyChannelUsers()
+  const { hasEntitlement } = useEntitlements()
+  const canLink = hasEntitlement("agent_channels_preview")
   const [unlinkTarget, setUnlinkTarget] = useState<AgentChannelUserRead | null>(
     null
   )
@@ -34,9 +45,7 @@ export function LinkedAccountsSettings() {
     ? (channelProviderName(unlinkTarget.provider) ?? unlinkTarget.provider)
     : ""
   let emptyState = (
-    <p className="p-3 text-sm text-muted-foreground">
-      No linked accounts. Sign in from a Slack message to link one.
-    </p>
+    <p className="p-3 text-sm text-muted-foreground">No linked accounts.</p>
   )
   if (error) {
     emptyState = (
@@ -47,11 +56,24 @@ export function LinkedAccountsSettings() {
   }
   return (
     <div className="space-y-8">
-      <div className="space-y-1">
-        <h3 className="text-lg font-semibold">Linked accounts</h3>
-        <p className="text-sm text-muted-foreground">
-          Chat accounts that act as you when you message a Tracecat agent.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <h3 className="text-lg font-semibold">Linked accounts</h3>
+          <p className="text-sm text-muted-foreground">
+            Chat accounts that act as you when you message a Tracecat agent.
+          </p>
+        </div>
+        {canLink && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={signInPending}
+            onClick={() => startSignIn()}
+          >
+            <ChannelProviderIcon provider="slack" className="mr-2 size-4" />
+            Link Slack account
+          </Button>
+        )}
       </div>
 
       <div className="divide-y rounded-md border">
@@ -100,7 +122,7 @@ export function LinkedAccountsSettings() {
           <AlertDialogHeader>
             <AlertDialogTitle>Unlink {targetName} account?</AlertDialogTitle>
             <AlertDialogDescription>
-              {`Messages you send in ${targetName} will no longer count as you. You can link it again from a ${targetName} message.`}
+              {`Messages you send in ${targetName} will no longer count as you. You can link it again from here or from a ${targetName} message.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

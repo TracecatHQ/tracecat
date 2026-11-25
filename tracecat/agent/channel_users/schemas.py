@@ -25,6 +25,12 @@ def channel_link_page_url(token: str) -> str:
     return f"{base_url}/channel-links/{quote(token, safe='')}"
 
 
+def channel_link_settings_url() -> str:
+    """Settings › Linked accounts, where a sign-in started from Settings returns."""
+    base_url = config.TRACECAT__PUBLIC_APP_URL.rstrip("/")
+    return f"{base_url}/workspaces?settings=linked-accounts"
+
+
 class ChannelLinkSignInRead(BaseModel):
     """Where to send the browser to prove the provider identity."""
 

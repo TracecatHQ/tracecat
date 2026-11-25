@@ -21,21 +21,30 @@ from tracecat import config
 from tracecat.agent.channel_users import router as channel_users_router
 from tracecat.agent.channel_users import service as channel_users_service
 from tracecat.agent.channel_users import tokens
-from tracecat.agent.channel_users.enums import ChannelAccessPolicy, ChannelAction
+from tracecat.agent.channel_users.enums import (
+    ChannelAccessPolicy,
+    ChannelAction,
+    ChannelLinkError,
+)
 from tracecat.agent.channel_users.service import (
     ChannelApproverNotAllowed,
     ChannelLinkRequired,
     check_channel_access,
     complete_channel_link,
+    complete_settings_link,
     linked_member_names,
     resolve_channel_actor,
+    settings_sign_in_bot,
     start_provider_sign_in,
     unlink_channel_user,
 )
 from tracecat.agent.channel_users.tokens import (
     ChannelLinkInvalid,
+    ChannelSettingsSignIn,
     mint_link_token,
+    mint_settings_sign_in_state,
     mint_sign_in_state,
+    read_any_sign_in_state,
     read_link_token,
     read_sign_in_state,
 )
@@ -678,3 +687,212 @@ async def test_channel_user_routes_need_the_channels_preview(
 
     assert response.status_code == 403
     assert response.json()["type"] == "EntitlementRequired"
+
+
+async def _bot(
+    session: AsyncSession,
+    org: _Org,
+    *,
+    tenant: str | None = TENANT,
+    status: str = "active",
+    app_owner: str = "workspace",
+) -> AgentChannelBot:
+    preset = AgentPreset(
+        workspace_id=org.workspace_id,
+        name="Responder",
+        slug=f"responder-{uuid.uuid4().hex[:8]}",
+        model_name="gpt-5",
+        model_provider="openai",
+    )
+    session.add(preset)
+    await session.flush()
+    bot = AgentChannelBot(
+        workspace_id=org.workspace_id,
+        agent_preset_id=preset.id,
+        provider=PROVIDER,
+        status=status,
+        app_owner=app_owner,
+        provider_tenant_id=tenant,
+        provider_app_id=f"A{uuid.uuid4().hex[:8]}",
+        manifest_version=1,
+        encrypted_credentials=b"",
+    )
+    session.add(bot)
+    await session.commit()
+    return bot
+
+
+def _bots_read_in(session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The test session's rows are uncommitted, so the bot lookups read through it.
+    @asynccontextmanager
+    async def _same_session() -> AsyncIterator[AsyncSession]:
+        yield session
+
+    monkeypatch.setattr(
+        channel_users_service,
+        "get_async_session_bypass_rls_context_manager",
+        _same_session,
+    )
+
+
+def _settings_sign_in(org: _Org, user: User, bot_id: uuid.UUID) -> str:
+    return mint_settings_sign_in_state(
+        organization_id=org.organization_id,
+        workspace_id=org.workspace_id,
+        bot_id=bot_id,
+        user_id=user.id,
+    )
+
+
+async def test_settings_sign_in_prefers_an_active_platform_bot(
+    session: AsyncSession, org: _Org, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _bots_read_in(session, monkeypatch)
+    assert await settings_sign_in_bot(org.organization_id) is None
+    await _bot(session, org, status="paused")
+    await _bot(session, org, tenant=None)
+    assert await settings_sign_in_bot(org.organization_id) is None
+
+    platform = await _bot(session, org, app_owner="platform", tenant="T-platform")
+    await _bot(session, org)
+    chosen = await settings_sign_in_bot(org.organization_id)
+    assert chosen is not None and chosen.id == platform.id
+
+
+async def test_settings_sign_in_links_only_a_tenant_with_an_active_bot(
+    session: AsyncSession, org: _Org, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _entitle(session, org.organization_id, monkeypatch)
+    _bots_read_in(session, monkeypatch)
+    bot = await _bot(session, org)
+    await _bot(session, org, tenant="T-paused", status="paused")
+    user = await _user(session, org)
+    admin = _SignedInAs(ChannelIdentity(PROVIDER, "T-paused", "U20"))
+    monkeypatch.setattr(
+        channel_users_service, "require_channel_bot_admin", lambda: admin
+    )
+    sign_in = read_any_sign_in_state(_settings_sign_in(org, user, bot.id))
+    assert isinstance(sign_in, ChannelSettingsSignIn)
+
+    for tenant in ("T-paused", "T-elsewhere"):
+        admin.identity = ChannelIdentity(PROVIDER, tenant, "U20")
+        with pytest.raises(ChannelLinkInvalid) as exc_info:
+            await complete_settings_link(
+                session, sign_in=sign_in, code="c", user_id=user.id
+            )
+        assert exc_info.value.error == ChannelLinkError.NO_BOT
+    assert await session.scalar(select(AgentChannelUser.id)) is None
+
+    admin.identity = _identity("U20")
+    await complete_settings_link(session, sign_in=sign_in, code="c", user_id=user.id)
+    actor = await resolve_channel_actor(
+        session, organization_id=org.organization_id, identity=_identity("U20")
+    )
+    assert actor.user_id == user.id
+
+
+@pytest.mark.parametrize("refusal", ["other_user", "non_member", "unentitled"])
+async def test_settings_sign_in_refusals_write_nothing(
+    session: AsyncSession,
+    org: _Org,
+    monkeypatch: pytest.MonkeyPatch,
+    refusal: str,
+) -> None:
+    await _entitle(
+        session, org.organization_id, monkeypatch, entitled=refusal != "unentitled"
+    )
+    _bots_read_in(session, monkeypatch)
+    bot = await _bot(session, org)
+    user = await _user(session, org, member=refusal != "non_member")
+    admin = _SignedInAs(_identity("U21"))
+    monkeypatch.setattr(
+        channel_users_service, "require_channel_bot_admin", lambda: admin
+    )
+    sign_in = read_any_sign_in_state(_settings_sign_in(org, user, bot.id))
+    assert isinstance(sign_in, ChannelSettingsSignIn)
+    confirming = uuid.uuid4() if refusal == "other_user" else user.id
+
+    with pytest.raises((ChannelLinkInvalid, EntitlementRequired)):
+        await complete_settings_link(
+            session, sign_in=sign_in, code="c", user_id=confirming
+        )
+    assert await session.scalar(select(AgentChannelUser.id)) is None
+
+
+async def test_a_settings_state_is_not_a_link_state() -> None:
+    state = mint_settings_sign_in_state(
+        organization_id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        bot_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+    )
+    with pytest.raises(ChannelLinkInvalid):
+        read_sign_in_state(state)
+    with pytest.raises(ChannelLinkInvalid):
+        read_any_sign_in_state(f"{state}x")
+
+
+async def test_callback_returns_a_settings_sign_in_to_settings(
+    org: _Org, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__PUBLIC_APP_URL", APP_URL)
+    user = await _user(session, org)
+    state = _settings_sign_in(org, user, uuid.uuid4())
+    outcomes: list[ChannelLinkError | None] = [
+        None,
+        ChannelLinkError.NO_BOT,
+    ]
+
+    async def _complete(*_args, **_kwargs) -> None:
+        if (error := outcomes.pop(0)) is not None:
+            raise ChannelLinkInvalid("refused", error=error)
+
+    async def _never(*_args, **_kwargs) -> None:
+        raise AssertionError("a Settings sign-in took the link-token path")
+
+    monkeypatch.setattr(channel_users_router, "complete_settings_link", _complete)
+    monkeypatch.setattr(channel_users_router, "complete_channel_link", _never)
+    callback = channel_users_router.handle_channel_link_callback
+    linked = await callback(user=user, state=state, code="c")
+    no_bot = await callback(user=user, state=state, code="c")
+    cancelled = await callback(user=user, state=state, error="access_denied")
+
+    assert _redirect_query(linked) == (
+        "/workspaces",
+        {"settings": ["linked-accounts"], "result": ["linked"]},
+    )
+    assert _redirect_query(no_bot)[1] == {
+        "settings": ["linked-accounts"],
+        "result": ["error"],
+        "error": ["no_bot"],
+    }
+    assert _redirect_query(cancelled)[1]["error"] == ["cancelled"]
+
+
+async def test_my_link_routes_need_the_channels_preview(
+    session: AsyncSession, org: _Org, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _entitle(session, org.organization_id, monkeypatch, entitled=False)
+
+    async def _never(*_args, **_kwargs) -> None:
+        raise AssertionError("started a sign-in without the entitlement")
+
+    monkeypatch.setattr(channel_users_router, "settings_sign_in_bot", _never)
+    async with _admin_client(session, org, frozenset()) as client:
+        sign_in = await client.post("/agent/channel-users/me/sign-in")
+        unlink = await client.delete(f"/agent/channel-users/me/{uuid.uuid4()}")
+
+    for response in (sign_in, unlink):
+        assert response.status_code == 403
+        assert response.json()["type"] == "EntitlementRequired"
+
+
+async def test_settings_sign_in_without_a_bot_is_refused(
+    session: AsyncSession, org: _Org, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _entitle(session, org.organization_id, monkeypatch)
+    _bots_read_in(session, monkeypatch)
+    async with _admin_client(session, org, frozenset()) as client:
+        response = await client.post("/agent/channel-users/me/sign-in")
+
+    assert response.status_code == 400

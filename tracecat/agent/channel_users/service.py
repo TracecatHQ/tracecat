@@ -14,6 +14,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.channel_bots.provider import require_channel_bot_admin
+from tracecat.agent.channel_bots.schemas import ChannelBotAppOwner, ChannelBotStatus
 from tracecat.agent.channel_users.enums import (
     ChannelAccessPolicy,
     ChannelAction,
@@ -28,7 +29,9 @@ from tracecat.agent.channel_users.tokens import (
     ChannelLinkClaims,
     ChannelLinkInvalid,
     ChannelLinkSignIn,
+    ChannelSettingsSignIn,
     mint_link_token,
+    mint_settings_sign_in_state,
     mint_sign_in_state,
     read_link_token,
 )
@@ -37,7 +40,9 @@ from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.authz.service import query_effective_scopes
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
+    AgentChannelBot,
     AgentChannelUser,
     OrganizationMembership,
     User,
@@ -295,13 +300,15 @@ async def _ensure_linkable(
     return user
 
 
-def _bot_service_role(claims: ChannelLinkClaims) -> Role:
+def _bot_service_role(
+    organization_id: OrganizationID, workspace_id: WorkspaceID
+) -> Role:
     # Confirming needs org membership only, so the bot is read as the API service.
     return Role(
         type="service",
         service_id="tracecat-api",
-        organization_id=claims.organization_id,
-        workspace_id=claims.workspace_id,
+        organization_id=organization_id,
+        workspace_id=workspace_id,
         scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-api"],
     )
 
@@ -314,7 +321,7 @@ async def start_provider_sign_in(
     await _ensure_linkable(session, claims=claims, user_id=user_id)
     return await require_channel_bot_admin().provider_sign_in_url(
         session,
-        _bot_service_role(claims),
+        _bot_service_role(claims.organization_id, claims.workspace_id),
         claims.bot_id,
         state=mint_sign_in_state(link_token=link_token, user_id=user_id),
         redirect_uri=channel_link_callback_url(),
@@ -343,7 +350,7 @@ async def complete_channel_link(
     await _ensure_linkable(session, claims=claims, user_id=user_id)
     signed_in = await require_channel_bot_admin().verify_provider_sign_in(
         session,
-        _bot_service_role(claims),
+        _bot_service_role(claims.organization_id, claims.workspace_id),
         claims.bot_id,
         code=code,
         redirect_uri=channel_link_callback_url(),
@@ -371,6 +378,123 @@ async def complete_channel_link(
         # The link was not stored (or the request was cancelled); a retry must find it unused.
         await redis.delete(_used_key(claims))
         raise
+
+
+def _active_org_bots(organization_id: OrganizationID) -> ColumnElement[bool]:
+    return and_(
+        AgentChannelBot.status == ChannelBotStatus.ACTIVE,
+        AgentChannelBot.provider_tenant_id.is_not(None),
+        AgentChannelBot.workspace_id.in_(
+            select(Workspace.id).where(Workspace.organization_id == organization_id)
+        ),
+    )
+
+
+async def settings_sign_in_bot(
+    organization_id: OrganizationID,
+) -> AgentChannelBot | None:
+    """The active bot whose app signs in from Settings; a platform app first, since it
+    signs in any tenant."""
+    # Bots are workspace rows; the org filter is explicit.
+    async with get_async_session_bypass_rls_context_manager() as session:
+        return await session.scalar(
+            select(AgentChannelBot)
+            .where(_active_org_bots(organization_id))
+            .order_by(
+                (AgentChannelBot.app_owner == ChannelBotAppOwner.PLATFORM).desc(),
+                AgentChannelBot.created_at.desc(),
+            )
+            .limit(1)
+        )
+
+
+async def start_settings_sign_in(
+    session: AsyncSession,
+    *,
+    bot: AgentChannelBot,
+    organization_id: OrganizationID,
+    user_id: uuid.UUID,
+) -> str:
+    """Return a provider sign-in URL through `bot`'s app, for linking with no link token."""
+    await _ensure_member(session, organization_id=organization_id, user_id=user_id)
+    await require_org_entitlement(
+        session, organization_id, Entitlement.AGENT_CHANNELS_PREVIEW
+    )
+    return await require_channel_bot_admin().provider_sign_in_url(
+        session,
+        _bot_service_role(organization_id, bot.workspace_id),
+        bot.id,
+        state=mint_settings_sign_in_state(
+            organization_id=organization_id,
+            workspace_id=bot.workspace_id,
+            bot_id=bot.id,
+            user_id=user_id,
+        ),
+        redirect_uri=channel_link_callback_url(),
+    )
+
+
+async def _has_active_bot(
+    organization_id: OrganizationID, identity: ChannelIdentity
+) -> bool:
+    async with get_async_session_bypass_rls_context_manager() as bots_session:
+        return bool(
+            await bots_session.scalar(
+                select(
+                    exists().where(
+                        _active_org_bots(organization_id),
+                        AgentChannelBot.provider == identity.provider,
+                        AgentChannelBot.provider_tenant_id
+                        == identity.provider_tenant_id,
+                    )
+                )
+            )
+        )
+
+
+async def complete_settings_link(
+    session: AsyncSession,
+    *,
+    sign_in: ChannelSettingsSignIn,
+    code: str,
+    user_id: uuid.UUID,
+) -> None:
+    """Link the provider user who signed in from Settings to `user_id`.
+
+    Raises:
+        ChannelLinkInvalid: If another user started the sign-in, the user left the
+            org, or the signed-in tenant has no active bot in the org.
+    """
+    if sign_in.user_id != user_id:
+        raise ChannelLinkInvalid(
+            "This sign-in was started by another Tracecat user",
+            error=ChannelLinkError.OTHER_USER,
+        )
+    organization_id = sign_in.organization_id
+    await _ensure_member(session, organization_id=organization_id, user_id=user_id)
+    await require_org_entitlement(
+        session, organization_id, Entitlement.AGENT_CHANNELS_PREVIEW
+    )
+    signed_in = await require_channel_bot_admin().verify_provider_sign_in(
+        session,
+        _bot_service_role(organization_id, sign_in.workspace_id),
+        sign_in.bot_id,
+        code=code,
+        redirect_uri=channel_link_callback_url(),
+    )
+    if not await _has_active_bot(organization_id, signed_in.identity):
+        raise ChannelLinkInvalid(
+            "Your organization has no active bot in that provider tenant",
+            error=ChannelLinkError.NO_BOT,
+        )
+    await _upsert_link(
+        session,
+        organization_id=organization_id,
+        identity=signed_in.identity,
+        user_id=user_id,
+        provider_email=signed_in.email,
+    )
+    await session.commit()
 
 
 async def unlink_channel_user(

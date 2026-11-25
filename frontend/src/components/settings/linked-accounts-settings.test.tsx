@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import {
   agentChannelUsersListMyChannelUsers,
+  agentChannelUsersStartMyChannelLinkSignIn,
   agentChannelUsersUnlinkMyChannelUser,
 } from "@/client"
 import { LinkedAccountsSettings } from "@/components/settings/linked-accounts-settings"
@@ -11,6 +12,12 @@ jest.mock("@/client", () => ({
   ...jest.requireActual("@/client"),
   agentChannelUsersListMyChannelUsers: jest.fn(),
   agentChannelUsersUnlinkMyChannelUser: jest.fn(async () => undefined),
+  agentChannelUsersStartMyChannelLinkSignIn: jest.fn(),
+}))
+
+const mockHasEntitlement = jest.fn(() => true)
+jest.mock("@/hooks/use-entitlements", () => ({
+  useEntitlements: () => ({ hasEntitlement: mockHasEntitlement }),
 }))
 
 jest.mock("@/components/ui/use-toast", () => ({
@@ -19,6 +26,7 @@ jest.mock("@/components/ui/use-toast", () => ({
 
 const listLinks = jest.mocked(agentChannelUsersListMyChannelUsers)
 const unlinkLink = jest.mocked(agentChannelUsersUnlinkMyChannelUser)
+const startSignIn = jest.mocked(agentChannelUsersStartMyChannelLinkSignIn)
 
 const LINK = {
   id: "link-1",
@@ -46,6 +54,8 @@ function renderSettings() {
 beforeEach(() => {
   listLinks.mockReset()
   unlinkLink.mockClear()
+  startSignIn.mockReset()
+  mockHasEntitlement.mockReturnValue(true)
 })
 
 test("lists a link by provider and email, without provider ids", async () => {
@@ -78,9 +88,26 @@ test("unlink deletes the link only after confirming", async () => {
 test("shows the empty state", async () => {
   listLinks.mockResolvedValue({ items: [] })
   renderSettings()
+  expect(await screen.findByText("No linked accounts.")).toBeInTheDocument()
+})
+
+test("the link button starts a Slack sign-in with no link token", async () => {
+  listLinks.mockResolvedValue({ items: [] })
+  // Never resolves, so the test never navigates.
+  startSignIn.mockReturnValue(new Promise(() => {}) as never)
+  renderSettings()
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Link Slack account" })
+  )
+  await waitFor(() => expect(startSignIn).toHaveBeenCalledWith())
+})
+
+test("hides the link button without the channels preview", async () => {
+  mockHasEntitlement.mockReturnValue(false)
+  listLinks.mockResolvedValue({ items: [] })
+  renderSettings()
+  expect(await screen.findByText("No linked accounts.")).toBeInTheDocument()
   expect(
-    await screen.findByText(
-      "No linked accounts. Sign in from a Slack message to link one."
-    )
-  ).toBeInTheDocument()
+    screen.queryByRole("button", { name: "Link Slack account" })
+  ).not.toBeInTheDocument()
 })

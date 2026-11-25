@@ -207,6 +207,7 @@ import type {
   AgentChannelUsersListOrganizationChannelUsersResponse,
   AgentChannelUsersStartChannelLinkSignInData,
   AgentChannelUsersStartChannelLinkSignInResponse,
+  AgentChannelUsersStartMyChannelLinkSignInResponse,
   AgentChannelUsersUnlinkMyChannelUserData,
   AgentChannelUsersUnlinkMyChannelUserResponse,
   AgentChannelUsersUnlinkOrganizationChannelUserData,
@@ -1588,6 +1589,20 @@ export const agentChannelUsersStartChannelLinkSignIn = (
     },
   })
 }
+
+/**
+ * Start My Channel Link Sign In
+ * Start a provider sign-in from Settings that links the caller, with no link token.
+ * @returns ChannelLinkSignInRead Successful Response
+ * @throws ApiError
+ */
+export const agentChannelUsersStartMyChannelLinkSignIn =
+  (): CancelablePromise<AgentChannelUsersStartMyChannelLinkSignInResponse> => {
+    return __request(OpenAPI, {
+      method: "POST",
+      url: "/agent/channel-users/me/sign-in",
+    })
+  }
 
 /**
  * List My Channel Users
