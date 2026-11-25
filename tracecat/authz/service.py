@@ -6,11 +6,11 @@ from uuid import UUID
 from sqlalchemy import CompoundSelect, cast, delete, exists, func, null, or_, select
 from sqlalchemy.dialects.postgresql import array as pg_array
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import InstrumentedAttribute, selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
 from tracecat.auth.types import Role
-from tracecat.authz.controls import ensure_can_grant_scopes, require_scope
+from tracecat.authz.controls import ensure_can_grant_scopes, has_scope, require_scope
 from tracecat.authz.membership import (
     lock_role_changes,
 )
@@ -49,6 +49,16 @@ from tracecat.workspaces.schemas import (
 )
 
 
+def _granted_here(
+    workspace_column: InstrumentedAttribute[UUID | None],
+    workspace_id: WorkspaceID | None,
+) -> ColumnElement[bool]:
+    """Org-wide grants count everywhere; workspace grants only in ``workspace_id``."""
+    if workspace_id is None:
+        return workspace_column.is_(None)
+    return or_(workspace_column.is_(None), workspace_column == workspace_id)
+
+
 def effective_role_ids(
     user_id: UserID,
     organization_id: OrganizationID,
@@ -58,26 +68,10 @@ def effective_role_ids(
 
     Org-wide grants count everywhere; workspace grants only in ``workspace_id``.
     """
-    user_workspace_condition = (
-        or_(
-            UserRoleAssignment.workspace_id.is_(None),
-            UserRoleAssignment.workspace_id == workspace_id,
-        )
-        if workspace_id is not None
-        else UserRoleAssignment.workspace_id.is_(None)
-    )
-    group_workspace_condition = (
-        or_(
-            GroupRoleAssignment.workspace_id.is_(None),
-            GroupRoleAssignment.workspace_id == workspace_id,
-        )
-        if workspace_id is not None
-        else GroupRoleAssignment.workspace_id.is_(None)
-    )
     user_roles = select(UserRoleAssignment.role_id).where(
         UserRoleAssignment.user_id == user_id,
         UserRoleAssignment.organization_id == organization_id,
-        user_workspace_condition,
+        _granted_here(UserRoleAssignment.workspace_id, workspace_id),
     )
     # Manual and IdP members inherit the same group roles.
     group_roles = (
@@ -89,10 +83,60 @@ def effective_role_ids(
         .where(
             effective_group_members.c.user_id == user_id,
             GroupRoleAssignment.organization_id == organization_id,
-            group_workspace_condition,
+            _granted_here(GroupRoleAssignment.workspace_id, workspace_id),
         )
     )
     return user_roles.union(group_roles)
+
+
+async def scope_holder_ids(
+    session: SupportsExecute,
+    organization_id: OrganizationID,
+    workspace_id: WorkspaceID | None,
+    scope: str,
+) -> CompoundSelect:
+    """Select the users whose effective scopes here satisfy ``scope``.
+
+    The set form of ``has_scope(query_effective_scopes(...), scope)``; keep in step.
+
+    Raises:
+        ValueError: If every organization member holds ``scope``.
+    """
+    if has_scope(ORG_MEMBER_FLOOR_SCOPES, scope):
+        raise ValueError(f"Every organization member holds {scope}")
+    org_scopes = await session.execute(
+        select(Scope.id, Scope.name)
+        .join(RoleScope, RoleScope.scope_id == Scope.id)
+        .join(DBRole, DBRole.id == RoleScope.role_id)
+        .where(DBRole.organization_id == organization_id)
+        .distinct()
+    )
+    # has_scope owns wildcard and implication matching.
+    matching = [
+        scope_id
+        for scope_id, name in org_scopes.tuples()
+        if has_scope(frozenset({name}), scope)
+    ]
+    roles = select(RoleScope.role_id).where(RoleScope.scope_id.in_(matching))
+    holders = select(UserRoleAssignment.user_id).where(
+        UserRoleAssignment.organization_id == organization_id,
+        _granted_here(UserRoleAssignment.workspace_id, workspace_id),
+        UserRoleAssignment.role_id.in_(roles),
+    )
+    group_holders = (
+        select(effective_group_members.c.user_id)
+        .join_from(
+            GroupRoleAssignment,
+            effective_group_members,
+            effective_group_members.c.group_id == GroupRoleAssignment.group_id,
+        )
+        .where(
+            GroupRoleAssignment.organization_id == organization_id,
+            _granted_here(GroupRoleAssignment.workspace_id, workspace_id),
+            GroupRoleAssignment.role_id.in_(roles),
+        )
+    )
+    return holders.union(group_holders)
 
 
 async def query_effective_scopes(

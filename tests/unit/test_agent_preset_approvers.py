@@ -788,6 +788,84 @@ async def test_add_refuses_principals_outside_the_workspace(
     assert await _all_listed(service, preset_id) == []
 
 
+async def _org_user(session: AsyncSession, role: Role, slug: str) -> User:
+    """An org user holding the ``slug`` org role, with no workspace membership."""
+    assert role.organization_id is not None
+    user = await _make_user(session, role, workspace_role=None)
+    session.add(
+        UserRoleAssignment(
+            organization_id=role.organization_id,
+            user_id=user.id,
+            workspace_id=None,
+            role_id=await _system_role_id(session, role, slug),
+        )
+    )
+    await session.commit()
+    return user
+
+
+async def test_org_admins_who_open_every_workspace_are_offered_and_addable(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    preset = await _preset(session, svc_role)
+    admin = await _org_user(session, svc_role, "organization-admin")
+    owner = await _org_user(session, svc_role, "organization-owner")
+    # An org-wide group grant opens every workspace too.
+    via_group = await _make_user(session, svc_role, workspace_role=None)
+    owner_group = await _assigned_group(
+        session,
+        svc_role,
+        await _system_role_id(session, svc_role, "organization-owner"),
+        workspace_id=None,
+    )
+    session.add(GroupMember(group_id=owner_group.id, user_id=via_group.id))
+    await session.commit()
+    stranger = await _make_user(session, svc_role, workspace_role=None)
+    service = AgentPresetApproverService(session, role=svc_role)
+    preset_id = preset.id
+
+    options = await _option_keys(service)
+    assert {("user", admin.id), ("user", owner.id), ("user", via_group.id)} <= options
+    assert ("user", stranger.id) not in options
+    assert ("group", owner_group.id) not in options
+
+    added = await service.add_approvers(
+        preset_id, [AgentPresetApproverRef(kind="user", id=admin.id)]
+    )
+    assert [(r.kind, r.id) for r in added] == [("user", admin.id)]
+    with pytest.raises(TracecatValidationError):
+        await service.add_approvers(
+            preset_id, [AgentPresetApproverRef(kind="user", id=stranger.id)]
+        )
+
+
+async def test_a_listed_org_admin_decides(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    preset = await _preset(session, svc_role)
+    admin = await _org_user(session, svc_role, "organization-admin")
+    await AgentPresetApproverService(session, role=svc_role).add_approvers(
+        preset.id, [AgentPresetApproverRef(kind="user", id=admin.id)]
+    )
+    agent_session = await _seed_batch(session, svc_role)
+    agent_session.agent_preset_id = preset.id
+    await session.commit()
+
+    assert await _allowed(session, svc_role, preset, admin)
+    # Web and channel clicks both decide through this path.
+    with _mock_approval_continuation_dependencies(
+        _ApprovalContinuationRedis(), AsyncMock(return_value=False)
+    ):
+        accepted = await AgentSessionService(session=session, role=svc_role).decide(
+            **_click(agent_session, user_id=admin.id, source="slack")
+        )
+
+    assert accepted == DecisionRecorded(
+        pending_tool_call_ids=["tool_call_456"], resumed=None
+    )
+    assert (await _row(session, agent_session, "tool_call_123")).approved_by == admin.id
+
+
 async def test_add_refuses_going_over_the_cap(
     session: AsyncSession, svc_role: Role, monkeypatch: pytest.MonkeyPatch
 ) -> None:
