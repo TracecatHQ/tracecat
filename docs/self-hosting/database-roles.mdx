@@ -16,6 +16,8 @@ By default Tracecat uses one PostgreSQL user for everything. With database roles
 
 Setting up roles is provisioning: you run it as the admin, once per install and again before a release that changes roles. Migrations then run as `migrator` and never need the admin: once the roles are set up, the migrations container refuses any other login.
 
+If your own tooling must create every role and grant, skip `tracecat db roles` and follow [Roles managed by your own tooling](/self-hosting/database-roles-own-tooling) instead.
+
 ## Set up roles
 
 Run `tracecat db roles upgrade` as the admin, from the Tracecat image of the release you are about to deploy. It creates the roles, grants their access, and moves an existing install's objects to `tracecat_owner` and `app_owner`. It is safe to rerun.

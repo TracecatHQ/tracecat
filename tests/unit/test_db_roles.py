@@ -41,13 +41,18 @@ import pytest
 from alembic.config import Config as AlembicConfig
 from alembic.script import ScriptDirectory
 from sqlalchemy import Connection, create_engine, make_url
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
+from tracecat.auth.types import Role
+from tracecat.authz.scopes import ADMIN_SCOPES
+from tracecat.cases.service import CaseFieldsService
 from tracecat.db import roles as roles_module
 from tracecat.db.engine import verify_rls_enforceable_login
-from tracecat.db.models import Base
+from tracecat.db.models import Base, Organization, Workspace
+from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 from tracecat.db.roles import (
     READONLY_HIDDEN_COLUMNS,
     ROLE_SETUP_VERSION,
@@ -74,6 +79,8 @@ from tracecat.db.roles import (
     run_upgrade,
     status,
 )
+from tracecat.tables.schemas import TableCreate
+from tracecat.tables.service import TablesService
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PASSWORD = "Pa%ss'word"  # % and ' check quoting end to end
@@ -1790,16 +1797,9 @@ def test_upgrade_on_a_compose_shaped_install() -> None:
                 " FROM pg_event_trigger t JOIN pg_proc f ON f.oid = t.evtfoid"
                 " WHERE f.oid = to_regprocedure('public.tracecat_guard_dynamic_rls()')"
             ).fetchall()
-            owners = conn.execute(
-                """
-                SELECT DISTINCT pg_get_userbyid(c.relowner) FROM pg_class c
-                WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r','p','v','m','S')
-                  AND NOT EXISTS (SELECT FROM pg_depend d WHERE d.objid = c.oid AND d.deptype = 'e')
-                """
-            ).fetchall()
         assert first.complete and len(first.moved) > 100
         assert again.complete and again.moved == [] and again.failed == []
-        assert owners == [(roles.owner,)]
+        assert _public_owners(database) == [(roles.owner,)]
         assert first.kept_access == []  # a superuser admin needs no kept access
         assert guard == [("postgres", "postgres")] * 2  # triggers and function
         # Rolling back the RLS guard's two revisions drops event triggers, which
@@ -2245,6 +2245,27 @@ def install(monkeypatch: pytest.MonkeyPatch) -> Iterator[MigrateInstall]:
         _drop_all(install.database, [*roles.logins, *roles.keyrings])
 
 
+def _schema_owner(database: str, schema: str) -> tuple[object, ...] | None:
+    with psycopg.connect(_url("postgres", "postgres", database)) as conn:
+        return conn.execute(
+            "SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = %s",
+            (schema,),
+        ).fetchone()
+
+
+def _public_owners(database: str) -> list[tuple[object, ...]]:
+    """Owners of the non-extension objects in ``public``."""
+    with psycopg.connect(_url("postgres", "postgres", database)) as conn:
+        return conn.execute(
+            """
+            SELECT DISTINCT pg_get_userbyid(c.relowner) FROM pg_class c
+            WHERE c.relnamespace = 'public'::regnamespace
+              AND c.relkind IN ('r','p','v','m','S')
+              AND NOT EXISTS (SELECT FROM pg_depend d WHERE d.objid = c.oid AND d.deptype = 'e')
+            """
+        ).fetchall()
+
+
 def _alembic_head(database: str) -> tuple[str, ...] | None:
     with psycopg.connect(_url("postgres", "postgres", database)) as conn:
         return conn.execute("SELECT version_num FROM public.alembic_version").fetchone()
@@ -2311,14 +2332,6 @@ def test_migrate_as_migrator_after_upgrade_on_a_fresh_compose_install(
     roles = install.roles
     assert migrate(roles) == 0
     with psycopg.connect(install.url("postgres")) as conn:
-        owners = conn.execute(
-            """
-            SELECT DISTINCT pg_get_userbyid(c.relowner) FROM pg_class c
-            WHERE c.relnamespace = 'public'::regnamespace
-              AND c.relkind IN ('r','p','v','m','S')
-              AND NOT EXISTS (SELECT FROM pg_depend d WHERE d.objid = c.oid AND d.deptype = 'e')
-            """
-        ).fetchall()
         references = conn.execute(
             """SELECT has_table_privilege(%s, 'public."case"', 'REFERENCES')""",
             (roles.dynamic_owner,),
@@ -2328,7 +2341,8 @@ def test_migrate_as_migrator_after_upgrade_on_a_fresh_compose_install(
             (roles.readonly,),
         ).fetchone()
         guard = conn.execute(GUARD_TRIGGERS_SQL).fetchall()
-    assert owners == [(roles.owner,)]  # migrator created everything as the keyring
+    # migrator created everything as the keyring
+    assert _public_owners(install.database) == [(roles.owner,)]
     assert references == (True,)  # owner-level pass, after migrations created "case"
     assert readonly == (True,)
     # migrator can't create event triggers: the guard waits for the admin.
@@ -2391,15 +2405,11 @@ def test_owner_level_sql_runs_as_a_plain_migrator(topology: Topology) -> None:
         engine.dispose()
     assert [(n.sqlstate, n.message_primary) for n in notices] == []
     with psycopg.connect(topology.url(topology.admin)) as conn:
-        owner = conn.execute(
-            "SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = %s",
-            (schema,),
-        ).fetchone()
         forced = conn.execute(
             "SELECT relforcerowsecurity FROM pg_class WHERE oid = %s::regclass",
             (f"{quote_ident(schema)}.t",),
         ).fetchone()
-    assert owner == (roles.dynamic_owner,)
+    assert _schema_owner(topology.database, schema) == (roles.dynamic_owner,)
     assert forced == (True,)
 
 
@@ -2850,9 +2860,172 @@ def test_migrate_moves_dynamic_schemas_that_migrations_create(
         _run(conn, f"CREATE SCHEMA IF NOT EXISTS {quote_ident(schema)}")
         _run(conn, f"CREATE TABLE IF NOT EXISTS {quote_ident(schema)}.t (id int)")
     assert migrate(roles) == 0
-    with psycopg.connect(install.url("postgres")) as conn:
-        owner = conn.execute(
-            "SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = %s",
-            (schema,),
-        ).fetchone()
-    assert owner == (roles.dynamic_owner,)
+    assert _schema_owner(install.database, schema) == (roles.dynamic_owner,)
+
+
+# --- roles managed by the operator's own tooling (no role setup) ---------------
+
+
+OWN_TOOLING_DOC = REPO_ROOT / "docs/self-hosting/database-roles-own-tooling.mdx"
+
+
+@dataclass(frozen=True, slots=True)
+class OwnTooling:
+    database: str
+    admin: str
+    owner: str
+    migrator: str
+    app: str
+    dynamic_owner: str
+
+    def url(self, user: str, driver: str = "") -> str:
+        password = "admin" if user == self.admin else PASSWORD
+        return _url(user, password, self.database, driver)
+
+    def doc_sql(self, heading: str) -> list[str]:
+        """The SQL blocks under ``## heading`` in the docs page, placeholders filled in.
+
+        Every SQL block in the section must apply to this setup.
+        """
+        names = {
+            "admin": self.admin,
+            "owner": self.owner,
+            "migrator": self.migrator,
+            "app": self.app,
+            "dynamic-owner": self.dynamic_owner,
+            "db": self.database,
+            "password": PASSWORD,
+        }
+        section = OWN_TOOLING_DOC.read_text().split(f"\n## {heading}\n", 1)[1]
+        section = section.split("\n## ", 1)[0]
+        blocks = re.findall(r"```sql\n(.*?)```", section, re.DOTALL)
+        assert section.count("```sql") == len(blocks)
+        # '<x>' is a string literal, bare <x> an identifier.
+        return [
+            re.sub(
+                r"<([a-z-]+)>",
+                lambda m: quote_ident(names[m[1]]),
+                re.sub(r"'<([a-z-]+)>'", lambda m: quote_literal(names[m[1]]), sql),
+            )
+            for sql in blocks
+        ]
+
+
+def _statements(blocks: list[str]) -> list[str]:
+    return [s.strip() for block in blocks for s in block.split(";") if s.strip()]
+
+
+@pytest.fixture
+def own_tooling() -> Iterator[OwnTooling]:
+    """The docs page's SQL, run as an RDS-shaped admin that isn't a superuser."""
+    _skip_before_pg16()  # the page's PostgreSQL 16 forms
+    suffix = _suffix()
+    setup = OwnTooling(
+        database=f"byo_{suffix}",
+        admin=f"byo_admin_{suffix}",
+        owner=f"byo_owner_{suffix}",
+        migrator=f"byo-migrator-{suffix}",
+        app=f"byo-app-{suffix}",
+        dynamic_owner=f"byo_dyn_owner_{suffix}",
+    )
+    statements = _statements(setup.doc_sql("Create the roles"))
+    admin = quote_ident(setup.admin)
+    with _superuser() as conn:
+        _run(conn, f"CREATE ROLE {admin} LOGIN CREATEROLE CREATEDB PASSWORD 'admin'")
+        _run(conn, f"CREATE DATABASE {quote_ident(setup.database)} OWNER {admin}")
+    try:
+        with (
+            psycopg.connect(
+                _url("postgres", "postgres", setup.database), autocommit=True
+            ) as superuser,
+            psycopg.connect(setup.url(setup.admin), autocommit=True) as conn,
+        ):
+            for statement in statements:
+                # Extensions need a superuser here (rds_superuser on RDS).
+                if statement.startswith("CREATE EXTENSION"):
+                    _run(superuser, statement)
+                else:
+                    _run(conn, statement)
+        yield setup
+    finally:
+        # The admin granted the memberships, so it goes last.
+        _drop_all(
+            setup.database,
+            [setup.app, setup.migrator, setup.dynamic_owner, setup.owner, setup.admin],
+        )
+
+
+@pytest.mark.anyio
+async def test_roles_managed_by_own_tooling_migrate_and_own_workspace_schemas(
+    own_tooling: OwnTooling,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The docs page's SQL as a non-superuser admin: migrate, then own and alter."""
+    setup = own_tooling
+    database = setup.database
+
+    # 1. Migrate as the migrator: the single-user path, acting as the owner.
+    monkeypatch.setenv("TRACECAT__DB_URI", setup.url(setup.migrator, "+psycopg"))
+    # Tracecat's role names (stand-ins for tracecat_owner) never exist here.
+    assert migrate(_test_roles(_suffix())) == 0
+    assert "No Tracecat role setup in this database" in capsys.readouterr().err
+    assert _public_owners(database) == [(setup.owner,)]
+
+    # 2. As the app login, create a workspace table and case custom fields.
+    monkeypatch.setattr(config, "TRACECAT__DB_DYNAMIC_OWNER_ROLE", setup.dynamic_owner)
+    engine = create_async_engine(setup.url(setup.app, "+asyncpg"), poolclass=NullPool)
+    try:
+        async with AsyncSession(engine, expire_on_commit=False) as session:
+            # Seeding is a system operation, as first boot's is.
+            await set_rls_context(session, None, None, bypass=True)
+            org = Organization(name="BYO roles", slug=f"byo-{uuid.uuid4().hex[:8]}")
+            session.add(org)
+            await session.flush()
+            workspace = Workspace(name="byo-workspace", organization_id=org.id)
+            session.add(workspace)
+            await session.commit()
+            role = Role(
+                type="user",
+                workspace_id=workspace.id,
+                organization_id=org.id,
+                user_id=uuid.uuid4(),
+                service_id="tracecat-api",
+                scopes=ADMIN_SCOPES,
+            )
+            await set_rls_context_from_role(session, role)
+            tables = TablesService(session=session, role=role)
+            table = await tables.create_table(TableCreate(name="probe"))
+            tables_schema = tables._get_schema_name()
+            fields = CaseFieldsService(session=session, role=role)
+            await fields.initialize_workspace_schema()
+            await session.commit()
+            fields_schema = fields.schema_name
+    finally:
+        await engine.dispose()
+    assert _schema_owner(database, tables_schema) == (setup.dynamic_owner,)
+    assert _schema_owner(database, fields_schema) == (setup.dynamic_owner,)
+
+    # 3. Later migrations, as the migrator, can still alter workspace tables.
+    qualified = f"{quote_ident(tables_schema)}.{quote_ident(table.name)}"
+    with psycopg.connect(setup.url(setup.migrator)) as conn:
+        _run(conn, f"ALTER TABLE {qualified} ADD COLUMN byo_note text")
+        _run(conn, f"ALTER TABLE {qualified} FORCE ROW LEVEL SECURITY")
+        conn.commit()
+
+    # 4. The page's alembic_version revoke, then its setup check.
+    (revoke,) = setup.doc_sql("Configure Tracecat")
+    with psycopg.connect(setup.url(setup.migrator), autocommit=True) as conn:
+        _run(conn, revoke)
+    current_user, check = setup.doc_sql("Check the setup")
+    with psycopg.connect(setup.url(setup.migrator)) as conn:
+        assert _run(conn, current_user).fetchone() == (setup.owner,)
+    with psycopg.connect(setup.url(setup.admin)) as conn:
+        assert _run(conn, check).fetchone() == (False, True, True, True, True, False)
+        writes = _run(
+            conn,
+            f"SELECT has_table_privilege({quote_literal(setup.app)},"
+            " 'public.alembic_version', p)"
+            " FROM unnest(ARRAY['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) p",
+        ).fetchall()
+    assert writes == [(False,)] * 4
