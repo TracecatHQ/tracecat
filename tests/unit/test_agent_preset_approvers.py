@@ -64,6 +64,8 @@ from tracecat.db.models import (
     GroupMember,
     GroupRoleAssignment,
     Organization,
+    RoleScope,
+    Scope,
     User,
     UserRoleAssignment,
     Workspace,
@@ -804,13 +806,13 @@ async def _org_user(session: AsyncSession, role: Role, slug: str) -> User:
     return user
 
 
-async def test_org_admins_who_open_every_workspace_are_offered_and_addable(
+async def test_org_wide_member_managers_are_offered_and_addable(
     session: AsyncSession, svc_role: Role
 ) -> None:
     preset = await _preset(session, svc_role)
     admin = await _org_user(session, svc_role, "organization-admin")
     owner = await _org_user(session, svc_role, "organization-owner")
-    # An org-wide group grant opens every workspace too.
+    # An org-wide group grant counts too.
     via_group = await _make_user(session, svc_role, workspace_role=None)
     owner_group = await _assigned_group(
         session,
@@ -820,12 +822,39 @@ async def test_org_admins_who_open_every_workspace_are_offered_and_addable(
     )
     session.add(GroupMember(group_id=owner_group.id, user_id=via_group.id))
     await session.commit()
+    # A custom role counts by its scope, not its slug.
+    inviter_role = await _custom_role(session, svc_role)
+    session.add(
+        RoleScope(
+            role_id=inviter_role.id,
+            scope_id=await session.scalar(
+                select(Scope.id).where(
+                    Scope.organization_id.is_(None), Scope.name == "org:member:invite"
+                )
+            ),
+        )
+    )
+    inviter = await _make_user(session, svc_role, workspace_role=None)
+    session.add(
+        UserRoleAssignment(
+            organization_id=svc_role.organization_id,
+            user_id=inviter.id,
+            workspace_id=None,
+            role_id=inviter_role.id,
+        )
+    )
+    await session.commit()
     stranger = await _make_user(session, svc_role, workspace_role=None)
     service = AgentPresetApproverService(session, role=svc_role)
     preset_id = preset.id
 
     options = await _option_keys(service)
-    assert {("user", admin.id), ("user", owner.id), ("user", via_group.id)} <= options
+    assert {
+        ("user", admin.id),
+        ("user", owner.id),
+        ("user", via_group.id),
+        ("user", inviter.id),
+    } <= options
     assert ("user", stranger.id) not in options
     assert ("group", owner_group.id) not in options
 
