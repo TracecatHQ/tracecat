@@ -122,6 +122,7 @@ jobs:
   # Only trusted main builds reach a write-scoped token. Publish the exact
   # tested images, then combine their native CPU variants into one public tag.
   publish:
+    environment: ghcr-publish
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: test
     runs-on: ubuntu-24.04

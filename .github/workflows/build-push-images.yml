@@ -67,6 +67,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   build-and-push-api:
+    environment: ghcr-publish
     timeout-minutes: 30
     needs: validate
     permissions:
@@ -199,6 +200,7 @@ jobs:
           retention-days: 1
 
   merge-api:
+    environment: ghcr-publish
     timeout-minutes: 10
     permissions:
       contents: read
@@ -258,6 +260,7 @@ jobs:
           docker buildx imagetools inspect ghcr.io/tracecathq/tracecat:${{ steps.meta.outputs.version }}
 
   build-and-push-tunnel-gateway:
+    environment: ghcr-publish
     timeout-minutes: 30
     needs: validate
     permissions:
@@ -339,6 +342,7 @@ jobs:
           retention-days: 1
 
   merge-tunnel-gateway:
+    environment: ghcr-publish
     timeout-minutes: 10
     permissions:
       contents: read
@@ -398,6 +402,7 @@ jobs:
           docker buildx imagetools inspect ghcr.io/tracecathq/tracecat-tunnel-gateway:${{ steps.meta.outputs.version }}
 
   build-and-push-ui:
+    environment: ghcr-publish
     needs: validate
     permissions:
       contents: read
@@ -475,6 +480,7 @@ jobs:
           push: true
 
   promote-latest:
+    environment: ghcr-publish
     needs: [validate, merge-api, build-and-push-ui, merge-tunnel-gateway]
     if: needs.validate.outputs.latest == 'true'
     runs-on: ubuntu-latest
