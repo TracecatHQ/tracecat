@@ -4,12 +4,12 @@ import {
   AlertTriangleIcon,
   CheckIcon,
   LayersIcon,
+  LayersPlusIcon,
   LinkIcon,
   LockIcon,
   PencilIcon,
   PinIcon,
   PinOffIcon,
-  PlusIcon,
   Trash2Icon,
   UsersIcon,
 } from "lucide-react"
@@ -34,8 +34,14 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-  CommandSeparator,
 } from "@/components/ui/command"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
 import {
   Popover,
   PopoverContent,
@@ -79,10 +85,10 @@ interface CaseViewMenuProps {
 }
 
 /**
- * The "Custom case views" icon next to the page title.
+ * The "Custom case views" icon and "New view" button next to the page title.
  *
- * It lists every view the user can open, and holds the actions for the open
- * view: edit, duplicate, pin, copy link, and delete.
+ * The menu lists every view the user can open. Right-clicking a custom view
+ * opens its actions: edit, duplicate, pin, copy link, and delete.
  */
 export function CaseViewMenu({
   workspaceId,
@@ -90,7 +96,6 @@ export function CaseViewMenu({
   editor,
 }: CaseViewMenuProps) {
   const { active } = controls
-  const view = active.view
   const canReadCases = useHasScope("case:read") === true
   const views = useCaseViews(workspaceId, canReadCases)
   const { deleteView, pinView, unpinView } = useCaseViewMutations(workspaceId)
@@ -138,7 +143,7 @@ export function CaseViewMenu({
 
   function renderItem(item: CaseViewRead) {
     const isActive = active.viewId === item.id
-    return (
+    const row = (
       <CommandItem
         key={item.id}
         value={`${item.name} ${item.id}`}
@@ -165,6 +170,72 @@ export function CaseViewMenu({
           <PinIcon className={cn("size-3", item.pinned && "fill-current")} />
         </button>
       </CommandItem>
+    )
+    if (item.kind !== "custom") return row
+    // Duplicating saves the current filters, so it needs the view to be open.
+    let duplicateBlockedReason = controls.saveBlockedReason
+    if (!isActive) {
+      duplicateBlockedReason = "Open this view to duplicate it."
+    }
+    return (
+      <ContextMenu key={item.id}>
+        <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+        <ContextMenuContent className="w-48">
+          {item.can_edit && (
+            <ContextMenuItem
+              onSelect={() => openEditor({ kind: "edit", view: item })}
+              className="gap-2 text-xs"
+            >
+              <PencilIcon className="size-3.5" />
+              Edit...
+            </ContextMenuItem>
+          )}
+          <ContextMenuItem
+            disabled={duplicateBlockedReason !== null}
+            title={duplicateBlockedReason ?? undefined}
+            onSelect={() => openEditor({ kind: "duplicate", view: item })}
+            className="gap-2 text-xs"
+          >
+            <LayersPlusIcon className="size-3.5" />
+            Duplicate...
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            onSelect={() => togglePin(item)}
+            className="gap-2 text-xs"
+          >
+            {item.pinned ? (
+              <PinOffIcon className="size-3.5" />
+            ) : (
+              <PinIcon className="size-3.5" />
+            )}
+            {item.pinned ? "Unpin from sidebar" : "Pin to sidebar"}
+          </ContextMenuItem>
+          <ContextMenuItem
+            onSelect={() => void copyLink(item)}
+            className="gap-2 text-xs"
+          >
+            <LinkIcon className="size-3.5" />
+            Copy link
+          </ContextMenuItem>
+          {item.can_edit && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem
+                onSelect={() => {
+                  setOpen(false)
+                  setDeleteTarget(item)
+                  setDeleteOpen(true)
+                }}
+                className="gap-2 text-xs text-destructive focus:text-destructive"
+              >
+                <Trash2Icon className="size-3.5" />
+                Delete
+              </ContextMenuItem>
+            </>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
     )
   }
 
@@ -202,7 +273,7 @@ export function CaseViewMenu({
         >
           <Command>
             <CommandInput placeholder="Find a view..." className="text-xs" />
-            <CommandList>
+            <CommandList className="max-h-[min(560px,calc(var(--radix-popover-content-available-height)-3rem))]">
               <CommandEmpty className="py-4 text-center text-xs text-muted-foreground">
                 No matching views.
               </CommandEmpty>
@@ -232,84 +303,29 @@ export function CaseViewMenu({
                   {views.shared.map(renderItem)}
                 </CommandGroup>
               )}
-              {view?.kind === "custom" && (
-                <>
-                  <CommandSeparator />
-                  <CommandGroup heading={view.name}>
-                    {view.can_edit && (
-                      <CommandItem
-                        value="action edit view"
-                        onSelect={() => openEditor({ kind: "edit", view })}
-                        className="gap-2 text-xs"
-                      >
-                        <PencilIcon className="size-3.5" />
-                        Edit view...
-                      </CommandItem>
-                    )}
-                    <CommandItem
-                      value="action duplicate view"
-                      disabled={controls.saveBlockedReason !== null}
-                      title={controls.saveBlockedReason ?? undefined}
-                      onSelect={() => openEditor({ kind: "duplicate", view })}
-                      className="gap-2 text-xs"
-                    >
-                      <LayersIcon className="size-3.5" />
-                      Duplicate...
-                    </CommandItem>
-                    <CommandItem
-                      value="action pin view sidebar"
-                      onSelect={() => togglePin(view)}
-                      className="gap-2 text-xs"
-                    >
-                      {view.pinned ? (
-                        <PinOffIcon className="size-3.5" />
-                      ) : (
-                        <PinIcon className="size-3.5" />
-                      )}
-                      {view.pinned ? "Unpin from sidebar" : "Pin to sidebar"}
-                    </CommandItem>
-                    <CommandItem
-                      value="action copy view link"
-                      onSelect={() => void copyLink(view)}
-                      className="gap-2 text-xs"
-                    >
-                      <LinkIcon className="size-3.5" />
-                      Copy link
-                    </CommandItem>
-                    {view.can_edit && (
-                      <CommandItem
-                        value="action delete view"
-                        onSelect={() => {
-                          setOpen(false)
-                          setDeleteTarget(view)
-                          setDeleteOpen(true)
-                        }}
-                        className="gap-2 text-xs text-destructive"
-                      >
-                        <Trash2Icon className="size-3.5" />
-                        Delete
-                      </CommandItem>
-                    )}
-                  </CommandGroup>
-                </>
-              )}
-              <CommandSeparator />
-              <CommandGroup>
-                <CommandItem
-                  value="action new view from the current filters"
-                  disabled={controls.saveBlockedReason !== null}
-                  title={controls.saveBlockedReason ?? undefined}
-                  onSelect={() => openEditor({ kind: "create" })}
-                  className="gap-2 text-xs"
-                >
-                  <PlusIcon className="size-3.5" />
-                  New view
-                </CommandItem>
-              </CommandGroup>
             </CommandList>
           </Command>
         </PopoverContent>
       </Popover>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="flex">
+            <button
+              type="button"
+              aria-label="New view"
+              disabled={controls.saveBlockedReason !== null}
+              onClick={() => editor.open({ kind: "create" })}
+              className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+            >
+              <LayersPlusIcon className="size-3.5" />
+            </button>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          {controls.saveBlockedReason ?? "New view from the current filters"}
+        </TooltipContent>
+      </Tooltip>
 
       {active.isError && (
         <AlertTriangleIcon
@@ -425,12 +441,12 @@ export function CaseViewEditorPanel({
           editor.close()
         }
       }}
-      className="flex items-start gap-3 border-b px-4 py-3"
+      className="flex items-start gap-3 border-b pb-3 pl-3 pr-4 pt-1.5"
     >
-      <div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-input text-muted-foreground">
-        <LayersIcon className="size-3.5" />
-      </div>
-      <div className="min-w-0 flex-1 space-y-2">
+      <span className="flex size-7 shrink-0 items-center justify-center">
+        <LayersIcon className="size-4 text-muted-foreground" />
+      </span>
+      <div className="min-w-0 flex-1 space-y-1.5">
         <input
           autoFocus
           aria-label="View name"
@@ -438,7 +454,7 @@ export function CaseViewEditorPanel({
           value={name}
           onChange={(event) => setName(event.target.value)}
           placeholder="View name"
-          className="-mx-1 w-[calc(100%+0.5rem)] rounded-sm bg-transparent px-1 text-sm font-medium outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+          className="h-7 w-full min-w-0 bg-transparent p-0 text-sm outline-none placeholder:text-muted-foreground"
         />
         <div className="flex flex-wrap items-center gap-3">
           <fieldset className="flex items-center gap-0.5 rounded-md border border-input p-0.5">

@@ -290,7 +290,11 @@ function CasesPageBody({
   const viewBar: CasesViewBar = {
     panel: viewEditor.mode && (
       <CaseViewEditorPanel
-        key={viewEditor.mode.kind}
+        key={
+          viewEditor.mode.kind === "create"
+            ? "create"
+            : `${viewEditor.mode.kind}-${viewEditor.mode.view.id}`
+        }
         workspaceId={workspaceId}
         controls={viewControls}
         editor={viewEditor}
