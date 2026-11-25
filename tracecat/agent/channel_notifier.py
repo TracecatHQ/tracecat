@@ -41,6 +41,10 @@ TURN_START_PUSH_BUDGET = 2 * TURN_STARTED_PUSH_BUDGET
 _PUSH_ATTEMPTS = 3
 # Bounded well inside create_session_activity's 30 s budget.
 CHANNEL_LINK_CHECK_TIMEOUT_SECONDS = 5
+# A turn's end read unlinked at its start: open its thread, check, post the reply.
+LATE_TURN_FINISHED_BUDGET = 2 * PUSH_BUDGET + timedelta(
+    seconds=CHANNEL_LINK_CHECK_TIMEOUT_SECONDS
+)
 
 
 class RunUpdateBase(Variant, discriminator="kind"):
@@ -155,7 +159,7 @@ class ChannelDestinationRef(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     kind: Literal["direct_message", "channel"]
-    # Only a workflow's reply thread reads a DM's id, as its recipient's email.
+    # A workflow's DM names its recipient by email; a web turn's DM is its sender's.
     id: str | None = Field(
         default=None, max_length=255, description="The channel's id; None for a DM"
     )
@@ -177,7 +181,7 @@ class ChannelDestination(ChannelDestinationRef):
 
 
 class ChannelReplyError(Exception):
-    """A workflow's agent reply cannot open a thread where the action asked."""
+    """A turn's destination cannot take its thread."""
 
 
 class ChannelsNotEntitled(ChannelReplyError):
@@ -255,13 +259,16 @@ class ChannelNotifier(Protocol):
     async def check_reply_thread(
         self, role: Role, preset_id: uuid.UUID, destination: ChannelDestinationRef
     ) -> None:
-        """Raise a ``ChannelReplyError`` unless the preset's bot can open a thread there."""
+        """Raise a ``ChannelReplyError`` unless the preset's bot can open a thread there.
+
+        A DM without an id goes to ``role.user_id``.
+        """
         ...
 
     async def open_reply_thread(
         self, role: Role, session_id: uuid.UUID, destination: ChannelDestinationRef
     ) -> None:
-        """Root a synced thread there with the session's latest reply, and link it.
+        """Root a synced thread at the latest prompt, else the reply, and link it.
 
         Raises as ``check_reply_thread`` does; a linked session is left as is.
         """
@@ -454,7 +461,7 @@ async def _channels_entitled(role: Role) -> bool:
 async def check_channel_reply_thread(
     role: Role, preset_id: uuid.UUID, destination: ChannelDestinationRef
 ) -> None:
-    """Raise a ``ChannelReplyError`` unless a preset run can post its reply there."""
+    """Raise a ``ChannelReplyError`` unless a turn of the preset can open its thread there."""
     notifier = await _reply_notifier(role)
     async with asyncio.timeout(PUSH_BUDGET.total_seconds()):
         await notifier.check_reply_thread(role, preset_id, destination)
@@ -463,7 +470,7 @@ async def check_channel_reply_thread(
 async def open_channel_reply_thread(
     role: Role, session_id: uuid.UUID, destination: ChannelDestinationRef
 ) -> None:
-    """Open the session's synced thread rooted at its reply; raises, never falls back."""
+    """Open the synced thread a finished turn carried; raises, never falls back."""
     notifier = await _reply_notifier(role)
     async with asyncio.timeout(PUSH_BUDGET.total_seconds()):
         await notifier.open_reply_thread(role, session_id, destination)

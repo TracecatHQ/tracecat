@@ -33,7 +33,10 @@ import {
   type VercelChatRequest,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
-import { sessionChannelSyncQueryKey } from "@/hooks/use-session-channel-sync"
+import {
+  channelDestinationFromOptions,
+  sessionChannelSyncQueryKey,
+} from "@/hooks/use-session-channel-sync"
 import { useSessionFeed } from "@/hooks/use-session-feed"
 import { getBaseUrl } from "@/lib/api"
 import {
@@ -833,7 +836,11 @@ export function useVercelChat({
           credentials: "include",
         }
       },
-      prepareSendMessagesRequest: ({ messages }) => {
+      prepareSendMessagesRequest: ({
+        messages,
+        body: requestBody,
+        trigger,
+      }) => {
         // Support both normal vercel chat turns and approval continuations.
         const last = messages[messages.length - 1]
         const dataPart = last.parts.find((p) => p.type === "data-continue") as
@@ -860,6 +867,10 @@ export function useVercelChat({
         if (baseUrl != null) body.base_url = baseUrl
         const currentPageContext = pageContextRef.current
         if (currentPageContext) body.page_context = currentPageContext
+        const destination = channelDestinationFromOptions(requestBody)
+        if (destination && trigger === "submit-message") {
+          body.channel_destination = destination
+        }
         return { body }
       },
     }),
@@ -1000,6 +1011,18 @@ export function useVercelChat({
       }
     },
     onRefresh: refreshFromFeed,
+    onChannelSyncFailed: (reason) => {
+      toast({
+        title: "Slack sync failed",
+        description: reason,
+        variant: "destructive",
+      })
+      if (chatId) {
+        queryClient.invalidateQueries({
+          queryKey: sessionChannelSyncQueryKey(workspaceId, chatId),
+        })
+      }
+    },
   })
   const waitForResume = useCallback(async () => {
     const pending = pendingResumeRef.current

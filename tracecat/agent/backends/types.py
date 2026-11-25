@@ -13,6 +13,7 @@ from tracecat.agent.backends.schemas import (
     WorkflowApprovalSubmission,
     WorkflowCancelRequest,
 )
+from tracecat.agent.channel_notifier import ChannelDestinationRef
 from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
@@ -157,6 +158,8 @@ class SessionWorkflowContext:
     author_id: UUID | None = None
     # The run that first sent a retried prompt; None for a new message.
     prompt_run_id: UUID | None = None
+    # Where the turn's end opens the session's synced thread; checked before it starts.
+    channel_destination: ChannelDestinationRef | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +178,8 @@ class SessionTurnContext:
     author_id: UUID | None = None
     # The run that first sent a retried prompt; None for a new message.
     prompt_run_id: UUID | None = None
+    # Where the turn's end opens the session's synced thread; checked before it starts.
+    channel_destination: ChannelDestinationRef | None = None
 
 
 @runtime_checkable

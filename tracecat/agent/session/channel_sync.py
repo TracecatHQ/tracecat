@@ -1,26 +1,37 @@
 """A session's sync with its channel thread: the flag is the thread link's.
 
-The installed channel notifier opens threads and posts to them; this module only
-reads and flips ``AgentSessionThread.sync_enabled``.
+The installed channel notifier opens threads and posts to them; this module reads
+and flips ``AgentSessionThread.sync_enabled``, and ends a turn that started unlinked.
 """
 
 from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select, update
+from sqlalchemy import exists, select, update
 
 from tracecat.agent.channel_bots.channel_threads import channel_threads
 from tracecat.agent.channel_notifier import (
     ChannelDestinationRef,
+    ChannelReplyError,
+    NoChannelBot,
+    TurnFinished,
     can_open_channel_thread,
+    check_channel_reply_thread,
+    get_channel_notifier,
+    is_channel_linked,
     notify_sync_stopped,
+    open_channel_reply_thread,
     open_channel_thread,
+    push_updates,
 )
 from tracecat.agent.session.schemas import AgentSessionChannelSyncRead
 from tracecat.agent.session.service import AgentSessionService
-from tracecat.db.models import AgentSessionThread
+from tracecat.agent.stream.feed import publish_channel_sync_failed
+from tracecat.auth.types import Role
+from tracecat.db.models import AgentChannelBot, AgentSession, AgentSessionThread
 from tracecat.exceptions import TracecatConflictError
+from tracecat.logger import logger
 
 
 class ChannelThreadUnavailable(TracecatConflictError):
@@ -118,3 +129,94 @@ async def get_channel_sync_enabled(
             AgentSessionThread.workspace_id == svc.workspace_id,
         )
     )
+
+
+async def check_turn_destination(
+    role: Role, agent_session: AgentSession, destination: ChannelDestinationRef
+) -> None:
+    """Refuse a web turn's destination before the turn starts.
+
+    Raises:
+        ChannelReplyError: The session's agent cannot open a thread there.
+    """
+    if agent_session.agent_preset_id is None:
+        raise NoChannelBot("The agent has no live channel bot that opens threads")
+    await check_channel_reply_thread(role, agent_session.agent_preset_id, destination)
+
+
+async def has_channel_bot(role: Role) -> bool:
+    """Whether the workspace has an active channel bot, failing closed.
+
+    Gates a turn's end-of-turn link lookup: sessions without channels pay nothing.
+    """
+    if role.workspace_id is None:
+        return False
+    try:
+        if get_channel_notifier() is None:
+            return False
+        async with AgentSessionService.with_session(role) as svc:
+            return bool(
+                await svc.session.scalar(
+                    select(
+                        exists().where(
+                            AgentChannelBot.workspace_id == svc.workspace_id,
+                            AgentChannelBot.status == "active",
+                        )
+                    )
+                )
+            )
+    except Exception as e:
+        logger.warning("Failed to check for a channel bot", error=repr(e))
+        return False
+
+
+async def push_late_turn_finished(
+    role: Role,
+    session_id: uuid.UUID,
+    run_id: uuid.UUID,
+    destination: ChannelDestinationRef | None = None,
+) -> None:
+    """End a turn that started unlinked: open the thread it carried, then post the reply.
+
+    Reads the link at delivery, so sync turned on mid-turn gets this reply. Never raises.
+    """
+    try:
+        if destination is not None and not await open_turn_destination(
+            role, session_id, destination
+        ):
+            return
+        if await is_channel_linked(role, session_id):
+            await push_updates(
+                role, [TurnFinished(session_id=session_id, run_id=run_id)]
+            )
+    except Exception as e:
+        logger.warning(
+            "Failed to deliver a turn to a thread linked after it started",
+            session_id=str(session_id),
+            error=repr(e),
+        )
+
+
+async def open_turn_destination(
+    role: Role, session_id: uuid.UUID, destination: ChannelDestinationRef
+) -> bool:
+    """Open the thread a web turn carried; False, with a feed notice, when it can't."""
+    try:
+        await open_channel_reply_thread(role, session_id, destination)
+        return True
+    except ChannelReplyError as e:
+        reason = str(e)
+    except Exception as e:
+        logger.warning(
+            "Failed to open a turn's channel thread",
+            session_id=str(session_id),
+            error=repr(e),
+        )
+        reason = "Slack didn't respond. Turn sync on to try again."
+    if role.workspace_id is not None:
+        await publish_channel_sync_failed(
+            workspace_id=role.workspace_id,
+            session_id=session_id,
+            reason=f"Couldn't open Slack thread: {reason}",
+        )
+    return False

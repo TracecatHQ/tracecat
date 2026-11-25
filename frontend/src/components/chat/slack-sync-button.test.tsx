@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { act, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import {
   agentSessionsGetSessionChannelSync,
@@ -8,6 +8,7 @@ import {
 import { SlackSyncButton } from "@/components/chat/slack-sync-button"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { usePickedChannelDestination } from "@/hooks/use-session-channel-sync"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/client", () => ({
@@ -216,4 +217,80 @@ test("the picker selects with the keyboard", async () => {
       })
     )
   )
+})
+
+describe("a pick before the first message", () => {
+  type Picked = ReturnType<typeof usePickedChannelDestination>
+  const current: { picked?: Picked } = {}
+
+  function Composer() {
+    const picked = usePickedChannelDestination("session-1", true)
+    current.picked = picked
+    return (
+      <SlackSyncButton
+        workspaceId="ws-1"
+        sessionId="session-1"
+        picked={picked.picked}
+        onPickedChange={picked.onPickedChange}
+      />
+    )
+  }
+
+  async function pickGeneral() {
+    getSync.mockResolvedValue({
+      available: true,
+      enabled: false,
+      linked: false,
+    })
+    listDestinations.mockResolvedValue({
+      items: [{ kind: "channel", id: "C2", name: "general" }],
+    })
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <TooltipProvider>
+          <Composer />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Sync with Slack" })
+    )
+    await userEvent.click(await screen.findByText("general"))
+    return screen.findByRole("button", { name: "Slack sync on" })
+  }
+
+  test("shows on, links nothing, and the next send carries it once", async () => {
+    const button = await pickGeneral()
+    expect(button).toHaveAttribute("data-state-sync", "on")
+    expect(updateSync).not.toHaveBeenCalled()
+
+    let options: ReturnType<Picked["takeSendOptions"]>
+    act(() => {
+      options = current.picked?.takeSendOptions()
+    })
+    expect(options).toEqual({
+      body: { channel_destination: { kind: "channel", id: "C2" } },
+    })
+    expect(
+      await screen.findByRole("button", { name: "Sync with Slack" })
+    ).toBeInTheDocument()
+    act(() => {
+      options = current.picked?.takeSendOptions()
+    })
+    expect(options).toBeUndefined()
+  })
+
+  test("turning it off before sending sends no destination", async () => {
+    await userEvent.click(await pickGeneral())
+
+    expect(
+      await screen.findByRole("button", { name: "Sync with Slack" })
+    ).toBeInTheDocument()
+    let options: ReturnType<Picked["takeSendOptions"]>
+    act(() => {
+      options = current.picked?.takeSendOptions()
+    })
+    expect(options).toBeUndefined()
+    expect(updateSync).not.toHaveBeenCalled()
+  })
 })

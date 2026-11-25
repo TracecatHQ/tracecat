@@ -69,6 +69,7 @@ from tracecat.agent.backends.types import (
     TurnAlreadyStarted,
 )
 from tracecat.agent.channel_bots.messages import ChannelMessage
+from tracecat.agent.channel_notifier import ChannelDestinationRef
 from tracecat.agent.channel_users.service import linked_members
 from tracecat.agent.channel_users.types import ChannelIdentity
 from tracecat.agent.common.types import MCPServerConfig
@@ -2103,6 +2104,7 @@ class AgentSessionService(BaseWorkspaceService):
         user_prompt: str | None = None
         request_instructions: str | None = None
         page_context: ChatPageContext | None = None
+        channel_destination: ChannelDestinationRef | None = None
         prompt_message_id: str | None = None
         is_continuation = False
         origin = UserMessageOrigin.TRACECAT
@@ -2113,6 +2115,7 @@ class AgentSessionService(BaseWorkspaceService):
                 is_continuation = True
             case VercelChatRequest(message=ui_message):
                 page_context = request.page_context
+                channel_destination = request.channel_destination
                 # validate_turn_request let a Retry through only for a message
                 # the session received from its channel.
                 if (retried := _retried_channel_message(ui_message)) is not None:
@@ -2150,6 +2153,7 @@ class AgentSessionService(BaseWorkspaceService):
             user_prompt=user_prompt,
             request_instructions=request_instructions,
             page_context=page_context,
+            channel_destination=channel_destination,
             is_first_prompt=is_first_prompt,
             run_id=run_id,
             origin=origin,
@@ -2184,6 +2188,7 @@ class AgentSessionService(BaseWorkspaceService):
         origin: UserMessageOrigin,
         author_id: uuid.UUID | None = None,
         prompt_run_id: uuid.UUID | None = None,
+        channel_destination: ChannelDestinationRef | None = None,
     ) -> None:
         """Build the turn's config and start it as ``run_id`` on a validated session.
 
@@ -2235,6 +2240,7 @@ class AgentSessionService(BaseWorkspaceService):
                     origin=origin,
                     author_id=author_id,
                     prompt_run_id=prompt_run_id,
+                    channel_destination=channel_destination,
                 )
             )
 

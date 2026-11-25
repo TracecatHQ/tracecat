@@ -33,6 +33,7 @@ with workflow.unsafe.imports_passed_through():
         WorkflowCancelRequest as WorkflowCancelRequest,
     )
     from tracecat.agent.channel_notifier import (
+        LATE_TURN_FINISHED_BUDGET,
         TURN_START_PUSH_BUDGET,
         RunUpdate,
         TurnFinished,
@@ -593,6 +594,10 @@ class DurableAgentWorkflow:
         self.approvals = ApprovalManager(role=self.role)
         # Set when the session is linked to a channel: the run pushes updates to it.
         self.channel_run_id: uuid.UUID | None = None
+        # Unlinked at the start with a bot in the workspace: the end reads the link again.
+        self.channel_bot_installed = False
+        # Checked before the turn started; its end opens the session's thread there.
+        self.channel_destination = args.channel_destination
         self.max_requests = args.agent_args.max_requests
         self.max_tool_calls = args.agent_args.max_tool_calls
         self._cancel_requested: bool = False
@@ -1105,6 +1110,15 @@ class DurableAgentWorkflow:
                 *self.approvals.take_unpushed_decision(),
                 TurnFinished(session_id=self.session_id, run_id=self.channel_run_id),
             ]
+        # Sync turned on mid-turn, or the turn carried a destination: deliver this reply too.
+        channel_destination = self.channel_destination
+        resolve_channel_link = (
+            self.channel_run_id is None
+            and (self.channel_bot_installed or channel_destination is not None)
+            and workflow.patched(
+                DurableAgentWorkflowPatch.RESOLVE_CHANNEL_LINK_AT_DELIVERY
+            )
+        )
         try:
             result: FinalizeTurnResult | None = await workflow.execute_activity(
                 finalize_turn_activity,
@@ -1115,13 +1129,18 @@ class DurableAgentWorkflow:
                     active_stream_id=active_stream_id,
                     emit_terminal_done=emit_terminal_done,
                     channel_updates=updates,
+                    resolve_channel_link=resolve_channel_link,
+                    channel_destination=(
+                        channel_destination if resolve_channel_link else None
+                    ),
                 ),
                 # Preserve the two former 10-second operation budgets when DB
                 # cleanup and Redis completion run inside one activity.
                 start_to_close_timeout=timedelta(
                     seconds=20 if emit_terminal_done else 10
                 )
-                + push_budget(updates),
+                + push_budget(updates)
+                + (LATE_TURN_FINISHED_BUDGET if resolve_channel_link else timedelta()),
                 # Retry-safe: pointer cleanup is compare-and-clear by run_id,
                 # clients tolerate a duplicate END, and pushing is idempotent.
                 retry_policy=RETRY_POLICIES["activity:fail_slow"],
@@ -1468,6 +1487,7 @@ class DurableAgentWorkflow:
             )
         if create_result.channel_linked:
             self.channel_run_id = curr_run_id
+        self.channel_bot_installed = create_result.channel_bot_installed
 
         # Build internal tool context for builder assistant sessions
         internal_tool_context: InternalToolContext | None = None

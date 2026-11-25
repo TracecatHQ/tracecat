@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import get_args
 from unittest.mock import AsyncMock, Mock, patch
@@ -11,6 +12,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,10 +26,12 @@ from tracecat.agent.channel_notifier import (
     ChannelDestination,
     ChannelDestinationNotRoutable,
     ChannelDestinationRef,
+    ChannelRecipientNotLinked,
     ChannelsNotEntitled,
     MessageSent,
     NoChannelBot,
     RunUpdate,
+    TurnFinished,
     TurnStarted,
     can_open_channel_thread,
     check_channel_reply_thread,
@@ -38,10 +42,15 @@ from tracecat.agent.channel_notifier import (
     turn_started_updates,
 )
 from tracecat.agent.common.stream_types import HarnessType
+from tracecat.agent.session import activities as session_activities
+from tracecat.agent.session import channel_sync
 from tracecat.agent.session import router as session_router
 from tracecat.agent.session.channel_sync import (
     ChannelThreadUnavailable,
+    check_turn_destination,
     get_channel_sync,
+    has_channel_bot,
+    push_late_turn_finished,
     set_channel_sync,
 )
 from tracecat.agent.session.router import router
@@ -52,6 +61,7 @@ from tracecat.agent.types import AgentConfig
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.types import Role
 from tracecat.chat.enums import MessageKind
+from tracecat.chat.schemas import VercelChatRequest
 from tracecat.db.engine import get_async_session
 from tracecat.db.models import (
     AgentChannelBot,
@@ -155,6 +165,7 @@ class BrokenNotifier(FakeNotifier):
 
 def _install(monkeypatch: pytest.MonkeyPatch, notifier: FakeNotifier | None) -> None:
     monkeypatch.setattr(channel_notifier, "get_channel_notifier", lambda: notifier)
+    monkeypatch.setattr(channel_sync, "get_channel_notifier", lambda: notifier)
 
 
 # What a turn's start pushes.
@@ -848,3 +859,341 @@ async def test_an_unroutable_reply_thread_is_raised_not_swallowed(
         await check_channel_reply_thread(CHANNEL_ROLE, uuid.uuid4(), REPLY_TO)
     with pytest.raises(ChannelDestinationNotRoutable, match="Not in C1"):
         await open_channel_reply_thread(CHANNEL_ROLE, SESSION_ID, REPLY_TO)
+
+
+# A turn that carries a destination, or started before sync was turned on.
+
+
+class LateLinkNotifier(FakeNotifier):
+    """Reads the link from the database; `open_reply_thread` links, or raises ``error``."""
+
+    def __init__(
+        self,
+        session: AsyncSession,
+        bot: AgentChannelBot,
+        error: Exception | None = None,
+    ) -> None:
+        super().__init__()
+        self.session = session
+        self.bot = bot
+        self.error = error
+        self.pushed: list[RunUpdate] = []
+
+    async def is_linked(self, role: Role, session_id: uuid.UUID) -> bool:
+        return await _flag(self.session, session_id) is not None
+
+    async def push(self, role: Role, update: RunUpdate) -> str | None:
+        self.pushed.append(update)
+        return None
+
+    async def open_reply_thread(
+        self, role: Role, session_id: uuid.UUID, destination: ChannelDestinationRef
+    ) -> None:
+        self.destinations.append(destination)
+        if self.error is not None:
+            raise self.error
+        await _link(self.session, self.bot, session_id, synced=True)
+        self.opened.append(session_id)
+
+
+def _use_test_session(monkeypatch: pytest.MonkeyPatch, session: AsyncSession) -> None:
+    """The late-link helpers open their own session; give them the test's."""
+
+    @asynccontextmanager
+    async def with_session(role: Role):
+        yield AgentSessionService(session, role)
+
+    monkeypatch.setattr(
+        channel_sync.AgentSessionService, "with_session", staticmethod(with_session)
+    )
+
+
+PICKED = ChannelDestinationRef(kind="channel", id="C1")
+
+
+@pytest.mark.anyio
+async def test_a_destination_on_the_first_send_opens_the_thread_at_turn_end(
+    session: AsyncSession, svc_role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert svc_role.workspace_id is not None
+    bot = await _bot(session, svc_role.workspace_id)
+    web = await _session(session, svc_role, entity_type=AgentSessionEntity.AGENT_PRESET)
+    await session.commit()
+    notifier = LateLinkNotifier(session, bot)
+    _install(monkeypatch, notifier)
+    _entitled(monkeypatch, True)
+
+    await push_late_turn_finished(svc_role, web.id, RUN_ID, PICKED)
+
+    # The notifier roots the thread at the message; the turn's reply posts under it.
+    assert notifier.destinations == [PICKED]
+    assert notifier.opened == [web.id]
+    assert notifier.pushed == [TurnFinished(session_id=web.id, run_id=RUN_ID)]
+    assert await _flag(session, web.id) is True
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("error", "reason"),
+    [
+        pytest.param(NoChannelBot("bot paused"), "bot paused", id="bot-gone"),
+        pytest.param(
+            ChannelRecipientNotLinked("You hasn't linked Slack"),
+            "You hasn't linked Slack",
+            id="dm-unlinked",
+        ),
+        pytest.param(ChannelDestinationNotRoutable("gone"), "gone", id="not-routable"),
+        pytest.param(
+            TimeoutError(),
+            "Slack didn't respond. Turn sync on to try again.",
+            id="transient",
+        ),
+    ],
+)
+async def test_a_turns_thread_that_cannot_open_is_told_to_the_session(
+    session: AsyncSession,
+    svc_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+    reason: str,
+) -> None:
+    assert svc_role.workspace_id is not None
+    bot = await _bot(session, svc_role.workspace_id)
+    web = await _session(session, svc_role, entity_type=AgentSessionEntity.AGENT_PRESET)
+    await session.commit()
+    notifier = LateLinkNotifier(session, bot, error)
+    _install(monkeypatch, notifier)
+    _entitled(monkeypatch, True)
+    told = AsyncMock()
+    monkeypatch.setattr(channel_sync, "publish_channel_sync_failed", told)
+
+    await push_late_turn_finished(svc_role, web.id, RUN_ID, PICKED)
+
+    assert notifier.pushed == []
+    assert await _flag(session, web.id) is None
+    told.assert_awaited_once_with(
+        workspace_id=svc_role.workspace_id,
+        session_id=web.id,
+        reason=f"Couldn't open Slack thread: {reason}",
+    )
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        pytest.param(ChannelsNotEntitled("Agent Channels is off"), id="not-entitled"),
+        pytest.param(NoChannelBot("No bot"), id="no-bot"),
+        pytest.param(ChannelDestinationNotRoutable("Not in C1"), id="not-routable"),
+        pytest.param(ChannelRecipientNotLinked("You hasn't linked Slack"), id="dm"),
+    ],
+)
+def test_a_web_turns_destination_is_refused_before_the_turn_starts(
+    error: Exception,
+) -> None:
+    role = _user_role()
+    assert role.workspace_id is not None
+    agent_session = _agent_session(
+        role.workspace_id, created_by=USER_ID, entity_type="agent_preset"
+    )
+    app, _ = _client(role, agent_session)
+
+    @asynccontextmanager
+    async def with_session(role: Role):
+        yield AgentSessionService(AsyncMock(), role)
+
+    run_turn = AsyncMock()
+    check = AsyncMock(side_effect=error)
+    with (
+        patch.object(
+            session_router.AgentSessionService,
+            "with_session",
+            staticmethod(with_session),
+        ),
+        patch.object(
+            AgentSessionService, "is_legacy_session", AsyncMock(return_value=False)
+        ),
+        patch.object(
+            AgentSessionService,
+            "validate_turn_request",
+            AsyncMock(return_value=agent_session),
+        ),
+        patch.object(AgentSessionService, "session_access", AsyncMock()),
+        patch.object(session_router, "_require_session_access", Mock()),
+        patch.object(
+            session_router,
+            "_require_workspace_chat_entitlement_for_session_tree",
+            AsyncMock(),
+        ),
+        patch.object(session_router, "check_turn_destination", check),
+        patch.object(AgentSessionService, "run_turn", run_turn),
+        TestClient(app) as client,
+    ):
+        response = client.post(
+            f"/agent/sessions/{agent_session.id}/messages",
+            json={
+                "kind": "vercel",
+                "message": {
+                    "id": "m1",
+                    "role": "user",
+                    "parts": [{"type": "text", "text": "hi"}],
+                },
+                "channel_destination": {"kind": "channel", "id": "C1"},
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": f"Couldn't open Slack thread: {error}"}
+    assert check.await_args is not None
+    assert check.await_args.args[2] == PICKED
+    run_turn.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_a_session_without_a_preset_has_no_bot_to_open_a_thread() -> None:
+    role = _user_role()
+    assert role.workspace_id is not None
+    agent_session = _agent_session(
+        role.workspace_id, created_by=USER_ID, entity_type="copilot"
+    )
+
+    with pytest.raises(NoChannelBot):
+        await check_turn_destination(role, agent_session, PICKED)
+
+
+def test_a_web_turn_dms_only_its_sender() -> None:
+    message = {"id": "m1", "role": "user", "parts": [{"type": "text", "text": "hi"}]}
+    request = VercelChatRequest.model_validate(
+        {"message": message, "channel_destination": {"kind": "direct_message"}}
+    )
+    assert request.channel_destination == ChannelDestinationRef(kind="direct_message")
+
+    with pytest.raises(ValidationError, match="takes no id"):
+        VercelChatRequest.model_validate(
+            {
+                "message": message,
+                "channel_destination": {
+                    "kind": "direct_message",
+                    "id": "someone@example.com",
+                },
+            }
+        )
+
+
+def test_the_turns_destination_reaches_the_turn_workflow() -> None:
+    context = SessionWorkflowContext(
+        session_id=SESSION_ID,
+        backend_id="default",
+        harness_type=HarnessType.CLAUDE_CODE.value,
+        title="t",
+        entity_type=AgentSessionEntity.AGENT_PRESET,
+        entity_id=uuid.uuid4(),
+        tools=None,
+        agent_preset_id=None,
+        agent_preset_version_id=None,
+        role=_user_role(),
+        config=AgentConfig(model_name="m", model_provider="p"),
+        prompt="hi",
+        run_id=RUN_ID,
+        stream_id=uuid.uuid4(),
+        channel_destination=PICKED,
+    )
+
+    args = asyncio.run(DefaultBackend().build_workflow_args(context))
+
+    assert args.channel_destination == PICKED
+
+
+@pytest.mark.anyio
+async def test_sync_turned_on_mid_turn_gets_that_turns_reply(
+    session: AsyncSession, svc_role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert svc_role.workspace_id is not None
+    bot = await _bot(session, svc_role.workspace_id)
+    web = await _session(session, svc_role, entity_type=AgentSessionEntity.AGENT_PRESET)
+    await session.commit()
+    notifier = LateLinkNotifier(session, bot)
+    _install(monkeypatch, notifier)
+    _use_test_session(monkeypatch, session)
+    # Unlinked when the turn started; the thread opened while it ran.
+    assert await has_channel_bot(svc_role) is True
+    await _link(session, bot, web.id, synced=True)
+
+    await push_late_turn_finished(svc_role, web.id, RUN_ID)
+
+    assert notifier.opened == []
+    assert notifier.pushed == [TurnFinished(session_id=web.id, run_id=RUN_ID)]
+
+
+@pytest.mark.anyio
+async def test_a_workspace_without_a_bot_reads_no_link_at_a_turns_end(
+    session: AsyncSession, svc_role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    notifier = LateLinkNotifier(session, Mock())
+    _install(monkeypatch, notifier)
+    _use_test_session(monkeypatch, session)
+
+    assert await has_channel_bot(svc_role) is False
+
+    # Without a notifier the gate reads nothing at all.
+    _install(monkeypatch, None)
+    with patch.object(channel_sync.AgentSessionService, "with_session") as opened:
+        assert await has_channel_bot(svc_role) is False
+    opened.assert_not_called()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("bot", [True, False], ids=["bot", "no-bot"])
+async def test_the_turns_end_reads_the_link_only_when_the_start_saw_a_bot(
+    monkeypatch: pytest.MonkeyPatch, bot: bool
+) -> None:
+    late = AsyncMock()
+    monkeypatch.setattr(session_activities, "push_late_turn_finished", late)
+    monkeypatch.setattr(session_activities, "push_updates", AsyncMock())
+    service = AsyncMock()
+
+    @asynccontextmanager
+    async def with_session(role: Role):
+        yield service
+
+    monkeypatch.setattr(
+        session_activities.AgentSessionService,
+        "with_session",
+        staticmethod(with_session),
+    )
+    role = _user_role()
+
+    await session_activities.finalize_turn_activity(
+        session_activities.FinalizeTurnInput(
+            role=role,
+            session_id=SESSION_ID,
+            run_id=RUN_ID,
+            resolve_channel_link=bot,
+            channel_destination=PICKED if bot else None,
+        )
+    )
+
+    if bot:
+        late.assert_awaited_once_with(role, SESSION_ID, RUN_ID, PICKED)
+    else:
+        late.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status", ["paused", "disconnected", "needs_reconnect"])
+async def test_only_an_active_bot_turns_on_the_end_of_turn_lookup(
+    session: AsyncSession,
+    svc_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+    status: str,
+) -> None:
+    assert svc_role.workspace_id is not None
+    bot = await _bot(session, svc_role.workspace_id)
+    await session.commit()
+    _install(monkeypatch, LateLinkNotifier(session, bot))
+    _use_test_session(monkeypatch, session)
+    assert await has_channel_bot(svc_role) is True
+
+    bot.status = status  # pyright: ignore[reportAttributeAccessIssue]
+    await session.commit()
+
+    assert await has_channel_bot(svc_role) is False

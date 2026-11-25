@@ -6,6 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 from temporalio.common import Priority, RetryPolicy
 
+from tracecat.agent.channel_notifier import ChannelDestinationRef
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.session.types import AgentSessionEntity
@@ -53,6 +54,10 @@ class AgentWorkflowArgs(BaseModel):
     prompt_run_id: uuid.UUID | None = Field(
         default=None,
         description="The run that first sent a retried prompt; None for a new message.",
+    )
+    channel_destination: ChannelDestinationRef | None = Field(
+        default=None,
+        description="Where the turn's end opens the session's synced thread.",
     )
 
 

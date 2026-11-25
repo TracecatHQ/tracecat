@@ -26,6 +26,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import {
+  channelDestinationLabel,
   useSessionChannelDestinations,
   useSessionChannelSync,
 } from "@/hooks/use-session-channel-sync"
@@ -50,15 +51,22 @@ const TOOLTIPS: Record<SlackSyncState, string> = {
  * The composer's Slack sync toggle. A linked session turns sync on or off; an
  * unlinked one opens the channel picker. Hidden when the actor may not change
  * sync or the session's agent has no bot.
+ *
+ * With `onPickedChange`, a session with no messages keeps its pick in the
+ * caller's state; the first send carries it and the thread opens at that turn's end.
  */
 export function SlackSyncButton({
   workspaceId,
   sessionId,
   disabled = false,
+  picked = null,
+  onPickedChange,
 }: {
   workspaceId: string
   sessionId: string
   disabled?: boolean
+  picked?: ChannelDestination | null
+  onPickedChange?: (destination: ChannelDestination | null) => void
 }) {
   const { sync, changeSync, isPending } = useSessionChannelSync(
     workspaceId,
@@ -68,16 +76,25 @@ export function SlackSyncButton({
   if (!sync?.available) {
     return null
   }
+  const pickFirst = !sync.linked && onPickedChange !== undefined
+  const waiting = pickFirst ? picked : null
   let state: SlackSyncState = "unlinked"
   if (sync.linked) {
     state = sync.enabled ? "on" : "off"
+  } else if (waiting) {
+    state = "on"
   }
+  const tooltip = waiting
+    ? `Syncs to ${channelDestinationLabel(waiting)} when you send · click to cancel`
+    : TOOLTIPS[state]
 
   // Unlinked, the button is the picker's trigger, so a second click closes it.
   const PickerAnchor = state === "unlinked" ? PopoverTrigger : PopoverAnchor
 
   function handleClick() {
-    if (state !== "unlinked") {
+    if (waiting) {
+      onPickedChange?.(null)
+    } else if (state !== "unlinked") {
       changeSync({ enabled: state === "off" })
     }
   }
@@ -86,7 +103,10 @@ export function SlackSyncButton({
 
   function handleSelect(destination: ChannelDestination) {
     setPickerOpen(false)
-    if (!inactive) {
+    if (inactive) return
+    if (pickFirst) {
+      onPickedChange?.(destination)
+    } else {
       changeSync({ enabled: true, destination })
     }
   }
@@ -113,7 +133,7 @@ export function SlackSyncButton({
                 <SlackSyncIcon state={state} />
               </PromptInputButton>
             </TooltipTrigger>
-            <TooltipContent side="top">{TOOLTIPS[state]}</TooltipContent>
+            <TooltipContent side="top">{tooltip}</TooltipContent>
           </Tooltip>
         </span>
       </PickerAnchor>

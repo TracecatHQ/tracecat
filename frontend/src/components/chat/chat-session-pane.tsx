@@ -100,7 +100,10 @@ import {
 import { useFormsAccess } from "@/hooks/use-forms-access"
 import { useMentions } from "@/hooks/use-mentions"
 import { useOverflowBadges } from "@/hooks/use-overflow-badges"
-import { useSessionChannelSync } from "@/hooks/use-session-channel-sync"
+import {
+  usePickedChannelDestination,
+  useSessionChannelSync,
+} from "@/hooks/use-session-channel-sync"
 import { SubagentStreamContext } from "@/hooks/use-subagent-stream"
 import { useTypeToFocus } from "@/hooks/use-type-to-focus"
 import { isAgentToolSelectable } from "@/lib/agent-tools"
@@ -459,6 +462,11 @@ export function ChatSessionPane({
     pageContext,
     resume: resume && !openedToSend.value,
   })
+  // A Slack destination picked before the first message; that send carries it.
+  const pickedDestination = usePickedChannelDestination(
+    chat?.id,
+    messages.length === 0
+  )
   // A teammate who joined a private chat makes it shared too (J2).
   const teammateSent = messages.some((message) => {
     const metadata = message.metadata
@@ -1476,16 +1484,20 @@ export function ChatSessionPane({
 
     // Clear input for normal message sending
     clearSubmittedDraft()
+    const sendOptions = pickedDestination.takeSendOptions()
 
     try {
       await persistToolsChainRef.current.catch(() => undefined)
       await persistMcpChainRef.current.catch(() => undefined)
       clearError()
-      sendMessage({
-        text: messageText,
-        metadata: authorMetadata,
-        ...(message.files?.length ? { files: message.files } : {}),
-      })
+      sendMessage(
+        {
+          text: messageText,
+          metadata: authorMetadata,
+          ...(message.files?.length ? { files: message.files } : {}),
+        },
+        sendOptions
+      )
     } catch (error) {
       console.error("Failed to send message:", error)
     }
@@ -1582,6 +1594,8 @@ export function ChatSessionPane({
                   workspaceId={workspaceId}
                   sessionId={chat.id}
                   disabled={cannotExecuteAgents}
+                  picked={pickedDestination.picked}
+                  onPickedChange={pickedDestination.onPickedChange}
                 />
               ) : null}
               {!isReadonly && modelInfo ? (

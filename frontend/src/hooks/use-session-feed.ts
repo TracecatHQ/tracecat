@@ -46,6 +46,21 @@ export type FeedState = {
   } | null
 }
 
+const channelSyncFailedSchema = z.object({
+  type: z.literal("channel_sync.failed"),
+  reason: z.string(),
+})
+
+/** Why a turn's Slack thread could not open, or null for any other message. */
+export function parseChannelSyncFailure(data: string): string | null {
+  try {
+    const parsed = channelSyncFailedSchema.safeParse(JSON.parse(data))
+    return parsed.success ? parsed.data.reason : null
+  } catch {
+    return null
+  }
+}
+
 /** Parse one feed message, or null when it is not a known event. */
 export function parseSessionFeedEvent(data: string): SessionFeedEvent | null {
   try {
@@ -163,6 +178,7 @@ export function useSessionFeed({
   busy,
   onAttach,
   onRefresh,
+  onChannelSyncFailed,
 }: {
   chatId?: string
   workspaceId: string
@@ -174,9 +190,11 @@ export function useSessionFeed({
    */
   onAttach: (settle: (held: boolean) => void) => void
   onRefresh: () => void
+  /** A turn's Slack thread could not open. */
+  onChannelSyncFailed?: (reason: string) => void
 }) {
-  const handlersRef = useRef({ onAttach, onRefresh })
-  handlersRef.current = { onAttach, onRefresh }
+  const handlersRef = useRef({ onAttach, onRefresh, onChannelSyncFailed })
+  handlersRef.current = { onAttach, onRefresh, onChannelSyncFailed }
   const busyRef = useRef(busy)
   busyRef.current = busy
   const stateRef = useRef<FeedState>({
@@ -258,6 +276,11 @@ export function useSessionFeed({
         }
       }
       current.onmessage = (message: MessageEvent<string>) => {
+        const failure = parseChannelSyncFailure(message.data)
+        if (failure !== null) {
+          handlersRef.current.onChannelSyncFailed?.(failure)
+          return
+        }
         const event = parseSessionFeedEvent(message.data)
         if (!event) return
         const action = feedActionFor(event, stateRef.current)

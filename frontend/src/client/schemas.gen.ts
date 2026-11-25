@@ -46281,6 +46281,18 @@ export const $VercelChatRequest = {
       description:
         "The page the chat is docked on. Only Workspace chat uses it.",
     },
+    channel_destination: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ChannelDestinationRef",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Where to open the session's synced thread when this turn ends: a channel the agent's bot is in, or a DM with the sender (no id).",
+    },
   },
   type: "object",
   required: ["message"],
