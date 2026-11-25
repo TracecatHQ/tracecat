@@ -54,11 +54,7 @@ export function WorkspaceSettingsContainer({
     case "workspace-runtime":
       return <WorkspaceRuntimeSettings workspace={workspace} />
     case "workspace-cases":
-      return hasEntitlement("case_addons") ? (
-        <WorkspaceCaseSettings workspace={workspace} />
-      ) : (
-        <UpgradeRequired description="Sub-case settings are unavailable on your current plan." />
-      )
+      return <WorkspaceCaseSettings workspace={workspace} />
     case "workspace-models":
       return hasEntitlement("agent_addons") ? (
         <WorkspaceModelSettings workspace={workspace} />

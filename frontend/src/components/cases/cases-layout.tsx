@@ -45,7 +45,6 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { useToast } from "@/components/ui/use-toast"
-import { useEntitlements } from "@/hooks/use-entitlements"
 import type { CaseDateFilterValue, UseCasesFilters } from "@/lib/case-query"
 import { runChunkedCaseBatch } from "@/lib/cases/batch"
 import { invalidateCaseHierarchy } from "@/lib/cases/invalidation"
@@ -176,8 +175,6 @@ export function CasesLayout({
   const { batchDeleteCases } = useBatchDeleteCases({ workspaceId })
   const { batchUpdateCases } = useBatchUpdateCases({ workspaceId })
   const { batchChangeCaseParent } = useBatchChangeCaseParent({ workspaceId })
-  const { hasEntitlement } = useEntitlements()
-  const caseAddonsEnabled = hasEntitlement("case_addons")
   const { toast } = useToast()
 
   const handleSelectCase = useCallback(
@@ -360,9 +357,7 @@ export function CasesLayout({
         clearSelection: handleClearSelection,
         deleteSelected: handleBulkDelete,
         bulkUpdateSelectedCases: handleBulkUpdate,
-        setParentForSelectedCases: caseAddonsEnabled
-          ? handleSetParent
-          : undefined,
+        setParentForSelectedCases: handleSetParent,
         isDeleting,
         isUpdating: isBulkUpdating,
         isChangingParent,
@@ -376,7 +371,6 @@ export function CasesLayout({
     handleBulkDelete,
     handleBulkUpdate,
     handleSetParent,
-    caseAddonsEnabled,
     isDeleting,
     isBulkUpdating,
     isChangingParent,

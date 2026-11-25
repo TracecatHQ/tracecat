@@ -766,11 +766,11 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                 "implementation": create_case_impl,
             }
 
-            # core.cases.create_task (case add-on gated)
+            # core.cases.create_task
             create_task_impl = {
                 "type": "udf",
                 "url": origin,
-                "module": "tracecat_registry.core.ee.tasks",
+                "module": "tracecat_registry.core.tasks",
                 "name": "create_task",
             }
             manifest_actions["core.cases.create_task"] = {
@@ -782,7 +782,6 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                 "display_group": "Cases",
                 "interface": {"expects": {}, "returns": None},
                 "implementation": create_task_impl,
-                "options": {"required_entitlements": ["case_addons"]},
             }
 
             # core.cases.get_case_metrics (case add-on gated)

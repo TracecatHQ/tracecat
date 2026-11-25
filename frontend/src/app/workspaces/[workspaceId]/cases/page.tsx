@@ -348,9 +348,7 @@ function CasesPageBody({
         onTagSortDirectionChange={setTagSortDirection}
         onUpdatedAfterChange={setUpdatedAfter}
         onCreatedAfterChange={setCreatedAfter}
-        onIncludeSubCasesChange={
-          caseAddonsEnabled ? setIncludeSubCases : undefined
-        }
+        onIncludeSubCasesChange={setIncludeSubCases}
         dropdownDefinitions={
           caseAddonsEnabled ? dropdownDefinitions : undefined
         }

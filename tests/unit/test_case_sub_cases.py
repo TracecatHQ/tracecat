@@ -27,7 +27,6 @@ from tracecat.cases.schemas import CaseCreate, CaseFieldCreate, CaseUpdate
 from tracecat.cases.service import CaseFieldsService, CasesService
 from tracecat.db.models import Case, CaseEvent, Workspace
 from tracecat.exceptions import (
-    EntitlementRequired,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -341,11 +340,7 @@ async def test_cross_workspace_parent_is_not_found(
 
 
 @pytest.mark.anyio
-async def test_sub_cases_require_case_addons(cases_service: CasesService) -> None:
-    parent_id = (await _create(cases_service, "Parent")).id
-    child_id = (await _create(cases_service, "Child")).id
-    await cases_service.batch_set_parent([child_id], parent_id)
-
+async def test_sub_cases_work_without_case_addons(cases_service: CasesService) -> None:
     with (
         patch.object(
             CasesService, "has_entitlement", new=AsyncMock(return_value=False)
@@ -354,35 +349,31 @@ async def test_sub_cases_require_case_addons(cases_service: CasesService) -> Non
             CaseHierarchyService, "has_entitlement", new=AsyncMock(return_value=False)
         ),
     ):
-        with pytest.raises(EntitlementRequired):
-            await cases_service.batch_set_parent([child_id], parent_id)
-        with pytest.raises(EntitlementRequired):
-            await cases_service.batch_clear_parent([child_id])
-        with pytest.raises(EntitlementRequired):
-            await _create(cases_service, "New child", parent_id=parent_id)
-        with pytest.raises(EntitlementRequired):
-            await _search_ids(cases_service, parent_id=parent_id)
-        with pytest.raises(EntitlementRequired):
-            await cases_service.get_search_case_aggregates(parent_id=parent_id)
+        parent_id = (await _create(cases_service, "Parent")).id
+        child_id = (await _create(cases_service, "Child")).id
+        await cases_service.batch_set_parent([child_id], parent_id)
+        new_child_id = (await _create(cases_service, "New child", parent_id)).id
 
-        # Without the entitlement the list is flat: nothing is hidden and no
-        # hierarchy metadata is returned.
+        assert await _search_ids(cases_service, parent_id=parent_id) == {
+            child_id,
+            new_child_id,
+        }
+        aggregate = await cases_service.get_search_case_aggregates(parent_id=parent_id)
+        assert aggregate.total == 2
+
         response = await cases_service.search_cases(
             CursorPaginationParams(limit=100), hierarchy="top_level"
         )
         items = {item.id: item for item in response.items}
-        assert {parent_id, child_id} <= items.keys()
-        assert items[child_id].parent is None
-        assert items[child_id].parent is None
-        assert items[parent_id].num_sub_cases == 0
-        aggregate = await cases_service.get_search_case_aggregates(
-            hierarchy="top_level"
-        )
-        assert aggregate.total == len(items)
+        assert parent_id in items
+        assert child_id not in items
+        assert items[parent_id].num_sub_cases == 2
+
+        await cases_service.batch_clear_parent([child_id])
 
     refreshed = await cases_service.get_case(child_id)
     assert refreshed is not None
-    assert refreshed.parent_id == parent_id
+    assert refreshed.parent_id is None
 
 
 @pytest.mark.anyio
@@ -500,7 +491,7 @@ async def test_closing_parent_leaves_sub_cases_when_setting_disabled(
 
 
 @pytest.mark.anyio
-async def test_closing_parent_without_case_addons_leaves_sub_cases(
+async def test_closing_parent_without_case_addons_closes_sub_cases(
     cases_service: CasesService, session: AsyncSession
 ) -> None:
     parent = await _create(cases_service, "Parent")
@@ -511,7 +502,7 @@ async def test_closing_parent_without_case_addons_leaves_sub_cases(
     ):
         await cases_service.update_case(parent, CaseUpdate(status=CaseStatus.CLOSED))
 
-    assert await _status(session, sub_case.id) == CaseStatus.NEW
+    assert await _status(session, sub_case.id) == CaseStatus.CLOSED
 
 
 @pytest.mark.anyio

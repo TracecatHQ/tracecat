@@ -294,7 +294,7 @@ async def create_case(
         str | None,
         Doc(
             "The ID or short ID (e.g. CASE-0042) of a top-level case to create "
-            "this case under as a sub-case. Requires the case add-ons entitlement."
+            "this case under as a sub-case."
         ),
     ] = None,
 ) -> types.Case:
@@ -1034,7 +1034,6 @@ async def list_case_views(
         "duplicates under one primary case. Returns a result for each case."
     ),
     namespace="core.cases",
-    required_entitlements=["case_addons"],
 )
 async def add_sub_cases(
     parent_case_id: Annotated[
@@ -1070,7 +1069,6 @@ async def add_sub_cases(
         "Returns a result for each case."
     ),
     namespace="core.cases",
-    required_entitlements=["case_addons"],
 )
 async def remove_sub_cases(
     case_ids: Annotated[

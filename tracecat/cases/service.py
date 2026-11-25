@@ -170,7 +170,7 @@ from tracecat.query.execution import query_execution_context
 from tracecat.query.filters import Filter
 from tracecat.query.lexical_types import SearchMode
 from tracecat.query.resolver import ResolvedAggregationField
-from tracecat.service import BaseWorkspaceService, requires_entitlement
+from tracecat.service import BaseWorkspaceService
 from tracecat.tables.common import (
     coerce_integer_value,
     coerce_multi_select_value,
@@ -1143,8 +1143,6 @@ class CasesService(BaseWorkspaceService):
         Runs in the caller's transaction; skipped when the workspace setting
         ``close_sub_cases_with_parent`` is false.
         """
-        if not await self.hierarchy.enabled():
-            return
         settings = await self.session.scalar(
             select(Workspace.settings).where(Workspace.id == self.workspace_id)
         )
@@ -1520,7 +1518,6 @@ class CasesService(BaseWorkspaceService):
         )
 
     @require_scope("case:update")
-    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def batch_set_parent(
         self, case_ids: list[uuid.UUID], parent_id: uuid.UUID
     ) -> CaseBatchResponse:
@@ -1538,7 +1535,6 @@ class CasesService(BaseWorkspaceService):
         return await self._change_parent(case_ids, parent_id)
 
     @require_scope("case:update")
-    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def batch_clear_parent(self, case_ids: list[uuid.UUID]) -> CaseBatchResponse:
         """Remove cases from their parent case, returning them to the top level."""
         return await self._change_parent(case_ids, None)
@@ -3045,7 +3041,6 @@ class CaseTasksService(BaseWorkspaceService):
             role=self.role,
         )
 
-    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def list_tasks(self, case_id: uuid.UUID) -> Sequence[CaseTask]:
         """List all tasks for a case.
 
@@ -3069,7 +3064,6 @@ class CaseTasksService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalars().all()
 
-    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def get_task(self, task_id: uuid.UUID) -> CaseTask:
         """Get a task by ID.
 
@@ -3143,7 +3137,6 @@ class CaseTasksService(BaseWorkspaceService):
                 f"Invalid default_trigger_values for workflow '{workflow.title}': {e}"
             ) from e
 
-    @requires_entitlement(Entitlement.CASE_ADDONS)
     @require_scope("case:create")
     async def create_task(self, case_id: uuid.UUID, params: CaseTaskCreate) -> CaseTask:
         """Create a new task for a case.
@@ -3215,7 +3208,6 @@ class CaseTasksService(BaseWorkspaceService):
         await self.session.refresh(task)
         return task
 
-    @requires_entitlement(Entitlement.CASE_ADDONS)
     @require_scope("case:update")
     async def update_task(self, task_id: uuid.UUID, params: CaseTaskUpdate) -> CaseTask:
         """Update a task.
@@ -3358,7 +3350,6 @@ class CaseTasksService(BaseWorkspaceService):
         await self.session.refresh(task)
         return task
 
-    @requires_entitlement(Entitlement.CASE_ADDONS)
     @require_scope("case:delete")
     async def delete_task(self, task_id: uuid.UUID) -> None:
         """Delete a task.

@@ -7607,7 +7607,7 @@ async def create_case(
             of `option_id`/`option_ref` (omit both to clear). Requires the
             case add-ons entitlement.
         parent_id: Optional UUID of a top-level case to create this case
-            under as a sub-case. Requires the case add-ons entitlement.
+            under as a sub-case.
 
     Returns JSON with a confirmation message and the created case ID.
     """
@@ -7776,7 +7776,7 @@ async def set_case_parent(
 
     Sub-cases are one level deep: the parent must be a top-level case, and a
     case that has its own sub-cases cannot be grouped. Cases already under
-    another parent are moved. Requires the case add-ons entitlement.
+    another parent are moved.
 
     Args:
         workspace_id: The workspace ID.
@@ -7817,8 +7817,7 @@ async def clear_case_parent(
     case_ids: list[uuid.UUID],
 ) -> CaseBatchResponse:
     """Remove sub-cases from their parent case, returning them to the top
-    level. Cases without a parent are left unchanged. Requires the case
-    add-ons entitlement.
+    level. Cases without a parent are left unchanged.
 
     Args:
         workspace_id: The workspace ID.

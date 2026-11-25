@@ -48,7 +48,7 @@ Default: `null`.
 
 <ParamField path="parent_case_id" type="string | null">
 
-The ID or short ID (e.g. CASE-0042) of a top-level case to create this case under as a sub-case. Requires the case add-ons entitlement.
+The ID or short ID (e.g. CASE-0042) of a top-level case to create this case under as a sub-case.
 
 Default: `null`.
 
@@ -437,7 +437,7 @@ Allowed values: `all`, `top_level`.
 
 <ParamField path="include_count" type="boolean">
 
-Include exact total_estimate.
+Include exact total_estimate. Only returned when paginate is true.
 
 Default: `true`.
 
@@ -1074,8 +1074,6 @@ The ID or short ID (e.g. CASE-0042) of the case to delete.
 
 Group cases as sub-cases of a top-level parent case, e.g. to collect duplicates under one primary case. Returns a result for each case.
 
-<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
-
 The result has one item per case with `success` and `error`, plus
 `succeeded` and `failed` counts. A case that fails does not stop the others.
 An invalid ID, or a short ID that matches no case, fails the whole request before any case changes.
@@ -1111,8 +1109,6 @@ The ID or short ID (e.g. CASE-0042) of the parent case. It must not be a sub-cas
 ## `core.cases.remove_sub_cases`
 
 Remove cases from their parent case, returning them to the top level. Returns a result for each case.
-
-<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
 
 The result has one item per case with `success` and `error`, plus
 `succeeded` and `failed` counts. A case that fails does not stop the others.
