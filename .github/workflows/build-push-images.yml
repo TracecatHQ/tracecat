@@ -2,7 +2,7 @@ name: Publish images
 
 on:
   push:
-    branches: ["staging", "preview"]
+    branches: ["staging"]
     tags:
       - "*.*.*"
       - "nightly-*"
@@ -66,10 +66,19 @@ jobs:
             echo "release=$release"
           } >> "$GITHUB_OUTPUT"
 
-  build-and-push-api:
-    environment: ghcr-publish
-    timeout-minutes: 30
+  approve-publish:
+    name: Approve GHCR publishing
     needs: validate
+    environment: ghcr-publish
+    permissions: {}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: echo 'GHCR publishing approved.'
+
+  build-and-push-api:
+    timeout-minutes: 30
+    needs: [validate, approve-publish]
     permissions:
       contents: read
       packages: write
@@ -200,12 +209,11 @@ jobs:
           retention-days: 1
 
   merge-api:
-    environment: ghcr-publish
     timeout-minutes: 10
     permissions:
       contents: read
       packages: write
-    needs: [validate, build-and-push-api]
+    needs: [validate, build-and-push-api, approve-publish]
     runs-on: blacksmith-8vcpu-ubuntu-2404
     steps:
       - name: Download digests
@@ -260,9 +268,8 @@ jobs:
           docker buildx imagetools inspect ghcr.io/tracecathq/tracecat:${{ steps.meta.outputs.version }}
 
   build-and-push-tunnel-gateway:
-    environment: ghcr-publish
     timeout-minutes: 30
-    needs: validate
+    needs: [validate, approve-publish]
     permissions:
       contents: read
       packages: write
@@ -342,12 +349,11 @@ jobs:
           retention-days: 1
 
   merge-tunnel-gateway:
-    environment: ghcr-publish
     timeout-minutes: 10
     permissions:
       contents: read
       packages: write
-    needs: [validate, build-and-push-tunnel-gateway]
+    needs: [validate, build-and-push-tunnel-gateway, approve-publish]
     runs-on: blacksmith-8vcpu-ubuntu-2404
     steps:
       - name: Download digests
@@ -402,8 +408,7 @@ jobs:
           docker buildx imagetools inspect ghcr.io/tracecathq/tracecat-tunnel-gateway:${{ steps.meta.outputs.version }}
 
   build-and-push-ui:
-    environment: ghcr-publish
-    needs: validate
+    needs: [validate, approve-publish]
     permissions:
       contents: read
       packages: write
@@ -480,8 +485,7 @@ jobs:
           push: true
 
   promote-latest:
-    environment: ghcr-publish
-    needs: [validate, merge-api, build-and-push-ui, merge-tunnel-gateway]
+    needs: [validate, merge-api, build-and-push-ui, merge-tunnel-gateway, approve-publish]
     if: needs.validate.outputs.latest == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
