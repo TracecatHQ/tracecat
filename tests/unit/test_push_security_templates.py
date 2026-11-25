@@ -169,3 +169,32 @@ def test_block_app_sets_banner_fields() -> None:
     assert rule["criteria"]["appTypes"]["matches"] == ["SLACK"]
     assert rule["allowReasonSubmission"] is True
     assert rule["buttonText"] == "Ask"
+
+
+def test_block_shortcut_moves_managed_rule_to_top() -> None:
+    main = _main("block_browser_extension")
+    config = _config()
+    config["rules"].append(
+        {
+            "id": "managed",
+            "name": "Blocked by Tracecat",
+            "criteria": {"browserExtensions": {"matches": ["ext-a"]}},
+        }
+    )
+    blocked = main(config, ["ext-b"], "Blocked by Tracecat", "t", "s")
+    assert [r["id"] for r in blocked["rules"]] == ["managed", "r1", "r2"]
+
+
+def test_block_shortcut_rejects_exclude_rule() -> None:
+    main = _main("block_app")
+    config = {
+        "rules": [
+            {
+                "id": "managed",
+                "name": "Blocked by Tracecat",
+                "criteria": {"appTypes": {"matches": ["SLACK"], "action": "EXCLUDE"}},
+            }
+        ]
+    }
+    with pytest.raises(ValueError):
+        main(config, ["ZOOM"], "Blocked by Tracecat", "t", "s", False, None)

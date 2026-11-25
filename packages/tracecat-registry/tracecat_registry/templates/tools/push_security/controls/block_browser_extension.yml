@@ -3,9 +3,10 @@ definition:
   title: Block browser extension
   description: >-
     Block browser extensions by extension ID. Adds the IDs to one browserExtensionBlocking
-    rule in BLOCK mode (created at the top if missing) and keeps every other rule. Calls GET
-    then PUT /v1/controls/browserExtensionBlocking/configuration. Edits made to the control
-    between the read and the write are lost.
+    rule in BLOCK mode and moves that rule to the top (creating it if missing), keeping
+    every other rule. Calls GET then PUT
+    /v1/controls/browserExtensionBlocking/configuration. Edits made to the control between
+    the read and the write are lost.
   display_group: Push Security
   doc_url: https://developer.pushsecurity.com/rest-v1/browser-extension-blocking/put-controls-browserextensionblocking
   namespace: tools.push_security
@@ -53,12 +54,14 @@ definition:
         script: |
           def main(current, extensionIds, rule_name, title, subtext):
               rules = list(current.get("rules") or [])
-              rule = next((r for r in rules if r.get("name") == rule_name), None)
-              if rule is None:
-                  rule = {"name": rule_name, "criteria": {"browserExtensions": {"matches": []}}}
-                  rules.insert(0, rule)
+              index = next((i for i, r in enumerate(rules) if r.get("name") == rule_name), None)
+              rule = {"name": rule_name} if index is None else rules.pop(index)
+              # First match wins, so keep the block rule ahead of broader rules.
+              rules.insert(0, rule)
               criteria = dict(rule.get("criteria") or {})
               condition = dict(criteria.get("browserExtensions") or {})
+              if condition.get("action", "INCLUDE") != "INCLUDE":
+                  raise ValueError(f"Rule {rule_name!r} excludes browserExtensions; adding values would change what it blocks")
               matches = list(condition.get("matches") or [])
               matches += [value for value in extensionIds if value not in matches]
               condition.update({"matches": matches, "action": "INCLUDE"})

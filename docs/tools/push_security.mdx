@@ -150,7 +150,7 @@ Default: `null`.
 
 Action ID: `tools.push_security.block_app`
 
-Block employees from logging in or signing up to apps. Adds the app types to one appBanner rule in BLOCK mode (created at the top if missing) and keeps every other rule. Calls GET then PUT /v1/controls/appBanner/configuration. Edits made to the control between the read and the write are lost.
+Block employees from logging in or signing up to apps. Adds the app types to one appBanner rule in BLOCK mode and moves that rule to the top (creating it if missing), keeping every other rule. Calls GET then PUT /v1/controls/appBanner/configuration. Edits made to the control between the read and the write are lost.
 
 Reference: [https://developer.pushsecurity.com/rest-v1/app-banner/put-controls-appbanner](https://developer.pushsecurity.com/rest-v1/app-banner/put-controls-appbanner)
 
@@ -220,7 +220,7 @@ Default: `"App blocked"`.
 
 Action ID: `tools.push_security.block_browser_extension`
 
-Block browser extensions by extension ID. Adds the IDs to one browserExtensionBlocking rule in BLOCK mode (created at the top if missing) and keeps every other rule. Calls GET then PUT /v1/controls/browserExtensionBlocking/configuration. Edits made to the control between the read and the write are lost.
+Block browser extensions by extension ID. Adds the IDs to one browserExtensionBlocking rule in BLOCK mode and moves that rule to the top (creating it if missing), keeping every other rule. Calls GET then PUT /v1/controls/browserExtensionBlocking/configuration. Edits made to the control between the read and the write are lost.
 
 Reference: [https://developer.pushsecurity.com/rest-v1/browser-extension-blocking/put-controls-browserextensionblocking](https://developer.pushsecurity.com/rest-v1/browser-extension-blocking/put-controls-browserextensionblocking)
 
