@@ -28,6 +28,7 @@ import {
   agentSessionsListSessions,
   agentSessionsRemoveSessionArtifact,
   agentSessionsUpdateSession,
+  type ChannelDestinationRef,
   type ChatPageContext,
   type ContinueRunRequest,
   type VercelChatRequest,
@@ -812,6 +813,11 @@ export function useVercelChat({
   pageContextRef.current = pageContext
   // Whether the reconnect in flight streamed turn output, not just a finish.
   const reconnectStreamedRef = useRef(false)
+  // A first send's Slack destination, resent by a Retry of that prompt until a turn finishes.
+  const firstSendDestinationRef = useRef<{
+    messageId: string
+    destination: ChannelDestinationRef
+  } | null>(null)
 
   // Use Vercel's useChat hook for streaming. On reconnect the server replays the
   // whole active turn from the start (it hides the active run's DB rows mid-turn,
@@ -867,10 +873,17 @@ export function useVercelChat({
         if (baseUrl != null) body.base_url = baseUrl
         const currentPageContext = pageContextRef.current
         if (currentPageContext) body.page_context = currentPageContext
-        const destination = channelDestinationFromOptions(requestBody)
-        if (destination && trigger === "submit-message") {
-          body.channel_destination = destination
+        let destination = channelDestinationFromOptions(requestBody)
+        if (trigger === "submit-message") {
+          firstSendDestinationRef.current = destination
+            ? { messageId: last.id, destination }
+            : null
+        } else if (firstSendDestinationRef.current?.messageId === last.id) {
+          destination = firstSendDestinationRef.current.destination
+        } else {
+          destination = undefined
         }
+        if (destination) body.channel_destination = destination
         return { body }
       },
     }),
@@ -898,6 +911,7 @@ export function useVercelChat({
     onFinish: ({ messages: turnMessages, isAbort, isDisconnect, isError }) => {
       if (!isAbort && !isDisconnect && !isError) {
         void subagentStore.complete()
+        firstSendDestinationRef.current = null
       }
       // Leaving a chat aborts its request, and the SDK runs that abort's
       // onFinish with the next chat's callbacks; sends already cleared state.
