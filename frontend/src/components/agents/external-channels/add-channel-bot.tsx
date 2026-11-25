@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowUpRight, Info, Loader2, Plus } from "lucide-react"
+import { ArrowUpRight, ChevronDown, Info, Loader2 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { type ReactNode, useState } from "react"
 import type { AgentChannelBotRead, AgentPresetReadMinimal } from "@/client"
@@ -119,8 +119,8 @@ export function AddChannelBotMenu({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button type="button" size="sm" disabled={disabled}>
-          <Plus className="mr-2 size-4" />
           Add bot
+          <ChevronDown className="ml-2 size-4" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80">
@@ -179,6 +179,7 @@ export function NoChannelBots({
               <Button
                 type="button"
                 size="sm"
+                variant={platform === "ready" ? "default" : "outline"}
                 disabled={disabled || platform !== "ready"}
                 onClick={() => onChoose("tracecat")}
               >
