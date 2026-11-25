@@ -2971,6 +2971,11 @@ async def test_roles_managed_by_own_tooling_migrate_and_own_workspace_schemas(
     assert migrate(_test_roles(_suffix())) == 0
     assert "No Tracecat role setup in this database" in capsys.readouterr().err
     assert _public_owners(database) == [(setup.owner,)]
+    grants, writes_check = setup.doc_sql("Configure Tracecat")
+    with psycopg.connect(setup.url(setup.migrator), autocommit=True) as conn:
+        for statement in _statements([grants]):
+            _run(conn, statement)
+        assert _run(conn, writes_check).fetchone() == (False,)
 
     # 2. As the app login, create a workspace table and case custom fields.
     monkeypatch.setattr(config, "TRACECAT__DB_DYNAMIC_OWNER_ROLE", setup.dynamic_owner)
@@ -3013,10 +3018,7 @@ async def test_roles_managed_by_own_tooling_migrate_and_own_workspace_schemas(
         _run(conn, f"ALTER TABLE {qualified} FORCE ROW LEVEL SECURITY")
         conn.commit()
 
-    # 4. The page's alembic_version revoke, then its setup check.
-    (revoke,) = setup.doc_sql("Configure Tracecat")
-    with psycopg.connect(setup.url(setup.migrator), autocommit=True) as conn:
-        _run(conn, revoke)
+    # 4. The page's setup check.
     current_user, check = setup.doc_sql("Check the setup")
     with psycopg.connect(setup.url(setup.migrator)) as conn:
         assert _run(conn, current_user).fetchone() == (setup.owner,)

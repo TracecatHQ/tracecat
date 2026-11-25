@@ -71,8 +71,6 @@ Run these as `<admin>` in `<db>` before the first deploy.
       GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO <app>;
     ALTER DEFAULT PRIVILEGES FOR ROLE <owner> IN SCHEMA public
       GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO <app>;
-    ALTER DEFAULT PRIVILEGES FOR ROLE <owner> IN SCHEMA public
-      GRANT REFERENCES ON TABLES TO <dynamic-owner>;
     ```
   </Step>
 </Steps>
@@ -109,14 +107,21 @@ FROM pg_database WHERE datname = '<db>';
 
 ## Configure Tracecat
 
-If `<dynamic-owner>` isn't named `app_owner`, set `TRACECAT__DB_DYNAMIC_OWNER_ROLE` on every service and the migrations. The Helm chart sets it from `tracecat.dynamicOwnerRole`; with Docker Compose or Fargate, add it to each service's environment.
+If `<dynamic-owner>` isn't named `app_owner`, set `TRACECAT__DB_DYNAMIC_OWNER_ROLE` on every service and the migrations. The Helm chart sets it from `tracecat.dynamicOwnerRole`. With Docker Compose, add it to each service's environment and leave `TRACECAT__DB_ROLE_LOGIN` and `TRACECAT__DB_ADMIN_URI` empty, so Compose skips role setup. Fargate doesn't support separate database roles yet.
 
 1. Point the migrations at `<migrator>` and every other service at `<app>`. To log in with IAM or Entra tokens, see [Database IAM login](/self-hosting/database-iam).
 2. Deploy. The migrations log `No Tracecat role setup in this database`.
-3. Before you scale up, as `<migrator>`, stop `<app>` from writing the migration version table:
+3. When the migrations finish, as `<migrator>`, let `<dynamic-owner>` reference cases (for custom fields) and stop `<app>` from writing the migration version table:
 
    ```sql
+   GRANT REFERENCES ON public."case" TO <dynamic-owner>;
    REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.alembic_version FROM <app>, PUBLIC;
+   ```
+
+   This must return `f`:
+
+   ```sql
+   SELECT has_table_privilege('<app>', 'public.alembic_version', 'INSERT, UPDATE, DELETE, TRUNCATE');
    ```
 
 ## Before each release
