@@ -159,6 +159,7 @@ export default function WorkspaceLayout({
       return (
         <ScopeProvider>
           <NoWorkspaces />
+          <SettingsModal />
         </ScopeProvider>
       )
     }
@@ -172,6 +173,7 @@ export default function WorkspaceLayout({
     return (
       <ScopeProvider>
         <NoWorkspaces />
+        <SettingsModal />
       </ScopeProvider>
     )
   } else if (fallbackWorkspaceId) {

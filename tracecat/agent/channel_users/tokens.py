@@ -194,3 +194,19 @@ def read_any_sign_in_state(state: str) -> ChannelLinkSignIn | ChannelSettingsSig
         return read_sign_in_state(state)
     except ChannelLinkInvalid:
         return _decode(state, _SETTINGS_SIGN_IN_STATE_AUDIENCE, ChannelSettingsSignIn)
+
+
+def is_settings_sign_in_state(state: str) -> bool:
+    """Whether a state was signed for a Settings sign-in, even if it has expired."""
+    try:
+        jwt.decode(
+            state,
+            get_service_key(),
+            algorithms=["HS256"],
+            audience=_SETTINGS_SIGN_IN_STATE_AUDIENCE,
+            issuer=_ISSUER,
+            options={"verify_exp": False},
+        )
+    except PyJWTError:
+        return False
+    return True

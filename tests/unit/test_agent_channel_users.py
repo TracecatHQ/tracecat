@@ -868,6 +868,15 @@ async def test_callback_returns_a_settings_sign_in_to_settings(
     }
     assert _redirect_query(cancelled)[1]["error"] == ["cancelled"]
 
+    monkeypatch.setattr(tokens, "LINK_TOKEN_TTL", timedelta(seconds=-60))
+    expired = await callback(
+        user=user, state=_settings_sign_in(org, user, uuid.uuid4()), code="c"
+    )
+    assert _redirect_query(expired) == (
+        "/workspaces",
+        {"settings": ["linked-accounts"], "result": ["error"], "error": ["invalid"]},
+    )
+
 
 async def test_my_link_routes_need_the_channels_preview(
     session: AsyncSession, org: _Org, monkeypatch: pytest.MonkeyPatch

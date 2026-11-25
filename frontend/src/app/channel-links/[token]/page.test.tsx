@@ -28,9 +28,7 @@ test("a signed-out callback error shows instead of redirecting", () => {
   mockSearch = "result=error&error=signed_out"
   render(<ChannelLinkPage />)
   expect(
-    screen.getByText(
-      "Your Tracecat session ended. Open the link again to retry."
-    )
+    screen.getByText("Your Tracecat session ended. Sign in again to retry.")
   ).toBeInTheDocument()
   expect(mockRouter.replace).not.toHaveBeenCalled()
 })

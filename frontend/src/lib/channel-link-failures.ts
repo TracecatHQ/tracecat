@@ -22,7 +22,7 @@ export const LINK_FAILURES: Record<string, LinkFailure> = {
   },
   cancelled: { message: "Sign-in was cancelled.", retryable: true },
   signed_out: {
-    message: "Your Tracecat session ended. Open the link again to retry.",
+    message: "Your Tracecat session ended. Sign in again to retry.",
     retryable: true,
   },
   failed: {
@@ -36,7 +36,7 @@ export const LINK_FAILURES: Record<string, LinkFailure> = {
   },
   blocked_network: {
     message:
-      "Your organization's IP allowlist does not include this network. Open the link from an allowed network.",
+      "Your organization's IP allowlist does not include this network. Try again from an allowed network.",
     retryable: true,
   },
 }

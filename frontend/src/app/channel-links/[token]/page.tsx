@@ -171,7 +171,7 @@ function ChannelLinkContent() {
   useEffect(() => {
     if (userIsLoading || result) return
     if (!user) {
-      // A callback outcome shows as is; its signed_out error says to reopen the link.
+      // A callback outcome shows as is, including a signed_out error.
       const returnUrl = `/channel-links/${encodeURIComponent(token)}`
       router.replace(`/sign-in?returnUrl=${encodeURIComponent(returnUrl)}`)
       return

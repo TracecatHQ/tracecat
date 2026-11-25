@@ -31,6 +31,7 @@ from tracecat.agent.channel_users.tokens import (
     ChannelLinkInvalid,
     ChannelLinkSignIn,
     ChannelSettingsSignIn,
+    is_settings_sign_in_state,
     read_any_sign_in_state,
     read_link_token,
 )
@@ -155,6 +156,8 @@ async def handle_channel_link_callback(
     try:
         sign_in = read_any_sign_in_state(state or "")
     except ChannelLinkInvalid as exc:
+        if is_settings_sign_in_state(state or ""):
+            return _settings_page(exc.error)
         return _link_page(None, exc.error)
     outcome = await _link_signed_in_user(
         sign_in, user=user, code=code, provider_error=error
