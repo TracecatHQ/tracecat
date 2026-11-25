@@ -251,13 +251,19 @@ async def _user(session: AsyncSession) -> User:
     return user
 
 
-async def test_created_by_falls_back_to_the_sessions_starter(
-    session: AsyncSession, svc_role: Role
+async def test_created_by_falls_back_to_the_thread_starter(
+    session: AsyncSession,
+    svc_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+    entitled: AsyncMock,
 ) -> None:
     assert svc_role.workspace_id is not None
     workspace_id = svc_role.workspace_id
+    monkeypatch.setattr(
+        channel_threads, "get_channel_bot_admin", lambda: FakeChannelBotAdmin()
+    )
     starter, replier, creator = [await _user(session) for _ in range(3)]
-    _, started, _, unstarted = await _linked_sessions(session, workspace_id)
+    _, started, unthreaded, unstarted = await _linked_sessions(session, workspace_id)
     created = AgentSession(
         workspace_id=workspace_id,
         title="created",
@@ -276,6 +282,7 @@ async def test_created_by_falls_back_to_the_sessions_starter(
         (started.id, starter.id),
         (started.id, replier.id),
         (created.id, starter.id),
+        (unthreaded.id, replier.id),
     ):
         session.add(
             AgentSessionHistory(
@@ -298,6 +305,8 @@ async def test_created_by_falls_back_to_the_sessions_starter(
     assert (created_by := items[created.id].created_by) is not None
     assert created_by.id == creator.id
     assert items[unstarted.id].created_by is None
+    # Only a session linked to a thread falls back.
+    assert items[unthreaded.id].created_by is None
     # Display only: the session stays ownerless.
     assert (
         await session.scalar(

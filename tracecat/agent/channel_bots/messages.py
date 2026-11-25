@@ -11,6 +11,7 @@ import orjson
 from pydantic import BaseModel, ValidationError
 
 from tracecat.agent.channel_bots.schemas import ChannelBotProvider
+from tracecat.agent.channel_users.types import ChannelIdentity
 from tracecat.logger import logger
 
 CHANNEL_MESSAGE_VERSION = "1"
@@ -120,6 +121,16 @@ class ChannelMessage(BaseModel):
         if _dumped_length(text) > budget:
             payload |= {"text": _fit(text, budget), "text_truncated": True}
         return _wrap(payload)
+
+    def sender_identity(self) -> ChannelIdentity | None:
+        """The sender as a linkable identity; None without the provider tenant."""
+        if self.sender.provider_team_id is None:
+            return None
+        return ChannelIdentity(
+            provider=self.provider.value,
+            provider_tenant_id=self.sender.provider_team_id,
+            provider_user_id=self.sender.provider_user_id,
+        )
 
     @classmethod
     def parse(cls, stored: str) -> ChannelMessage | None:

@@ -435,7 +435,12 @@ async def test_a_failed_link_write_leaves_the_link_usable(
     assert actor.user_id == user.id
 
 
-async def _thread_session(session: AsyncSession, workspace_id: uuid.UUID) -> uuid.UUID:
+async def _thread_session(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    *,
+    created_by: uuid.UUID | None = None,
+) -> uuid.UUID:
     """A session linked to a Slack thread of a bot in the workspace."""
     preset = AgentPreset(
         workspace_id=workspace_id,
@@ -458,6 +463,7 @@ async def _thread_session(session: AsyncSession, workspace_id: uuid.UUID) -> uui
         title="thread",
         entity_type=AgentSessionEntity.EXTERNAL_CHANNEL.value,
         entity_id=uuid.uuid4(),
+        created_by=created_by,
     )
     session.add_all([bot, agent_session])
     await session.flush()
@@ -546,6 +552,7 @@ async def test_linking_authors_only_the_senders_earlier_messages_in_the_org(
     sibling = await _thread_session(session, sibling_workspace)
     there = await _thread_session(session, other_workspace)
     unthreaded = await _unthreaded_session(session, org.workspace_id)
+    owned = await _thread_session(session, org.workspace_id, created_by=earlier.id)
     sender = _identity("U13")
     sent = [
         await _channel_prompt(session, org.workspace_id, here, sender),
@@ -558,6 +565,8 @@ async def test_linking_authors_only_the_senders_earlier_messages_in_the_org(
         ),
         await _channel_prompt(session, other_workspace, there, sender),
         await _channel_prompt(session, org.workspace_id, unthreaded, sender),
+        # Authorship would make the linker a participant in someone else's session.
+        await _channel_prompt(session, org.workspace_id, owned, sender),
     ]
     authored = await _channel_prompt(
         session, org.workspace_id, here, sender, author_id=earlier.id
@@ -574,7 +583,7 @@ async def test_linking_authors_only_the_senders_earlier_messages_in_the_org(
     authors = await _authors(session)
     assert [authors[row_id] for row_id in sent] == [user.id, user.id]
     assert authors[authored] == earlier.id
-    assert [authors[row_id] for row_id in untouched] == [None, None, None, None]
+    assert [authors[row_id] for row_id in untouched] == [None] * len(untouched)
 
 
 async def test_linking_under_enforced_rls_authors_every_org_workspace(
@@ -634,7 +643,7 @@ async def test_linking_under_enforced_rls_authors_every_org_workspace(
         await channel_users_service._author_earlier_messages(  # pyright: ignore[reportPrivateUsage]
             session,
             organization_id=org.organization_id,
-            workspace_id=org.workspace_id,
+            restore_workspace_id=org.workspace_id,
             identity=sender,
             user_id=user.id,
         )

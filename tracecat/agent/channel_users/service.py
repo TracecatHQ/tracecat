@@ -53,6 +53,7 @@ from tracecat.authz.service import query_effective_scopes
 from tracecat.db.models import (
     AgentChannelBot,
     AgentChannelUser,
+    AgentSession,
     AgentSessionHistory,
     AgentSessionThread,
     OrganizationMembership,
@@ -141,17 +142,6 @@ def _channel_message_in(value: object) -> ChannelMessage | None:
     return next((m for item in items if (m := _channel_message_in(item))), None)
 
 
-def _sender_of(content: object) -> ChannelIdentity | None:
-    message = _channel_message_in(content)
-    if message is None or message.sender.provider_team_id is None:
-        return None
-    return ChannelIdentity(
-        provider=message.provider.value,
-        provider_tenant_id=message.sender.provider_team_id,
-        provider_user_id=message.sender.provider_user_id,
-    )
-
-
 async def _author_in_workspace(
     session: AsyncSession,
     *,
@@ -168,8 +158,11 @@ async def _author_in_workspace(
             AgentSessionThread.session_id == AgentSessionHistory.session_id,
         )
         .join(AgentChannelBot, AgentChannelBot.id == AgentSessionThread.bot_id)
+        .join(AgentSession, AgentSession.id == AgentSessionHistory.session_id)
         .where(
             AgentSessionThread.workspace_id == workspace_id,
+            # Authorship grants participation; ownerless sessions grant nothing new.
+            AgentSession.created_by.is_(None),
             AgentSessionHistory.workspace_id == workspace_id,
             AgentChannelBot.provider == identity.provider,
             AgentSessionHistory.origin == UserMessageOrigin.CHANNEL,
@@ -183,7 +176,8 @@ async def _author_in_workspace(
     row_ids = [
         row_id
         for row_id, content in candidates.tuples()
-        if _sender_of(content) == identity
+        if (message := _channel_message_in(content)) is not None
+        and message.sender_identity() == identity
     ]
     if row_ids:
         await session.execute(
@@ -200,14 +194,11 @@ async def _author_earlier_messages(
     session: AsyncSession,
     *,
     organization_id: OrganizationID,
-    workspace_id: WorkspaceID,
+    restore_workspace_id: WorkspaceID,
     identity: ChannelIdentity,
     user_id: uuid.UUID,
 ) -> None:
-    """Credit `user_id` with the sender's unauthored channel prompts in every org workspace.
-
-    `workspace_id` is the session's own tenant workspace, restored afterwards.
-    """
+    """Credit `user_id` with the sender's unauthored channel prompts in every org workspace."""
     workspace_ids = (
         await session.scalars(
             select(Workspace.id).where(Workspace.organization_id == organization_id)
@@ -225,7 +216,7 @@ async def _author_earlier_messages(
             user_id=user_id,
         )
     if enforce:
-        await set_rls_context(session, organization_id, workspace_id)
+        await set_rls_context(session, organization_id, restore_workspace_id)
 
 
 def _actor(user: User) -> ChannelActor:
@@ -487,7 +478,7 @@ async def complete_channel_link(
         await _author_earlier_messages(
             session,
             organization_id=claims.organization_id,
-            workspace_id=claims.workspace_id,
+            restore_workspace_id=claims.workspace_id,
             identity=signed_in.identity,
             user_id=user_id,
         )

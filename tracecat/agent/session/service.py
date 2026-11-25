@@ -3463,13 +3463,10 @@ class AgentSessionService(BaseWorkspaceService):
         by_sender: dict[ChannelIdentity, list[ChatMessage]] = {}
         for message in messages:
             channel = message.channel_message
-            if message.author or not channel or not channel.sender.provider_team_id:
+            if message.author or not channel:
                 continue
-            identity = ChannelIdentity(
-                provider=channel.provider.value,
-                provider_tenant_id=channel.sender.provider_team_id,
-                provider_user_id=channel.sender.provider_user_id,
-            )
+            if (identity := channel.sender_identity()) is None:
+                continue
             by_sender.setdefault(identity, []).append(message)
         members = await linked_members(
             self.session, organization_id=self.organization_id, identities=by_sender

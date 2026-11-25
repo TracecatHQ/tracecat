@@ -16,7 +16,10 @@ from temporalio.client import WorkflowExecutionStatus
 
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.backends.registry import DEFAULT_AGENT_BACKEND, find_agent_backend
-from tracecat.agent.channel_bots.channel_threads import channel_threads_by_session
+from tracecat.agent.channel_bots.channel_threads import (
+    channel_thread_starters,
+    channel_threads_by_session,
+)
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.chat.enums import MessageKind
@@ -547,33 +550,6 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         )
         return set(result.scalars().all())
 
-    async def _fetch_session_starters(
-        self,
-        session_ids: Sequence[uuid.UUID],
-    ) -> dict[uuid.UUID, uuid.UUID]:
-        """The author of each session's earliest authored message, by session id.
-
-        Shown as Created by when ``created_by`` is null, as for a channel thread.
-        """
-        if not session_ids:
-            return {}
-        stmt = (
-            select(AgentSessionHistory.session_id, AgentSessionHistory.author_id)
-            .where(
-                AgentSessionHistory.workspace_id == self.workspace_id,
-                AgentSessionHistory.session_id.in_(list(session_ids)),
-                AgentSessionHistory.author_id.is_not(None),
-            )
-            .distinct(AgentSessionHistory.session_id)
-            .order_by(AgentSessionHistory.session_id, AgentSessionHistory.surrogate_id)
-        )
-        result = await self.session.execute(stmt)
-        return {
-            session_id: author_id
-            for session_id, author_id in result.tuples()
-            if author_id is not None
-        }
-
     async def _classify_sessions_for_group(
         self,
         sessions: Sequence[AgentSession],
@@ -879,9 +855,15 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             workflows = workflow_result.scalars().all()
             workflows_by_id = {w.id: w for w in workflows}
 
-        # Fetch creators for user-initiated sessions, else who started the session
-        starters = await self._fetch_session_starters(
-            [s.id for s in sessions if s.created_by is None]
+        # Fetch creators for user-initiated sessions, else who started the thread
+        starters = await channel_thread_starters(
+            self.session,
+            self.role,
+            [
+                s.id
+                for s in sessions
+                if s.created_by is None and s.id in channel_threads
+            ],
         )
         creator_ids = {s.created_by for s in sessions if s.created_by}
         creator_ids.update(starters.values())
