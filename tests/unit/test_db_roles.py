@@ -2866,7 +2866,7 @@ def test_migrate_moves_dynamic_schemas_that_migrations_create(
 # --- roles managed by the operator's own tooling (no role setup) ---------------
 
 
-OWN_TOOLING_DOC = REPO_ROOT / "docs/self-hosting/database-roles-own-tooling.mdx"
+OWN_TOOLING_DOC = REPO_ROOT / "docs/self-hosting/database-roles-external.mdx"
 
 
 @dataclass(frozen=True, slots=True)

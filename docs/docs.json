@@ -404,8 +404,8 @@
                 "pages": [
                   "self-hosting/pgvector",
                   "self-hosting/database-roles",
-                  "self-hosting/database-roles-own-tooling",
-                  "self-hosting/database-iam"
+                  "self-hosting/database-iam",
+                  "self-hosting/database-roles-external"
                 ]
               },
               "self-hosting/environment-variables",
