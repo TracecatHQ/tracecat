@@ -1156,9 +1156,12 @@ class CasesService(BaseWorkspaceService):
         events.extend(
             await self._fill_sub_case_closure_fields(parent, sub_cases, wf_exec_id)
         )
-        events.extend(
-            await self._fill_sub_case_closure_dropdowns(parent, sub_cases, wf_exec_id)
-        )
+        if await self.has_entitlement(Entitlement.CASE_ADDONS):
+            events.extend(
+                await self._fill_sub_case_closure_dropdowns(
+                    parent, sub_cases, wf_exec_id
+                )
+            )
         for sub_case in sub_cases:
             old_status = sub_case.status
             sub_case.status = status

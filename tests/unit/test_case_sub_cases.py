@@ -586,6 +586,47 @@ async def test_closing_parent_fills_sub_case_resolution_from_parent(
 
 
 @pytest.mark.anyio
+async def test_closing_parent_skips_dropdowns_without_case_addons(
+    cases_service: CasesService, session: AsyncSession
+) -> None:
+    definitions = CaseDropdownDefinitionsService(
+        session=session, role=cases_service.role
+    )
+    definition = await definitions.create_definition(
+        CaseDropdownDefinitionCreate(
+            name="Resolution",
+            ref="resolution",
+            is_ordered=False,
+            options=[],
+            required_on_closure=True,
+        )
+    )
+    option = await definitions.add_option(
+        definition.id,
+        CaseDropdownOptionCreate(label="False positive", ref="fp", position=0),
+    )
+    parent = await _create(cases_service, "Parent")
+    sub_case = await _create(cases_service, "Alert", parent.id)
+    await cases_service.update_case(
+        parent,
+        CaseUpdate(
+            dropdown_values=[
+                CaseDropdownValueInput(definition_id=definition.id, option_id=option.id)
+            ]
+        ),
+    )
+
+    with patch.object(
+        CasesService, "has_entitlement", new=AsyncMock(return_value=False)
+    ):
+        await cases_service.update_case(parent, CaseUpdate(status=CaseStatus.CLOSED))
+
+    assert await _status(session, sub_case.id) == CaseStatus.CLOSED
+    dropdowns = CaseDropdownValuesService(session=session, role=cases_service.role)
+    assert await dropdowns.list_values_for_case(sub_case.id) == []
+
+
+@pytest.mark.anyio
 async def test_batch_closing_parent_closes_sub_cases(
     cases_service: CasesService, session: AsyncSession
 ) -> None:
