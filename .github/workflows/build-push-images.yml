@@ -20,10 +20,13 @@ env:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   build-and-push-api:
+    environment: ghcr-publish
+    permissions:
+      contents: read
+      packages: write
     if: >-
       github.event_name != 'workflow_dispatch' ||
       github.actor == 'github-actions[bot]' ||
@@ -103,6 +106,10 @@ jobs:
           retention-days: 1
 
   merge-api:
+    environment: ghcr-publish
+    permissions:
+      contents: read
+      packages: write
     if: >-
       github.event_name != 'workflow_dispatch' ||
       github.actor == 'github-actions[bot]' ||
@@ -163,6 +170,10 @@ jobs:
           docker buildx imagetools inspect ghcr.io/tracecathq/tracecat:${{ steps.meta.outputs.version }}
 
   build-and-push-ui:
+    environment: ghcr-publish
+    permissions:
+      contents: read
+      packages: write
     if: >-
       github.event_name != 'workflow_dispatch' ||
       github.actor == 'github-actions[bot]' ||
@@ -255,6 +266,10 @@ jobs:
           retention-days: 1
 
   merge-ui:
+    environment: ghcr-publish
+    permissions:
+      contents: read
+      packages: write
     if: >-
       github.event_name != 'workflow_dispatch' ||
       github.actor == 'github-actions[bot]' ||
