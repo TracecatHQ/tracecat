@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react"
 import {
   ChannelMessageContext,
-  withChannelLinkLabels,
+  channelMarkdownComponents,
   withChannelMentionNames,
 } from "@/components/chat/channel-message-context"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -180,21 +180,49 @@ describe("ChannelMessageContext links", () => {
     )
   })
 
-  it("labels URLs in the message's own markdown", () => {
-    expect(
-      withChannelLinkLabels(
-        `in ${PERMALINK} and [x](https://a.example)`,
-        LINKED
-      )
-    ).toBe(
-      `in [#alerts message ↗](${PERMALINK} "${PERMALINK}") and [x](https://a.example)`
+  it("keeps a closing paren the URL opened", () => {
+    const url = "https://en.example.org/wiki/Alert_(monitoring)"
+    render(
+      <TooltipProvider>
+        <ChannelMessageContext
+          message={{
+            ...LINKED,
+            quoted: [{ ...LINKED.quoted![0], text: `(see ${url})` }],
+          }}
+        />
+      </TooltipProvider>
     )
+    expect(
+      screen.getByRole("link", { name: "en.example.org ↗" })
+    ).toHaveAttribute("href", url)
   })
 
-  it("leaves URLs in code as typed", () => {
-    const text =
-      "run `curl https://a.example/health` or\n```\ncurl https://b.example\n```"
-    expect(withChannelLinkLabels(text, LINKED)).toBe(text)
+  it("labels an autolinked URL in the message's own markdown", () => {
+    const { a: Link } = channelMarkdownComponents(LINKED)
+    render(
+      <TooltipProvider>
+        <Link href={PERMALINK}>{PERMALINK}</Link>
+        <Link href="https://a.example/">https://a.example</Link>
+      </TooltipProvider>
+    )
+    expect(
+      screen.getByRole("link", { name: "#alerts message ↗" })
+    ).toHaveAttribute("href", PERMALINK)
+    expect(screen.getByRole("link", { name: "a.example ↗" })).toBeVisible()
+  })
+
+  it("keeps a written link's own text", () => {
+    const { a: Link } = channelMarkdownComponents(LINKED)
+    render(
+      <>
+        <Link href="https://a.example/">x</Link>
+        <Link href="https://b.example/">https://a.example</Link>
+      </>
+    )
+    expect(screen.getByRole("link", { name: "x" })).toBeVisible()
+    expect(
+      screen.getByRole("link", { name: "https://a.example" })
+    ).toHaveAttribute("href", "https://b.example/")
   })
 })
 

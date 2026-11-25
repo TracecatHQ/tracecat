@@ -1,11 +1,12 @@
 "use client"
 
-import type { ReactNode } from "react"
+import type { ComponentProps, ReactNode } from "react"
 import type {
   EarlierThreadMessage,
   QuotedMessage as QuotedMessageData,
   QuotedMessageKind,
 } from "@/client"
+import { MarkdownLink } from "@/components/chat/artifact-mention"
 import {
   Tooltip,
   TooltipContent,
@@ -23,15 +24,9 @@ export const UNKNOWN_CHANNEL_PERSON = "Slack user"
 
 // A Slack user or enterprise user ID after `@`, as mist's plain text leaves it.
 const SLACK_MENTION = /@([UW][A-Z0-9]{6,})\b/g
-// An https URL; trailing punctuation stays text. Stored text is editable, so no other scheme.
-const URL_PATTERN = /https:\/\/[^\s<>]*[^\s<>.,;:!?)\]'"]/g
+// An https URL; trailing punctuation and formatting marks stay text. Stored text is editable, so no other scheme.
+const URL_PATTERN = /https:\/\/[^\s<>`|]*[^\s<>`|.,;:!?)\]'"*_~]/g
 const SLACK_PERMALINK_PATH = /^\/archives\/([A-Z0-9]+)\/p\d+/
-// A fenced block (unclosed runs to the end) or inline code span; links inside stay as typed.
-const MARKDOWN_CODE = /```[\s\S]*?(?:```|$)|`[^`\n]*`/
-const CODE_OR_URL = new RegExp(
-  `${MARKDOWN_CODE.source}|${URL_PATTERN.source}`,
-  "g"
-)
 
 /** A person the message names, and whether the name is a linked Tracecat member's. */
 export type ChannelPersonLabel = { name: string; linked: boolean }
@@ -105,7 +100,7 @@ function slackPermalinkChannel(url: URL): string | null {
   return url.pathname.match(SLACK_PERMALINK_PATH)?.[1] ?? null
 }
 
-function parsedUrl(url: string): URL | null {
+function parseUrlOrNull(url: string): URL | null {
   try {
     return new URL(url)
   } catch {
@@ -114,35 +109,45 @@ function parsedUrl(url: string): URL | null {
 }
 
 /** A short label for a URL: "#alerts message ↗" for a permalink, else its host. */
-export function channelLinkLabel(
-  url: string,
-  message: ChannelMessageData
-): string {
-  const parsed = parsedUrl(url)
+function channelLinkLabel(url: string, message: ChannelMessageData): string {
+  const parsed = parseUrlOrNull(url)
   if (!parsed) return url
   const channelId = slackPermalinkChannel(parsed)
   if (!channelId) return `${parsed.hostname} ↗`
   // A forward from the same channel names it.
   const name = message.quoted?.find((quoted) => {
-    const link = quoted.link ? parsedUrl(quoted.link) : null
+    const link = quoted.link ? parseUrlOrNull(quoted.link) : null
     return quoted.where && link && slackPermalinkChannel(link) === channelId
   })?.where
   const kind = parsed.searchParams.has("thread_ts") ? "thread" : "message"
   return `${name ? `#${name}` : "Slack"} ${kind} ↗`
 }
 
-/** Markdown text with URLs as short-labelled links, the full URL as their title. */
-export function withChannelLinkLabels(
-  text: string,
-  message: ChannelMessageData
-): string {
-  return text.replace(CODE_OR_URL, (url, offset: number) => {
-    // Code, or already a markdown link's target.
-    if (url.startsWith("`") || text.slice(offset - 2, offset) === "](")
-      return url
-    const href = url.replace(/\(/g, "%28").replace(/\)/g, "%29")
-    return `[${channelLinkLabel(url, message)}](${href} "${href.replace(/"/g, "%22")}")`
-  })
+/** Markdown links for a channel message: a bare https URL shows its short label. */
+export function channelMarkdownComponents(message: ChannelMessageData) {
+  return {
+    a: ({
+      href,
+      children,
+      node: _node,
+      ...props
+    }: ComponentProps<"a"> & { node?: unknown }) => {
+      const typed =
+        typeof children === "string" ? parseUrlOrNull(children) : null
+      // Only an autolink: a written link keeps its own text.
+      if (
+        href &&
+        typed?.protocol === "https:" &&
+        typed.href === parseUrlOrNull(href)?.href
+      )
+        return <ChannelLink url={href} message={message} />
+      return (
+        <MarkdownLink href={href} {...props}>
+          {children}
+        </MarkdownLink>
+      )
+    },
+  }
 }
 
 function ChannelLink({
@@ -152,24 +157,32 @@ function ChannelLink({
   url: string
   message: ChannelMessageData
 }) {
-  const parsed = parsedUrl(url)
-  const anchor = (
-    <a
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="underline underline-offset-2"
-    >
-      {channelLinkLabel(url, message)}
-    </a>
-  )
-  if (!parsed || slackPermalinkChannel(parsed)) return anchor
   return (
     <Tooltip>
-      <TooltipTrigger asChild>{anchor}</TooltipTrigger>
+      <TooltipTrigger asChild>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline underline-offset-2"
+        >
+          {channelLinkLabel(url, message)}
+        </a>
+      </TooltipTrigger>
       <TooltipContent className="max-w-sm break-all">{url}</TooltipContent>
     </Tooltip>
   )
+}
+
+/** The https URLs in plain text; a closing paren stays in when the URL opened one. */
+function* textUrls(text: string): Generator<{ index: number; url: string }> {
+  for (const match of text.matchAll(URL_PATTERN)) {
+    const index = match.index ?? 0
+    let url = match[0]
+    const unclosed = url.split("(").length > url.split(")").length
+    if (unclosed && text[index + url.length] === ")") url += ")"
+    yield { index, url }
+  }
 }
 
 /** The text with Slack user mentions as styled names and URLs as short links. */
@@ -182,11 +195,10 @@ export function ChannelMentionText({
 }) {
   const nodes: ReactNode[] = []
   let last = 0
-  for (const match of text.matchAll(URL_PATTERN)) {
-    const index = match.index ?? 0
+  for (const { index, url } of textUrls(text)) {
     nodes.push(...mentionNodes(text.slice(last, index), message, last))
-    nodes.push(<ChannelLink key={index} url={match[0]} message={message} />)
-    last = index + match[0].length
+    nodes.push(<ChannelLink key={index} url={url} message={message} />)
+    last = index + url.length
   }
   nodes.push(...mentionNodes(text.slice(last), message, last))
   return <>{nodes}</>

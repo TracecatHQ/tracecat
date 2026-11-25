@@ -8,10 +8,10 @@ import {
 import {
   botMentions,
   ChannelMessageContext,
+  channelMarkdownComponents,
   channelPerson,
   channelPersonClassName,
   channelSender,
-  withChannelLinkLabels,
   withChannelMentionNames,
 } from "@/components/chat/channel-message-context"
 import { SmoothResponse } from "@/components/chat/smooth-response"
@@ -40,11 +40,9 @@ export function UserBubble(props: Parameters<typeof MessageBubble>[0]) {
       {botMentions(channelMessage, botUserId).map((line, index) => (
         <MessageBubble
           key={index}
-          text={withChannelLinkLabels(
-            withChannelMentionNames(line.text, channelMessage),
-            channelMessage
-          )}
+          text={withChannelMentionNames(line.text, channelMessage)}
           channelMessage={null}
+          linksFrom={channelMessage}
           author={{
             ...(line.is_bot
               ? { name: line.author, linked: false }
@@ -64,9 +62,12 @@ function MessageBubble({
   channelMessage,
   author,
   own = false,
+  linksFrom = channelMessage,
 }: {
   text: string
   channelMessage: ChannelMessageData | null
+  /** The channel message whose links the text shows; an earlier-thread line borrows its parent's. */
+  linksFrom?: ChannelMessageData | null
   author: MessageActor | null
   /** The viewer wrote this message. */
   own?: boolean
@@ -83,13 +84,13 @@ function MessageBubble({
         <SmoothResponse
           text={
             channelMessage
-              ? withChannelLinkLabels(
-                  withChannelMentionNames(text, channelMessage),
-                  channelMessage
-                )
+              ? withChannelMentionNames(text, channelMessage)
               : text
           }
           animate={false}
+          components={
+            linksFrom ? channelMarkdownComponents(linksFrom) : undefined
+          }
         />
       )}
       {channelMessage && <ChannelMessageContext message={channelMessage} />}
