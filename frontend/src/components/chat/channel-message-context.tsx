@@ -6,6 +6,11 @@ import type {
   QuotedMessage as QuotedMessageData,
   QuotedMessageKind,
 } from "@/client"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import type { ChannelMessageData } from "@/lib/chat"
 
 const QUOTED_LABELS: Record<QuotedMessageKind, string> = {
@@ -18,6 +23,9 @@ export const UNKNOWN_CHANNEL_PERSON = "Slack user"
 
 // A Slack user or enterprise user ID after `@`, as mist's plain text leaves it.
 const SLACK_MENTION = /@([UW][A-Z0-9]{6,})\b/g
+// An https URL; trailing punctuation stays text. Stored text is editable, so no other scheme.
+const URL_PATTERN = /https:\/\/[^\s<>]*[^\s<>.,;:!?)\]'"]/g
+const SLACK_PERMALINK_PATH = /^\/archives\/([A-Z0-9]+)\/p\d+/
 
 /** A person the message names, and whether the name is a linked Tracecat member's. */
 export type ChannelPersonLabel = { name: string; linked: boolean }
@@ -85,7 +93,79 @@ export function channelPersonClassName(linked: boolean): string {
   return linked ? "font-medium text-foreground" : "text-muted-foreground"
 }
 
-/** The text with Slack user mentions as styled names instead of IDs. */
+/** The channel a Slack permalink points to, or null for any other URL. */
+function slackPermalinkChannel(url: URL): string | null {
+  if (!url.hostname.endsWith(".slack.com")) return null
+  return url.pathname.match(SLACK_PERMALINK_PATH)?.[1] ?? null
+}
+
+function parsedUrl(url: string): URL | null {
+  try {
+    return new URL(url)
+  } catch {
+    return null
+  }
+}
+
+/** A short label for a URL: "#alerts message ↗" for a permalink, else its host. */
+export function channelLinkLabel(
+  url: string,
+  message: ChannelMessageData
+): string {
+  const parsed = parsedUrl(url)
+  if (!parsed) return url
+  const channelId = slackPermalinkChannel(parsed)
+  if (!channelId) return `${parsed.hostname} ↗`
+  // A forward from the same channel names it.
+  const name = message.quoted?.find((quoted) => {
+    const link = quoted.link ? parsedUrl(quoted.link) : null
+    return quoted.where && link && slackPermalinkChannel(link) === channelId
+  })?.where
+  const kind = parsed.searchParams.has("thread_ts") ? "thread" : "message"
+  return `${name ? `#${name}` : "Slack"} ${kind} ↗`
+}
+
+/** Markdown text with URLs as short-labelled links, the full URL as their title. */
+export function withChannelLinkLabels(
+  text: string,
+  message: ChannelMessageData
+): string {
+  return text.replace(URL_PATTERN, (url, offset: number) => {
+    // Already a markdown link's target.
+    if (text.slice(offset - 2, offset) === "](") return url
+    const href = url.replace(/\(/g, "%28").replace(/\)/g, "%29")
+    return `[${channelLinkLabel(url, message)}](${href} "${href.replace(/"/g, "%22")}")`
+  })
+}
+
+function ChannelLink({
+  url,
+  message,
+}: {
+  url: string
+  message: ChannelMessageData
+}) {
+  const parsed = parsedUrl(url)
+  const anchor = (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="underline underline-offset-2"
+    >
+      {channelLinkLabel(url, message)}
+    </a>
+  )
+  if (!parsed || slackPermalinkChannel(parsed)) return anchor
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{anchor}</TooltipTrigger>
+      <TooltipContent className="max-w-sm break-all">{url}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+/** The text with Slack user mentions as styled names and URLs as short links. */
 export function ChannelMentionText({
   text,
   message,
@@ -93,7 +173,24 @@ export function ChannelMentionText({
   text: string
   message: ChannelMessageData
 }) {
-  if (message.provider !== "slack") return <>{text}</>
+  const nodes: ReactNode[] = []
+  let last = 0
+  for (const match of text.matchAll(URL_PATTERN)) {
+    const index = match.index ?? 0
+    nodes.push(...mentionNodes(text.slice(last, index), message, last))
+    nodes.push(<ChannelLink key={index} url={match[0]} message={message} />)
+    last = index + match[0].length
+  }
+  nodes.push(...mentionNodes(text.slice(last), message, last))
+  return <>{nodes}</>
+}
+
+function mentionNodes(
+  text: string,
+  message: ChannelMessageData,
+  offset: number
+): ReactNode[] {
+  if (message.provider !== "slack") return [text]
   const nodes: ReactNode[] = []
   let last = 0
   for (const match of text.matchAll(SLACK_MENTION)) {
@@ -101,14 +198,17 @@ export function ChannelMentionText({
     nodes.push(text.slice(last, index))
     const person = channelPerson(message, match[1])
     nodes.push(
-      <span key={index} className={channelPersonClassName(person.linked)}>
+      <span
+        key={offset + index}
+        className={channelPersonClassName(person.linked)}
+      >
         @{person.name}
       </span>
     )
     last = index + match[0].length
   }
   nodes.push(text.slice(last))
-  return <>{nodes}</>
+  return nodes
 }
 
 /** The earlier-thread lines that mention the bot; each reads as its own message. */

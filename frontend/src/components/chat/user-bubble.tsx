@@ -11,6 +11,7 @@ import {
   channelPerson,
   channelPersonClassName,
   channelSender,
+  withChannelLinkLabels,
   withChannelMentionNames,
 } from "@/components/chat/channel-message-context"
 import { SmoothResponse } from "@/components/chat/smooth-response"
@@ -39,7 +40,10 @@ export function UserBubble(props: Parameters<typeof MessageBubble>[0]) {
       {botMentions(channelMessage, botUserId).map((line, index) => (
         <MessageBubble
           key={index}
-          text={withChannelMentionNames(line.text, channelMessage)}
+          text={withChannelLinkLabels(
+            withChannelMentionNames(line.text, channelMessage),
+            channelMessage
+          )}
           channelMessage={null}
           author={{
             ...(line.is_bot
@@ -79,7 +83,10 @@ function MessageBubble({
         <SmoothResponse
           text={
             channelMessage
-              ? withChannelMentionNames(text, channelMessage)
+              ? withChannelLinkLabels(
+                  withChannelMentionNames(text, channelMessage),
+                  channelMessage
+                )
               : text
           }
           animate={false}
