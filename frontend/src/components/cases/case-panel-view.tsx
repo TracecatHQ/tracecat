@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter, useSearchParams } from "next/navigation"
-import { useCallback, useEffect, useId, useMemo, useState } from "react"
+import { useCallback, useId, useMemo, useState } from "react"
 import type {
   CaseDropdownDefinitionRead,
   CasePriority,
@@ -177,15 +177,19 @@ export function CasePanelView({
   const showDockedDetails = !embedded && canDock
   const showInlineDetails = !embedded && !canDock
 
-  useEffect(() => {
-    if (!embedded) {
-      return
-    }
-    const nextPanel = parseCasePanelKey(initialTab) ?? DEFAULT_CASE_PANEL
-    if (nextPanel !== embeddedPanel) {
-      setEmbeddedPanel(nextPanel)
-    }
-  }, [caseId, embedded, embeddedPanel, initialTab])
+  // Re-sync the embedded panel only when the case or `initialTab` changes, so
+  // a tab press in a host without `initialTab` (the side panel) sticks.
+  const [embeddedPanelSource, setEmbeddedPanelSource] = useState({
+    caseId,
+    initialTab,
+  })
+  if (
+    embeddedPanelSource.caseId !== caseId ||
+    embeddedPanelSource.initialTab !== initialTab
+  ) {
+    setEmbeddedPanelSource({ caseId, initialTab })
+    setEmbeddedPanel(parseCasePanelKey(initialTab) ?? DEFAULT_CASE_PANEL)
+  }
 
   const handlePanelChange = useCallback(
     (panel: CasePanelKey) => {

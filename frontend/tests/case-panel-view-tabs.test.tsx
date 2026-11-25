@@ -215,6 +215,19 @@ describe("CasePanelView tabs", () => {
     )
   })
 
+  it.each([
+    ["Tasks", "tasks"],
+    ["Sub-cases", "sub-cases"],
+  ])("keeps the %s panel open when embedded without a tab", (name, panel) => {
+    mockEntitlements([])
+    render(<CasePanelView caseId="case-1" embedded />)
+
+    fireEvent.click(screen.getByRole("tab", { name }))
+
+    expect(screen.getByTestId("panel-content")).toHaveTextContent(panel)
+    expect(mockReplace).not.toHaveBeenCalled()
+  })
+
   it("loads case tasks without case_addons", () => {
     mockEntitlements([])
     renderView()
