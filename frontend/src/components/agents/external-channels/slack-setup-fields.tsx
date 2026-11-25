@@ -18,10 +18,10 @@ export function CustomSlackAppDocsLink({
 }: {
   legacy?: boolean
 }) {
-  const section = legacy ? "earlier-setup-flow" : "connect-a-slack-app"
+  const section = legacy ? "earlier-setup-flow" : "connect-a-custom-bot"
   return (
     <a
-      href={`https://docs.tracecat.com/agents/channels#${section}`}
+      href={`https://docs.tracecat.com/cheatsheets/connection-guides/connect-to-slack-channels#${section}`}
       target="_blank"
       rel="noreferrer"
       className="underline underline-offset-2"
