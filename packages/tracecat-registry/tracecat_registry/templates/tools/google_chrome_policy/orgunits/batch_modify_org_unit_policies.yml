@@ -1,0 +1,50 @@
+type: action
+definition:
+  title: Batch modify org unit policies
+  description: >-
+    Modify multiple policy values that are applied to a specific org unit. All targets must have the same target format. For example, block a Chrome extension with the `chrome.users.apps.InstallType` schema and `appInstallType: BLOCKED`.
+  display_group: Google Chrome Policy
+  doc_url: https://developers.google.com/chrome/policy/reference/rest/v1/customers.policies.orgunits/batchModify
+  namespace: tools.google_chrome_policy
+  name: batch_modify_org_unit_policies
+  secrets:
+    - type: oauth
+      provider_id: google_admin
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    customer:
+      type: str
+      description: >-
+        ID of the Google Workspace account or literal "my_customer" for the customer associated to
+        the request.
+      default: my_customer
+    requests:
+      # Generic: each request's policy value is shaped by its policy schema, so there is no
+      # single field set to name.
+      type: list[dict[str, Any]]
+      description: >-
+        List of policies to modify. Each request has `policyTargetKey` (`targetResource` and `additionalTargetKeys`, such as `{"app_id": "chrome:<extension_id>"}`), `policyValue` (`policySchema` and `value`), and `updateMask`, the comma-separated policy fields to update. All requests in the list must follow these restrictions: all schemas in the list must have the same root namespace; all `policyTargetKey.targetResource` values must point to an org unit resource (`orgunits/{orgunit_id}`); all `policyTargetKey` values must have the same key names in the `additionalTargetKeys`; and no two requests can reference the same `policySchema` + `policyTargetKey` pair.
+  steps:
+    - ref: batch_modify_org_unit_policies
+      action: tools.google_api.call_api
+      args:
+        service_name: chromepolicy
+        version: v1
+        resource: customers.policies.orgunits
+        method_name: batchModify
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/chrome.management.policy"]
+        params:
+          customer: customers/${{ inputs.customer }}
+          body:
+            requests: ${{ inputs.requests }}
+  returns: ${{ steps.batch_modify_org_unit_policies.result }}

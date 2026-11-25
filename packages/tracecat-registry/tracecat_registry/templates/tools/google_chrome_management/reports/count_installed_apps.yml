@@ -1,0 +1,76 @@
+type: action
+definition:
+  title: Count installed apps
+  description: >-
+    Generate report of app installations. Covers Chrome browsers enrolled in Chrome Enterprise
+    Core, managed profiles, and ChromeOS users.
+  display_group: Google Chrome Management
+  doc_url: https://developers.google.com/chrome/management/reference/rest/v1/customers.reports/countInstalledApps
+  namespace: tools.google_chrome_management
+  name: count_installed_apps
+  secrets:
+    - type: oauth
+      provider_id: google_admin
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    customer:
+      type: str
+      description: >-
+        Customer id or "my_customer" to use the customer associated to the account making the
+        request.
+      default: my_customer
+    filter:
+      type: str | None
+      description: >-
+        Query string to filter results, AND-separated fields in EBNF syntax. Note: OR operations
+        are not supported in this filter. Supported filter fields: `app_name`, `app_type`,
+        `install_type`, `number_of_permissions`, `total_install_count`,
+        `latest_profile_active_date`, `permission_name`, `app_id`, `manifest_versions`,
+        `risk_score`.
+      default: null
+    order_by:
+      type: str | None
+      description: >-
+        Field used to order results. Supported order by fields: `app_name`, `app_type`,
+        `install_type`, `number_of_permissions`, `total_install_count`, `app_id`,
+        `manifest_versions`, `risk_score`.
+      default: null
+    org_unit_id:
+      type: str | None
+      description: The ID of the organizational unit.
+      default: null
+    page_size:
+      type: int | None
+      description: Maximum number of results to return. Maximum and default are 100.
+      default: null
+    page_token:
+      type: str | None
+      description: Token to specify the page of the request to be returned.
+      default: null
+  steps:
+    - ref: count_installed_apps
+      action: tools.google_api.call_api
+      args:
+        service_name: chromemanagement
+        version: v1
+        resource: customers.reports
+        method_name: countInstalledApps
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/chrome.management.reports.readonly"]
+        params:
+          customer: customers/${{ inputs.customer }}
+          filter: ${{ inputs.filter }}
+          orderBy: ${{ inputs.order_by }}
+          orgUnitId: ${{ inputs.org_unit_id }}
+          pageSize: ${{ inputs.page_size }}
+          pageToken: ${{ inputs.page_token }}
+  returns: ${{ steps.count_installed_apps.result }}

@@ -1,0 +1,64 @@
+type: action
+definition:
+  title: Block extension
+  description: >-
+    Block a Chrome extension for an org unit by setting the `chrome.users.apps.InstallType`
+    policy to `BLOCKED`. Blocking removes the extension from managed browsers and profiles in the
+    org unit and stops users from installing it. Undo it with
+    `batch_inherit_org_unit_policies` on a child org unit.
+  display_group: Google Chrome Policy
+  doc_url: https://developers.google.com/chrome/policy/reference/rest/v1/customers.policies.orgunits/batchModify
+  namespace: tools.google_chrome_policy
+  name: block_extension
+  secrets:
+    - type: oauth
+      provider_id: google_admin
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    customer:
+      type: str
+      description: >-
+        ID of the Google Workspace account or literal "my_customer" for the customer associated to
+        the request.
+      default: my_customer
+    org_unit_id:
+      type: str
+      description: >-
+        The ID of the org unit to apply the block to, without the `id:` prefix that the Directory
+        API returns.
+    extension_id:
+      type: str
+      description: The 32-character Chrome Web Store ID of the extension.
+  steps:
+    - ref: block_extension
+      action: tools.google_api.call_api
+      args:
+        service_name: chromepolicy
+        version: v1
+        resource: customers.policies.orgunits
+        method_name: batchModify
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/chrome.management.policy"]
+        params:
+          customer: customers/${{ inputs.customer }}
+          body:
+            requests:
+              - policyTargetKey:
+                  targetResource: orgunits/${{ inputs.org_unit_id }}
+                  additionalTargetKeys:
+                    app_id: chrome:${{ inputs.extension_id }}
+                policyValue:
+                  policySchema: chrome.users.apps.InstallType
+                  value:
+                    appInstallType: BLOCKED
+                updateMask: appInstallType
+  returns: ${{ steps.block_extension.result }}
