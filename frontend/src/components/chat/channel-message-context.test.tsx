@@ -197,6 +197,19 @@ describe("ChannelMessageContext links", () => {
     ).toHaveAttribute("href", url)
   })
 
+  it("leaves URLs in a quoted body's code as typed", () => {
+    const text = "run `curl https://a.example/x` then https://b.example/y"
+    render(
+      <TooltipProvider>
+        <ChannelMessageContext
+          message={{ ...LINKED, quoted: [{ ...LINKED.quoted![0], text }] }}
+        />
+      </TooltipProvider>
+    )
+    expect(screen.getByText(/curl https:\/\/a\.example\/x/)).toBeVisible()
+    expect(screen.getByRole("link", { name: "b.example ↗" })).toBeVisible()
+  })
+
   it("labels an autolinked URL in the message's own markdown", () => {
     const { a: Link } = channelMarkdownComponents(LINKED)
     render(

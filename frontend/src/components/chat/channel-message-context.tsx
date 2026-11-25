@@ -27,6 +27,12 @@ const SLACK_MENTION = /@([UW][A-Z0-9]{6,})\b/g
 // An https URL; trailing punctuation and formatting marks stay text. Stored text is editable, so no other scheme.
 const URL_PATTERN = /https:\/\/[^\s<>`|]*[^\s<>`|.,;:!?)\]'"*_~]/g
 const SLACK_PERMALINK_PATH = /^\/archives\/([A-Z0-9]+)\/p\d+/
+// Code in a quoted body (a fence runs to the end when unclosed) keeps its URLs as typed.
+const QUOTED_CODE = /```[\s\S]*?(?:```|$)|`[^`\n]*`/
+const CODE_OR_URL = new RegExp(
+  `${QUOTED_CODE.source}|${URL_PATTERN.source}`,
+  "g"
+)
 
 /** A person the message names, and whether the name is a linked Tracecat member's. */
 export type ChannelPersonLabel = { name: string; linked: boolean }
@@ -174,9 +180,10 @@ function ChannelLink({
   )
 }
 
-/** The https URLs in plain text; a closing paren stays in when the URL opened one. */
+/** The https URLs in plain text outside code; a closing paren stays in when the URL opened one. */
 function* textUrls(text: string): Generator<{ index: number; url: string }> {
-  for (const match of text.matchAll(URL_PATTERN)) {
+  for (const match of text.matchAll(CODE_OR_URL)) {
+    if (match[0].startsWith("`")) continue
     const index = match.index ?? 0
     let url = match[0]
     const unclosed = url.split("(").length > url.split(")").length
