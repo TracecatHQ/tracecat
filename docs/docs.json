@@ -398,10 +398,16 @@
               "self-hosting/air-gapped",
               "self-hosting/temporal-retention",
               "self-hosting/architecture",
-              "self-hosting/pgvector",
-              "self-hosting/database-roles",
               "self-hosting/tls",
-              "self-hosting/database-iam",
+              {
+                "group": "Database",
+                "pages": [
+                  "self-hosting/pgvector",
+                  "self-hosting/database-roles",
+                  "self-hosting/database-iam",
+                  "self-hosting/database-roles-external"
+                ]
+              },
               "self-hosting/environment-variables",
               "self-hosting/security",
               "self-hosting/support"

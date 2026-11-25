@@ -1,0 +1,135 @@
+---
+title: Externally managed roles
+description: Create Tracecat's PostgreSQL roles and grants with your own tooling instead of `tracecat db roles upgrade`.
+---
+
+Use this on a new install when your own tooling, such as a central control plane on a managed PostgreSQL service, must create every role and grant. You create the roles, and Tracecat migrates and runs on them. Don't name any role `tracecat_owner`: Tracecat treats it as its own [role setup](/self-hosting/database-roles).
+
+| Placeholder | Logs in | Used by |
+| --- | --- | --- |
+| `<admin>` | Yes | Your tooling's admin, with `CREATEROLE`. It doesn't need to be a superuser |
+| `<owner>` | No | Owns the tables in `public` |
+| `<migrator>` | Yes | Database migrations. It acts as `<owner>` |
+| `<app>` | Yes | Every Tracecat service |
+| `<dynamic-owner>` | No | Owns the workspace table schemas (`tables_*`, `custom_fields_*`) |
+
+`<db>` is the Tracecat database, owned by `<admin>`. Quote names that contain hyphens, for example `"tracecat-app"`. On PostgreSQL 15 and earlier, drop `WITH INHERIT TRUE, SET TRUE` from the grants below.
+
+## Create the roles
+
+Run these as `<admin>` in `<db>` before the first deploy.
+
+<Steps>
+  <Step title="Install the extensions">
+    Run as a role that can create them: `rds_superuser` on Amazon RDS, or `azure_pg_admin` on Azure with `vector` and `pg_trgm` allowlisted. See [pgvector](/self-hosting/pgvector).
+
+    ```sql
+    CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
+    CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
+    ```
+  </Step>
+  <Step title="Lock down public">
+    Run as the owner of `public`: `azure_pg_admin` on Azure, the bootstrap superuser on self-managed PostgreSQL 14 and earlier, and `<admin>` otherwise. Run as anyone else, it only warns.
+
+    ```sql
+    REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+    ```
+  </Step>
+  <Step title="Create the owner and the migrator">
+    Every migrator session acts as `<owner>`, so the tables migrations create belong to `<owner>`.
+
+    ```sql
+    CREATE ROLE <owner> NOLOGIN;
+    GRANT <owner> TO <admin> WITH INHERIT TRUE, SET TRUE;
+    CREATE ROLE <migrator> LOGIN PASSWORD '<password>';
+    GRANT <owner> TO <migrator>;
+    ALTER ROLE <migrator> SET role = '<owner>';
+    GRANT CONNECT, TEMPORARY ON DATABASE <db> TO <migrator>;
+    GRANT TEMPORARY, CREATE ON DATABASE <db> TO <owner>;
+    GRANT USAGE, CREATE ON SCHEMA public TO <owner>;
+    ```
+  </Step>
+  <Step title="Create the app and the dynamic owner">
+    `<app>` hands new workspace schemas to `<dynamic-owner>`, and `<owner>` can still alter them in later migrations. Create `<dynamic-owner>` before the API first boots.
+
+    ```sql
+    CREATE ROLE <app> LOGIN PASSWORD '<password>';
+    CREATE ROLE <dynamic-owner> NOLOGIN;
+    GRANT <dynamic-owner> TO <app> WITH INHERIT TRUE, SET TRUE;
+    GRANT <dynamic-owner> TO <owner>;
+    GRANT CREATE ON DATABASE <db> TO <dynamic-owner>;
+    GRANT USAGE ON SCHEMA public TO <dynamic-owner>;
+    ```
+  </Step>
+  <Step title="Grant the app access">
+    Default privileges cover the tables future migrations create. Never make `<app>` a member of `<owner>`, or the owner of `<db>` or `public`.
+
+    ```sql
+    GRANT CONNECT, TEMPORARY, CREATE ON DATABASE <db> TO <app>;
+    GRANT USAGE ON SCHEMA public TO <app>;
+    ALTER DEFAULT PRIVILEGES FOR ROLE <owner> IN SCHEMA public
+      GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO <app>;
+    ALTER DEFAULT PRIVILEGES FOR ROLE <owner> IN SCHEMA public
+      GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO <app>;
+    ```
+  </Step>
+</Steps>
+
+## Check the setup
+
+As `<migrator>`, this must return `<owner>`:
+
+```sql
+SELECT current_user;
+```
+
+As `<admin>`, on PostgreSQL 16 or later, this must return the values in the comments:
+
+```sql
+SELECT
+  has_schema_privilege('<app>', 'public', 'CREATE'),            -- f
+  has_database_privilege('<dynamic-owner>', '<db>', 'CREATE'),  -- t
+  has_schema_privilege('<owner>', 'public', 'CREATE'),          -- t
+  pg_has_role('<app>', '<dynamic-owner>', 'USAGE'),             -- t
+  pg_has_role('<app>', '<dynamic-owner>', 'SET'),               -- t
+  pg_has_role('<app>', datdba, 'MEMBER')                        -- f
+FROM pg_database WHERE datname = '<db>';
+```
+
+<AccordionGroup>
+  <Accordion title="If a check fails">
+    - `current_user` returns `<migrator>`: `<owner>` was granted with `SET FALSE`. Regrant it.
+    - First value `t`: rerun the `REVOKE` as the owner of `public`, or remove `<app>` from `<owner>`.
+    - `USAGE` or `SET` is `f`: grant `<dynamic-owner>` to `<app>` `WITH INHERIT TRUE, SET TRUE`.
+    - Last value `t`: remove `<app>` from the role that owns `<db>`.
+  </Accordion>
+</AccordionGroup>
+
+## Configure Tracecat
+
+If `<dynamic-owner>` isn't named `app_owner`, set `TRACECAT__DB_DYNAMIC_OWNER_ROLE` on every service and the migrations. The Helm chart sets it from `tracecat.dynamicOwnerRole`. With Docker Compose, add it to each service's environment and leave `TRACECAT__DB_ROLE_LOGIN` and `TRACECAT__DB_ADMIN_URI` empty, so Compose skips role setup. Fargate doesn't support separate database roles yet.
+
+1. Point the migrations at `<migrator>` and every other service at `<app>`. To log in with IAM or Entra tokens, see [Database IAM login](/self-hosting/database-iam).
+2. Deploy. The migrations log `No Tracecat role setup in this database`.
+3. When the migrations finish, as `<migrator>`, let `<dynamic-owner>` reference cases (for custom fields) and stop `<app>` from writing the migration version table:
+
+   ```sql
+   GRANT REFERENCES ON public."case" TO <dynamic-owner>;
+   REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.alembic_version FROM <app>, PUBLIC;
+   ```
+
+   This must return `f`:
+
+   ```sql
+   SELECT has_table_privilege('<app>', 'public.alembic_version', 'INSERT, UPDATE, DELETE, TRUNCATE');
+   ```
+
+## Before each release
+
+Role and grant changes in a release don't apply themselves here. When the release notes mention them, apply the matching SQL before you deploy. If a migration creates schemas or tables in `tables_*` or `custom_fields_*`, re-own them with `ALTER SCHEMA ... OWNER TO <dynamic-owner>` and `ALTER TABLE ... OWNER TO <dynamic-owner>`.
+
+<AccordionGroup>
+  <Accordion title="Row-level security">
+    Keep `TRACECAT__RLS_MODE` at `off` or `shadow` unless a superuser can install the dynamic-table RLS guard. To install it, run `MANUAL_INSTALL_SQL` from `alembic/versions/4ea30f9ea491_exempt_dynamic_rls_guard_function_owner.py` as a superuser after the first migration. See [Tenant isolation](/security/architecture#tenant-isolation).
+  </Accordion>
+</AccordionGroup>
