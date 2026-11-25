@@ -45,8 +45,7 @@ export type PlatformOption =
 
 const PLATFORM_HELP: Record<PlatformOption, string> = {
   ready: "Quickest setup. One shared bot; pick the agent for each channel.",
-  missing:
-    "Not set up on this instance. A platform admin sets it up in Admin\u00a0›\u00a0Slack\u00a0app.",
+  missing: "Not available. Contact a platform admin for details.",
   installed: "Already added to this workspace's Slack.",
   checking: "Checking whether Tracecat is already added…",
   failed: "Couldn't check whether Tracecat is set up here.",
@@ -127,7 +126,7 @@ export function AddChannelBotMenu({
         <MenuOption
           icon={slackIcon}
           title="Tracecat"
-          badge={<RecommendedBadge />}
+          badge={platform === "ready" ? <RecommendedBadge /> : undefined}
           help={PLATFORM_HELP[platform]}
           disabled={platform !== "ready"}
           onSelect={() => onChoose("tracecat")}
@@ -171,7 +170,7 @@ export function NoChannelBots({
       <div className="grid grid-cols-2 gap-3">
         <ChoiceCard
           title="Tracecat"
-          badge={<RecommendedBadge />}
+          badge={platform === "ready" ? <RecommendedBadge /> : undefined}
           help={PLATFORM_HELP[platform]}
           highlighted={platform === "ready"}
           action={
