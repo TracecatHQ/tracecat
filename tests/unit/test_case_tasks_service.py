@@ -8,7 +8,7 @@ from tracecat.auth.types import Role
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus, CaseTaskStatus
 from tracecat.cases.schemas import CaseCreate, CaseTaskCreate, CaseTaskUpdate
 from tracecat.cases.service import CasesService, CaseTasksService
-from tracecat.db.models import Case, Workflow, Workspace
+from tracecat.db.models import Case, User, Workflow, Workspace
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import WorkflowUUID
 
@@ -191,6 +191,39 @@ class TestCaseTasksService:
         assert retrieved_task.title == update_params.title
         assert retrieved_task.status == update_params.status
         assert retrieved_task.priority == update_params.priority
+
+    async def test_update_task_clears_assignee(
+        self,
+        case_tasks_service: CaseTasksService,
+        test_case: Case,
+        task_create_params: CaseTaskCreate,
+        session: AsyncSession,
+    ) -> None:
+        """Test that an explicit null assignee unassigns the task."""
+        user = User(
+            email=f"task-assignee-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="hashed_password_for_testing",
+            is_active=True,
+            is_verified=True,
+            is_superuser=False,
+            last_login_at=None,
+        )
+        session.add(user)
+        await session.commit()
+        created_task = await case_tasks_service.create_task(
+            test_case.id, task_create_params
+        )
+        await case_tasks_service.update_task(
+            created_task.id, CaseTaskUpdate(assignee_id=user.id)
+        )
+
+        updated_task = await case_tasks_service.update_task(
+            created_task.id, CaseTaskUpdate(assignee_id=None)
+        )
+
+        assert updated_task.assignee_id is None
+        retrieved_task = await case_tasks_service.get_task(created_task.id)
+        assert retrieved_task.assignee_id is None
 
     async def test_update_task_workflow_id(
         self,

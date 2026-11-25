@@ -3261,7 +3261,8 @@ class CaseTasksService(BaseWorkspaceService):
                 )
 
         # Assignee change
-        if (new_assignee := set_fields.pop("assignee_id", None)) is not None:
+        if "assignee_id" in set_fields:
+            new_assignee = set_fields.pop("assignee_id")
             old_assignee = task.assignee_id
             if old_assignee != new_assignee:
                 task.assignee_id = new_assignee
