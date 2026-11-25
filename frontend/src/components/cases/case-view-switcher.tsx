@@ -14,7 +14,13 @@ import {
   UsersIcon,
 } from "lucide-react"
 import { usePathname } from "next/navigation"
-import { type FormEvent, type ReactNode, useRef, useState } from "react"
+import {
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode,
+  useRef,
+  useState,
+} from "react"
 import type { CaseViewRead, CaseViewVisibility } from "@/client"
 import {
   AlertDialog,
@@ -139,6 +145,28 @@ export function CaseViewMenu({
     } catch {
       toast({ title: "Could not copy the link", variant: "destructive" })
     }
+  }
+
+  // Focus stays in the search field, so the context menu key and Shift+F10
+  // open the actions of the highlighted view instead.
+  function openHighlightedViewActions(event: KeyboardEvent<HTMLDivElement>) {
+    const isMenuKey =
+      event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")
+    if (!isMenuKey) return
+    const item = event.currentTarget.querySelector<HTMLElement>(
+      '[cmdk-item][data-selected="true"]'
+    )
+    if (!item) return
+    event.preventDefault()
+    const rect = item.getBoundingClientRect()
+    item.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: rect.left + 16,
+        clientY: rect.bottom,
+      })
+    )
   }
 
   function renderItem(item: CaseViewRead) {
@@ -271,7 +299,7 @@ export function CaseViewMenu({
             }
           }}
         >
-          <Command>
+          <Command onKeyDown={openHighlightedViewActions}>
             <CommandInput placeholder="Find a view..." className="text-xs" />
             <CommandList className="max-h-[min(560px,calc(var(--radix-popover-content-available-height)-3rem))]">
               <CommandEmpty className="py-4 text-center text-xs text-muted-foreground">
