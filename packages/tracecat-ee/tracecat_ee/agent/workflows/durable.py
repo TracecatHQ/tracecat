@@ -35,6 +35,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.channel_notifier import (
         LATE_TURN_FINISHED_BUDGET,
         TURN_START_PUSH_BUDGET,
+        ChannelDestinationRef,
         RunUpdate,
         TurnFinished,
         push_budget,
@@ -596,8 +597,8 @@ class DurableAgentWorkflow:
         self.channel_run_id: uuid.UUID | None = None
         # Unlinked at the start with a bot in the workspace: the end reads the link again.
         self.channel_bot_installed = False
-        # Checked before the turn started; its end opens the session's thread there.
-        self.channel_destination = args.channel_destination
+        # Checked before the turn started; set once the session exists, its end opens the thread.
+        self.channel_destination: ChannelDestinationRef | None = None
         self.max_requests = args.agent_args.max_requests
         self.max_tool_calls = args.agent_args.max_tool_calls
         self._cancel_requested: bool = False
@@ -1488,6 +1489,7 @@ class DurableAgentWorkflow:
         if create_result.channel_linked:
             self.channel_run_id = curr_run_id
         self.channel_bot_installed = create_result.channel_bot_installed
+        self.channel_destination = args.channel_destination
 
         # Build internal tool context for builder assistant sessions
         internal_tool_context: InternalToolContext | None = None

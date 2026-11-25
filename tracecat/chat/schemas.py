@@ -106,12 +106,15 @@ class VercelChatRequest(BaseModel):
     )
 
     @model_validator(mode="after")
-    def direct_message_is_the_senders(self) -> VercelChatRequest:
+    def destination_names_its_place(self) -> VercelChatRequest:
         # Only workflows DM someone else, by email.
         destination = self.channel_destination
-        if destination is not None and destination.kind == "direct_message":
-            if destination.id is not None:
-                raise ValueError("A direct message destination takes no id")
+        if destination is None:
+            return self
+        if destination.kind == "direct_message" and destination.id is not None:
+            raise ValueError("A direct message destination takes no id")
+        if destination.kind == "channel" and not destination.id:
+            raise ValueError("A channel destination needs the channel's id")
         return self
 
 

@@ -75,6 +75,9 @@ export function usePickedChannelDestination(
   }
 }
 
+/** How the API's 422 for a first send's refused destination starts. */
+export const CHANNEL_DESTINATION_REFUSED = "Couldn't open Slack thread"
+
 /** The destination a send's options carry; the turn's end opens its thread there. */
 export function channelDestinationFromOptions(
   body: Record<string, unknown> | undefined

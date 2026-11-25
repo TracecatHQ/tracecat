@@ -181,14 +181,12 @@ async def push_late_turn_finished(
     Reads the link at delivery, so sync turned on mid-turn gets this reply. Never raises.
     """
     try:
-        if destination is not None and not await open_turn_destination(
-            role, session_id, destination
-        ):
+        if destination is not None:
+            if not await open_turn_destination(role, session_id, destination):
+                return
+        elif not await is_channel_linked(role, session_id):
             return
-        if await is_channel_linked(role, session_id):
-            await push_updates(
-                role, [TurnFinished(session_id=session_id, run_id=run_id)]
-            )
+        await push_updates(role, [TurnFinished(session_id=session_id, run_id=run_id)])
     except Exception as e:
         logger.warning(
             "Failed to deliver a turn to a thread linked after it started",

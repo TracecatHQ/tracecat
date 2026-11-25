@@ -56,3 +56,44 @@ it("resends a failed first send's Slack destination on Retry", async () => {
   expect(sentDestination()).toBeUndefined()
   jest.restoreAllMocks()
 })
+
+it("drops a refused destination so a Retry can run", async () => {
+  const fetchMock = jest.fn().mockResolvedValue({
+    ok: false,
+    status: 422,
+    text: async () =>
+      JSON.stringify({ detail: "Couldn't open Slack thread: bot paused" }),
+  })
+  global.fetch = fetchMock as unknown as typeof fetch
+  jest.spyOn(console, "error").mockImplementation(() => {})
+  const { result } = renderHook(
+    () =>
+      useVercelChat({
+        chatId: "chat-1",
+        workspaceId: "workspace-1",
+        messages: [],
+        resume: false,
+      }),
+    {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={new QueryClient()}>
+          {children}
+        </QueryClientProvider>
+      ),
+    }
+  )
+
+  await act(() =>
+    result.current.sendMessage(
+      { text: "Hello" },
+      { body: { channel_destination: { kind: "channel", id: "C1" } } }
+    )
+  )
+  const promptId = result.current.messages[0].id
+  await act(() => result.current.regenerate({ messageId: promptId }))
+  const calls = fetchMock.mock.calls
+  expect(
+    JSON.parse(calls[calls.length - 1][1].body).channel_destination
+  ).toBeUndefined()
+  jest.restoreAllMocks()
+})

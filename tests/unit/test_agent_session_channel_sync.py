@@ -933,6 +933,27 @@ async def test_a_destination_on_the_first_send_opens_the_thread_at_turn_end(
 
 
 @pytest.mark.anyio
+async def test_an_opened_thread_gets_the_reply_without_a_link_check(
+    session: AsyncSession, svc_role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert svc_role.workspace_id is not None
+    bot = await _bot(session, svc_role.workspace_id)
+    web = await _session(session, svc_role, entity_type=AgentSessionEntity.AGENT_PRESET)
+    await session.commit()
+    notifier = LateLinkNotifier(session, bot)
+    _install(monkeypatch, notifier)
+    _entitled(monkeypatch, True)
+    # The link check fails closed; a thread just opened must not depend on it.
+    monkeypatch.setattr(
+        channel_sync, "is_channel_linked", AsyncMock(return_value=False)
+    )
+
+    await push_late_turn_finished(svc_role, web.id, RUN_ID, PICKED)
+
+    assert notifier.pushed == [TurnFinished(session_id=web.id, run_id=RUN_ID)]
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("error", "reason"),
     [
@@ -1076,6 +1097,10 @@ def test_a_web_turn_dms_only_its_sender() -> None:
                     "id": "someone@example.com",
                 },
             }
+        )
+    with pytest.raises(ValidationError, match="needs the channel's id"):
+        VercelChatRequest.model_validate(
+            {"message": message, "channel_destination": {"kind": "channel"}}
         )
 
 

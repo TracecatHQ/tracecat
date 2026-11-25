@@ -35,6 +35,7 @@ import {
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import {
+  CHANNEL_DESTINATION_REFUSED,
   channelDestinationFromOptions,
   sessionChannelSyncQueryKey,
 } from "@/hooks/use-session-channel-sync"
@@ -889,6 +890,10 @@ export function useVercelChat({
     }),
     onError: (error) => {
       const friendlyMessage = parseChatError(error)
+      // A refused destination would refuse every Retry; that Retry runs unsynced.
+      if (friendlyMessage.startsWith(CHANNEL_DESTINATION_REFUSED)) {
+        firstSendDestinationRef.current = null
+      }
       // A reconnect that fails before its stream opens gets no onFinish and
       // leaves status untouched; the turn is unknown, so mark it dropped.
       const streamOpened =
