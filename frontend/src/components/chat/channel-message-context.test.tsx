@@ -190,6 +190,12 @@ describe("ChannelMessageContext links", () => {
       `in [#alerts message ↗](${PERMALINK} "${PERMALINK}") and [x](https://a.example)`
     )
   })
+
+  it("leaves URLs in code as typed", () => {
+    const text =
+      "run `curl https://a.example/health` or\n```\ncurl https://b.example\n```"
+    expect(withChannelLinkLabels(text, LINKED)).toBe(text)
+  })
 })
 
 describe("channel message parts", () => {

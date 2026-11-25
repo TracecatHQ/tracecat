@@ -26,6 +26,12 @@ const SLACK_MENTION = /@([UW][A-Z0-9]{6,})\b/g
 // An https URL; trailing punctuation stays text. Stored text is editable, so no other scheme.
 const URL_PATTERN = /https:\/\/[^\s<>]*[^\s<>.,;:!?)\]'"]/g
 const SLACK_PERMALINK_PATH = /^\/archives\/([A-Z0-9]+)\/p\d+/
+// A fenced block (unclosed runs to the end) or inline code span; links inside stay as typed.
+const MARKDOWN_CODE = /```[\s\S]*?(?:```|$)|`[^`\n]*`/
+const CODE_OR_URL = new RegExp(
+  `${MARKDOWN_CODE.source}|${URL_PATTERN.source}`,
+  "g"
+)
 
 /** A person the message names, and whether the name is a linked Tracecat member's. */
 export type ChannelPersonLabel = { name: string; linked: boolean }
@@ -130,9 +136,10 @@ export function withChannelLinkLabels(
   text: string,
   message: ChannelMessageData
 ): string {
-  return text.replace(URL_PATTERN, (url, offset: number) => {
-    // Already a markdown link's target.
-    if (text.slice(offset - 2, offset) === "](") return url
+  return text.replace(CODE_OR_URL, (url, offset: number) => {
+    // Code, or already a markdown link's target.
+    if (url.startsWith("`") || text.slice(offset - 2, offset) === "](")
+      return url
     const href = url.replace(/\(/g, "%28").replace(/\)/g, "%29")
     return `[${channelLinkLabel(url, message)}](${href} "${href.replace(/"/g, "%22")}")`
   })
