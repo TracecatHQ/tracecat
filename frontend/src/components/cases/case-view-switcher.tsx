@@ -518,26 +518,26 @@ export function CaseViewEditorPanel({
               ? "Filters are saved from the filter bar."
               : "Saves the current filters, sort, and columns."}
           </span>
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs"
+              onClick={editor.close}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              size="sm"
+              className="h-7 px-2.5 text-xs"
+              disabled={isPending || !name.trim()}
+            >
+              {isEdit ? "Save" : "Create view"}
+            </Button>
+          </div>
         </div>
-      </div>
-      <div className="flex shrink-0 items-center gap-1.5">
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className="h-7 px-2 text-xs"
-          onClick={editor.close}
-        >
-          Cancel
-        </Button>
-        <Button
-          type="submit"
-          size="sm"
-          className="h-7 px-2.5 text-xs"
-          disabled={isPending || !name.trim()}
-        >
-          {isEdit ? "Save" : "Create view"}
-        </Button>
       </div>
     </form>
   )
