@@ -124,7 +124,7 @@ class ChannelMessage(BaseModel):
 
     def sender_identity(self) -> ChannelIdentity | None:
         """The sender as a linkable identity; None without the provider tenant."""
-        if self.sender.provider_team_id is None:
+        if not self.sender.provider_team_id:
             return None
         return ChannelIdentity(
             provider=self.provider.value,
