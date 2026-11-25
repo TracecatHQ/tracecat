@@ -67,6 +67,10 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.db.rls import set_rls_context
+from tracecat.db.tenant_rls import (
+    enable_workspace_special_rls,
+    enable_workspace_table_rls,
+)
 from tracecat.exceptions import EntitlementRequired, ScopeDeniedError
 from tracecat.redis.client import RedisClient
 from tracecat.tiers.enums import Entitlement
@@ -593,9 +597,26 @@ async def test_linking_under_enforced_rls_authors_every_org_workspace(
             sender,
         ),
     ]
-    # A role without superuser or BYPASSRLS, rolled back with the test transaction.
+    # The test DB has no policies; install production ones, rolled back with the test.
+    await session.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
+    scripts = [
+        enable_workspace_special_rls(),
+        *(
+            enable_workspace_table_rls(table)
+            for table in (
+                "agent_session_history",
+                "agent_session_thread",
+                "agent_channel_bot",
+            )
+        ),
+    ]
+    for script in scripts:
+        # asyncpg runs one statement per call; policy SQL has no inner semicolons.
+        for statement in filter(str.strip, script.split(";")):
+            await session.execute(text(statement))
     db_role = f"rls_link_{uuid.uuid4().hex[:12]}"
     await session.execute(text(f'CREATE ROLE "{db_role}" NOSUPERUSER NOBYPASSRLS'))
+    await session.execute(text(f'GRANT USAGE ON SCHEMA public TO "{db_role}"'))
     await session.execute(
         text(
             "GRANT SELECT ON workspace, agent_session_thread, agent_channel_bot"
