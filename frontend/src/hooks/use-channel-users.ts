@@ -1,12 +1,15 @@
 "use client"
 
+import { useEffect } from "react"
 import {
   type AgentChannelUserRead,
   agentChannelUsersListMyChannelUsers,
   agentChannelUsersStartMyChannelLinkSignIn,
   agentChannelUsersUnlinkMyChannelUser,
+  type ChannelLinkSignInRead,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
+import { linkFailureMessage } from "@/lib/channel-link-failures"
 import { getApiErrorDetail, type TracecatApiError } from "@/lib/errors"
 import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
@@ -49,7 +52,7 @@ export function useMyChannelUsers() {
     },
   })
   const { mutate: startSignIn, isPending: signInPending } = useMutation<
-    { sign_in_url: string },
+    ChannelLinkSignInRead,
     TracecatApiError
   >({
     mutationFn: async () => await agentChannelUsersStartMyChannelLinkSignIn(),
@@ -71,4 +74,26 @@ export function useMyChannelUsers() {
     startSignIn,
     signInPending,
   }
+}
+
+/** Toast the outcome of a sign-in started from Settings, once, then drop it from the URL. */
+export function useChannelLinkResultToast() {
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    const result = url.searchParams.get("result")
+    if (result !== "linked" && result !== "error") return
+    const errorCode = url.searchParams.get("error") ?? ""
+    url.searchParams.delete("result")
+    url.searchParams.delete("error")
+    window.history.replaceState(window.history.state, "", url.toString())
+    if (result === "linked") {
+      toast({ title: "Slack account linked" })
+      return
+    }
+    toast({
+      title: "Couldn't link your Slack account",
+      description: linkFailureMessage(errorCode),
+      variant: "destructive",
+    })
+  }, [])
 }

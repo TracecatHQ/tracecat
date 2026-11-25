@@ -19,10 +19,8 @@ from tracecat.agent.channel_users.schemas import (
     channel_link_settings_url,
 )
 from tracecat.agent.channel_users.service import (
-    complete_channel_link,
-    complete_settings_link,
+    complete_sign_in,
     list_channel_users,
-    settings_sign_in_bot,
     start_provider_sign_in,
     start_settings_sign_in,
     unlink_channel_user,
@@ -32,8 +30,9 @@ from tracecat.agent.channel_users.tokens import (
     ChannelLinkSignIn,
     ChannelSettingsSignIn,
     is_settings_sign_in_state,
-    read_any_sign_in_state,
     read_link_token,
+    read_settings_sign_in_state,
+    read_sign_in_state,
 )
 from tracecat.auth.credentials import OptionalUserDep
 from tracecat.auth.dependencies import OrgUserRole
@@ -108,28 +107,18 @@ async def _link_signed_in_user(
         return ChannelLinkError.CANCELLED
     if user is None:
         return ChannelLinkError.SIGNED_OUT
-    if isinstance(sign_in, ChannelSettingsSignIn):
-        organization_id, workspace_id = sign_in.organization_id, sign_in.workspace_id
-    else:
-        organization_id = sign_in.claims.organization_id
-        workspace_id = sign_in.claims.workspace_id
     try:
         # These routes take the user, not an org role, so the org check runs here.
         try:
-            await enforce_org_ip_allowlist(organization_id, bypass=user.is_superuser)
+            await enforce_org_ip_allowlist(
+                sign_in.organization_id, bypass=user.is_superuser
+            )
         except HTTPException:
             return ChannelLinkError.BLOCKED_NETWORK
         async with get_async_session_tenant_context_manager(
-            workspace_id=workspace_id
+            workspace_id=sign_in.workspace_id
         ) as session:
-            if isinstance(sign_in, ChannelSettingsSignIn):
-                await complete_settings_link(
-                    session, sign_in=sign_in, code=code, user_id=user.id
-                )
-            else:
-                await complete_channel_link(
-                    session, sign_in=sign_in, code=code, user_id=user.id
-                )
+            await complete_sign_in(session, sign_in=sign_in, code=code, user_id=user.id)
     except ChannelLinkInvalid as exc:
         return exc.error
     except (TracecatValidationError, EntitlementRequired):
@@ -153,17 +142,24 @@ async def handle_channel_link_callback(
     error: str | None = None,
 ) -> RedirectResponse:
     """The provider's return after sign-in: link, then back to where it started."""
-    try:
-        sign_in = read_any_sign_in_state(state or "")
-    except ChannelLinkInvalid as exc:
-        if is_settings_sign_in_state(state or ""):
+    state = state or ""
+    if is_settings_sign_in_state(state):
+        try:
+            settings_sign_in = read_settings_sign_in_state(state)
+        except ChannelLinkInvalid as exc:
             return _settings_page(exc.error)
+        return _settings_page(
+            await _link_signed_in_user(
+                settings_sign_in, user=user, code=code, provider_error=error
+            )
+        )
+    try:
+        sign_in = read_sign_in_state(state)
+    except ChannelLinkInvalid as exc:
         return _link_page(None, exc.error)
     outcome = await _link_signed_in_user(
         sign_in, user=user, code=code, provider_error=error
     )
-    if isinstance(sign_in, ChannelSettingsSignIn):
-        return _settings_page(outcome)
     return _link_page(sign_in, outcome)
 
 
@@ -191,22 +187,10 @@ async def start_my_channel_link_sign_in(*, role: OrgUserRole) -> ChannelLinkSign
     """Start a provider sign-in from Settings that links the caller, with no link token."""
     if role.organization_id is None or role.user_id is None:
         raise _not_found()
-    bot = await settings_sign_in_bot(role.organization_id)
-    if bot is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Add a Slack bot to a workspace before linking a Slack account",
-        )
     try:
-        async with get_async_session_tenant_context_manager(
-            workspace_id=bot.workspace_id
-        ) as session:
-            sign_in_url = await start_settings_sign_in(
-                session,
-                bot=bot,
-                organization_id=role.organization_id,
-                user_id=role.user_id,
-            )
+        sign_in_url = await start_settings_sign_in(
+            organization_id=role.organization_id, user_id=role.user_id
+        )
     except TracecatValidationError as exc:
         raise _bad_request(exc) from exc
     return ChannelLinkSignInRead(sign_in_url=sign_in_url)

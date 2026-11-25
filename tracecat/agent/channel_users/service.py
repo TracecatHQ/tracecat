@@ -40,7 +40,10 @@ from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.authz.service import query_effective_scopes
-from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.engine import (
+    get_async_session_bypass_rls_context_manager,
+    get_async_session_tenant_context_manager,
+)
 from tracecat.db.models import (
     AgentChannelBot,
     AgentChannelUser,
@@ -48,7 +51,7 @@ from tracecat.db.models import (
     User,
     Workspace,
 )
-from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.exceptions import TracecatAuthorizationError, TracecatValidationError
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.pagination import CursorPaginatedResponse, PageParams, paginate
 from tracecat.redis.client import get_redis_client
@@ -286,15 +289,35 @@ async def _ensure_unused(claims: ChannelLinkClaims) -> None:
         raise ChannelLinkInvalid("This link was already used")
 
 
+async def _ensure_channels_member(
+    session: AsyncSession, *, organization_id: OrganizationID, user_id: uuid.UUID
+) -> User:
+    """The member, once the org may use channels."""
+    user = await _ensure_member(
+        session, organization_id=organization_id, user_id=user_id
+    )
+    await require_org_entitlement(
+        session, organization_id, Entitlement.AGENT_CHANNELS_PREVIEW
+    )
+    return user
+
+
+def _ensure_started_by(
+    sign_in: ChannelLinkSignIn | ChannelSettingsSignIn, user_id: uuid.UUID
+) -> None:
+    if sign_in.user_id != user_id:
+        raise ChannelLinkInvalid(
+            "This sign-in was started by another Tracecat user",
+            error=ChannelLinkError.OTHER_USER,
+        )
+
+
 async def _ensure_linkable(
     session: AsyncSession, *, claims: ChannelLinkClaims, user_id: uuid.UUID
 ) -> User:
     """The confirming member, once the org may use channels and the link is unused."""
-    user = await _ensure_member(
+    user = await _ensure_channels_member(
         session, organization_id=claims.organization_id, user_id=user_id
-    )
-    await require_org_entitlement(
-        session, claims.organization_id, Entitlement.AGENT_CHANNELS_PREVIEW
     )
     await _ensure_unused(claims)
     return user
@@ -342,11 +365,7 @@ async def complete_channel_link(
             token was used, or the provider user differs from the token's.
     """
     claims = sign_in.claims
-    if sign_in.user_id != user_id:
-        raise ChannelLinkInvalid(
-            "This link was confirmed by another Tracecat user",
-            error=ChannelLinkError.OTHER_USER,
-        )
+    _ensure_started_by(sign_in, user_id)
     await _ensure_linkable(session, claims=claims, user_id=user_id)
     signed_in = await require_channel_bot_admin().verify_provider_sign_in(
         session,
@@ -409,29 +428,36 @@ async def settings_sign_in_bot(
 
 
 async def start_settings_sign_in(
-    session: AsyncSession,
-    *,
-    bot: AgentChannelBot,
-    organization_id: OrganizationID,
-    user_id: uuid.UUID,
+    *, organization_id: OrganizationID, user_id: uuid.UUID
 ) -> str:
-    """Return a provider sign-in URL through `bot`'s app, for linking with no link token."""
-    await _ensure_member(session, organization_id=organization_id, user_id=user_id)
-    await require_org_entitlement(
-        session, organization_id, Entitlement.AGENT_CHANNELS_PREVIEW
-    )
-    return await require_channel_bot_admin().provider_sign_in_url(
-        session,
-        _bot_service_role(organization_id, bot.workspace_id),
-        bot.id,
-        state=mint_settings_sign_in_state(
-            organization_id=organization_id,
-            workspace_id=bot.workspace_id,
-            bot_id=bot.id,
-            user_id=user_id,
-        ),
-        redirect_uri=channel_link_callback_url(),
-    )
+    """Return a provider sign-in URL for linking from Settings, with no link token.
+
+    Raises:
+        TracecatValidationError: If the org has no active bot to sign in through.
+        ChannelLinkInvalid: If the user is not a member.
+    """
+    if (bot := await settings_sign_in_bot(organization_id)) is None:
+        raise TracecatValidationError(
+            "Add a Slack bot to a workspace before linking a Slack account"
+        )
+    async with get_async_session_tenant_context_manager(
+        workspace_id=bot.workspace_id
+    ) as session:
+        await _ensure_channels_member(
+            session, organization_id=organization_id, user_id=user_id
+        )
+        return await require_channel_bot_admin().provider_sign_in_url(
+            session,
+            _bot_service_role(organization_id, bot.workspace_id),
+            bot.id,
+            state=mint_settings_sign_in_state(
+                organization_id=organization_id,
+                workspace_id=bot.workspace_id,
+                bot_id=bot.id,
+                user_id=user_id,
+            ),
+            redirect_uri=channel_link_callback_url(),
+        )
 
 
 async def _has_active_bot(
@@ -465,15 +491,10 @@ async def complete_settings_link(
         ChannelLinkInvalid: If another user started the sign-in, the user left the
             org, or the signed-in tenant has no active bot in the org.
     """
-    if sign_in.user_id != user_id:
-        raise ChannelLinkInvalid(
-            "This sign-in was started by another Tracecat user",
-            error=ChannelLinkError.OTHER_USER,
-        )
+    _ensure_started_by(sign_in, user_id)
     organization_id = sign_in.organization_id
-    await _ensure_member(session, organization_id=organization_id, user_id=user_id)
-    await require_org_entitlement(
-        session, organization_id, Entitlement.AGENT_CHANNELS_PREVIEW
+    await _ensure_channels_member(
+        session, organization_id=organization_id, user_id=user_id
     )
     signed_in = await require_channel_bot_admin().verify_provider_sign_in(
         session,
@@ -495,6 +516,25 @@ async def complete_settings_link(
         provider_email=signed_in.email,
     )
     await session.commit()
+
+
+async def complete_sign_in(
+    session: AsyncSession,
+    *,
+    sign_in: ChannelLinkSignIn | ChannelSettingsSignIn,
+    code: str,
+    user_id: uuid.UUID,
+) -> None:
+    """Link the provider user who signed in, by the flow that started the sign-in."""
+    match sign_in:
+        case ChannelSettingsSignIn():
+            await complete_settings_link(
+                session, sign_in=sign_in, code=code, user_id=user_id
+            )
+        case ChannelLinkSignIn():
+            await complete_channel_link(
+                session, sign_in=sign_in, code=code, user_id=user_id
+            )
 
 
 async def unlink_channel_user(

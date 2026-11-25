@@ -18,7 +18,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
-import { useMyChannelUsers } from "@/hooks/use-channel-users"
+import {
+  useChannelLinkResultToast,
+  useMyChannelUsers,
+} from "@/hooks/use-channel-users"
 import { useEntitlements } from "@/hooks/use-entitlements"
 
 export function LinkedAccountsSettings() {
@@ -31,6 +34,7 @@ export function LinkedAccountsSettings() {
     startSignIn,
     signInPending,
   } = useMyChannelUsers()
+  useChannelLinkResultToast()
   const { hasEntitlement } = useEntitlements()
   const canLink = hasEntitlement("agent_channels_preview")
   const [unlinkTarget, setUnlinkTarget] = useState<AgentChannelUserRead | null>(

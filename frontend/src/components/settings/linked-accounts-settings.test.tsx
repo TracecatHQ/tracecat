@@ -6,6 +6,7 @@ import {
   agentChannelUsersUnlinkMyChannelUser,
 } from "@/client"
 import { LinkedAccountsSettings } from "@/components/settings/linked-accounts-settings"
+import { toast } from "@/components/ui/use-toast"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/client", () => ({
@@ -56,6 +57,8 @@ beforeEach(() => {
   unlinkLink.mockClear()
   startSignIn.mockReset()
   mockHasEntitlement.mockReturnValue(true)
+  jest.mocked(toast).mockClear()
+  window.history.replaceState({}, "", "/")
 })
 
 test("lists a link by provider and email, without provider ids", async () => {
@@ -110,4 +113,24 @@ test("hides the link button without the channels preview", async () => {
   expect(
     screen.queryByRole("button", { name: "Link Slack account" })
   ).not.toBeInTheDocument()
+})
+
+test("a sign-in result toasts once and leaves the URL", async () => {
+  window.history.replaceState(
+    {},
+    "",
+    "/workspaces/w?tab=a&result=error&error=no_bot"
+  )
+  listLinks.mockResolvedValue({ items: [] })
+  renderSettings()
+  expect(await screen.findByText("No linked accounts.")).toBeInTheDocument()
+  expect(toast).toHaveBeenCalledTimes(1)
+  expect(toast).toHaveBeenCalledWith(
+    expect.objectContaining({
+      description:
+        "Your organization has no active Tracecat bot in that Slack workspace.",
+      variant: "destructive",
+    })
+  )
+  expect(window.location.search).toBe("?tab=a")
 })

@@ -40,12 +40,12 @@ from tracecat.agent.channel_users.service import (
 )
 from tracecat.agent.channel_users.tokens import (
     ChannelLinkInvalid,
-    ChannelSettingsSignIn,
+    is_settings_sign_in_state,
     mint_link_token,
     mint_settings_sign_in_state,
     mint_sign_in_state,
-    read_any_sign_in_state,
     read_link_token,
+    read_settings_sign_in_state,
     read_sign_in_state,
 )
 from tracecat.agent.channel_users.types import ChannelIdentity, ProviderSignIn
@@ -577,7 +577,7 @@ async def test_callback_names_the_provider_and_tenant_on_success(
     async def _linked(*_args, **_kwargs) -> None:
         return None
 
-    monkeypatch.setattr(channel_users_router, "complete_channel_link", _linked)
+    monkeypatch.setattr(channel_users_service, "complete_channel_link", _linked)
     linked = await channel_users_router.handle_channel_link_callback(
         user=user, state=state, code="c"
     )
@@ -608,7 +608,7 @@ async def test_link_routes_enforce_the_org_ip_allowlist(
         raise AssertionError("linked from a blocked network")
 
     monkeypatch.setattr(channel_users_router, "enforce_org_ip_allowlist", _deny)
-    monkeypatch.setattr(channel_users_router, "complete_channel_link", _never)
+    monkeypatch.setattr(channel_users_service, "complete_channel_link", _never)
     blocked = await channel_users_router.handle_channel_link_callback(
         user=user, state=state, code="c"
     )
@@ -771,8 +771,7 @@ async def test_settings_sign_in_links_only_a_tenant_with_an_active_bot(
     monkeypatch.setattr(
         channel_users_service, "require_channel_bot_admin", lambda: admin
     )
-    sign_in = read_any_sign_in_state(_settings_sign_in(org, user, bot.id))
-    assert isinstance(sign_in, ChannelSettingsSignIn)
+    sign_in = read_settings_sign_in_state(_settings_sign_in(org, user, bot.id))
 
     for tenant in ("T-paused", "T-elsewhere"):
         admin.identity = ChannelIdentity(PROVIDER, tenant, "U20")
@@ -808,8 +807,7 @@ async def test_settings_sign_in_refusals_write_nothing(
     monkeypatch.setattr(
         channel_users_service, "require_channel_bot_admin", lambda: admin
     )
-    sign_in = read_any_sign_in_state(_settings_sign_in(org, user, bot.id))
-    assert isinstance(sign_in, ChannelSettingsSignIn)
+    sign_in = read_settings_sign_in_state(_settings_sign_in(org, user, bot.id))
     confirming = uuid.uuid4() if refusal == "other_user" else user.id
 
     with pytest.raises((ChannelLinkInvalid, EntitlementRequired)):
@@ -829,7 +827,9 @@ async def test_a_settings_state_is_not_a_link_state() -> None:
     with pytest.raises(ChannelLinkInvalid):
         read_sign_in_state(state)
     with pytest.raises(ChannelLinkInvalid):
-        read_any_sign_in_state(f"{state}x")
+        read_settings_sign_in_state(f"{state}x")
+    assert is_settings_sign_in_state(state)
+    assert not is_settings_sign_in_state("garbage")
 
 
 async def test_callback_returns_a_settings_sign_in_to_settings(
@@ -850,8 +850,8 @@ async def test_callback_returns_a_settings_sign_in_to_settings(
     async def _never(*_args, **_kwargs) -> None:
         raise AssertionError("a Settings sign-in took the link-token path")
 
-    monkeypatch.setattr(channel_users_router, "complete_settings_link", _complete)
-    monkeypatch.setattr(channel_users_router, "complete_channel_link", _never)
+    monkeypatch.setattr(channel_users_service, "complete_settings_link", _complete)
+    monkeypatch.setattr(channel_users_service, "complete_channel_link", _never)
     callback = channel_users_router.handle_channel_link_callback
     linked = await callback(user=user, state=state, code="c")
     no_bot = await callback(user=user, state=state, code="c")
@@ -886,7 +886,7 @@ async def test_my_link_routes_need_the_channels_preview(
     async def _never(*_args, **_kwargs) -> None:
         raise AssertionError("started a sign-in without the entitlement")
 
-    monkeypatch.setattr(channel_users_router, "settings_sign_in_bot", _never)
+    monkeypatch.setattr(channel_users_service, "settings_sign_in_bot", _never)
     async with _admin_client(session, org, frozenset()) as client:
         sign_in = await client.post("/agent/channel-users/me/sign-in")
         unlink = await client.delete(f"/agent/channel-users/me/{uuid.uuid4()}")

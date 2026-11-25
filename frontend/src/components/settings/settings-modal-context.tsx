@@ -7,19 +7,24 @@ import {
   useEffect,
   useState,
 } from "react"
-import { toast } from "@/components/ui/use-toast"
-import { linkFailureMessage } from "@/lib/channel-link-failures"
 
-export type SettingsSection =
-  | "profile"
-  | "appearance"
-  | "security"
-  | "linked-accounts"
-  | "workspace-general"
-  | "workspace-runtime"
-  | "workspace-cases"
-  | "workspace-models"
-  | "workspace-files"
+const SETTINGS_SECTIONS = [
+  "profile",
+  "appearance",
+  "security",
+  "linked-accounts",
+  "workspace-general",
+  "workspace-runtime",
+  "workspace-cases",
+  "workspace-models",
+  "workspace-files",
+] as const
+
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
+
+function isSettingsSection(value: string | null): value is SettingsSection {
+  return SETTINGS_SECTIONS.some((section) => section === value)
+}
 
 interface SettingsModalContextValue {
   open: boolean
@@ -47,30 +52,15 @@ export function SettingsModalProvider({
     }
   }, [])
 
-  // A Slack sign-in started from Settings returns here; reopen Linked accounts.
+  // `?settings=<section>` opens Settings at that section, e.g. after a sign-in redirect.
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    if (params.get("settings") !== "linked-accounts") return
-    const result = params.get("result")
-    const errorCode = params.get("error") ?? ""
-    for (const key of ["settings", "result", "error"]) params.delete(key)
-    const query = params.toString()
-    window.history.replaceState(
-      window.history.state,
-      "",
-      `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`
-    )
-    setActiveSection("linked-accounts")
+    const url = new URL(window.location.href)
+    const section = url.searchParams.get("settings")
+    if (!isSettingsSection(section)) return
+    url.searchParams.delete("settings")
+    window.history.replaceState(window.history.state, "", url.toString())
+    setActiveSection(section)
     setOpenRaw(true)
-    if (result === "linked") {
-      toast({ title: "Slack account linked" })
-    } else if (result === "error") {
-      toast({
-        title: "Couldn't link your Slack account",
-        description: linkFailureMessage(errorCode),
-        variant: "destructive",
-      })
-    }
   }, [])
 
   return (

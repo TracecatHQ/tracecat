@@ -60,6 +60,14 @@ class ChannelLinkSignIn(_SignInStateClaims):
 
     claims: ChannelLinkClaims
 
+    @property
+    def organization_id(self) -> uuid.UUID:
+        return self.claims.organization_id
+
+    @property
+    def workspace_id(self) -> uuid.UUID:
+        return self.claims.workspace_id
+
 
 class ChannelSettingsSignIn(BaseModel):
     """A sign-in started from Settings: no provider user yet, only the bot whose app
@@ -184,29 +192,19 @@ def mint_settings_sign_in_state(
     )
 
 
-def read_any_sign_in_state(state: str) -> ChannelLinkSignIn | ChannelSettingsSignIn:
-    """Verify a sign-in state from either a link token or Settings.
+def read_settings_sign_in_state(state: str) -> ChannelSettingsSignIn:
+    """Verify a sign-in state started from Settings.
 
     Raises:
-        ChannelLinkInvalid: If it is neither, or is malformed or expired.
+        ChannelLinkInvalid: If it is malformed or expired.
     """
-    try:
-        return read_sign_in_state(state)
-    except ChannelLinkInvalid:
-        return _decode(state, _SETTINGS_SIGN_IN_STATE_AUDIENCE, ChannelSettingsSignIn)
+    return _decode(state, _SETTINGS_SIGN_IN_STATE_AUDIENCE, ChannelSettingsSignIn)
 
 
 def is_settings_sign_in_state(state: str) -> bool:
-    """Whether a state was signed for a Settings sign-in, even if it has expired."""
+    """Whether a state names the Settings audience; picks the reader, verifies nothing."""
     try:
-        jwt.decode(
-            state,
-            get_service_key(),
-            algorithms=["HS256"],
-            audience=_SETTINGS_SIGN_IN_STATE_AUDIENCE,
-            issuer=_ISSUER,
-            options={"verify_exp": False},
-        )
+        claims = jwt.decode(state, options={"verify_signature": False})
     except PyJWTError:
         return False
-    return True
+    return claims.get("aud") == _SETTINGS_SIGN_IN_STATE_AUDIENCE
