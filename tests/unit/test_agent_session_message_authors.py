@@ -11,8 +11,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.adapter.vercel import convert_chat_messages_to_ui
-from tracecat.agent.channel_bots.messages import ChannelMessage, ChannelMessageSender
-from tracecat.agent.channel_bots.schemas import ChannelBotProvider
+from tracecat.agent.channels.bots.schemas import ChannelBotProvider
+from tracecat.agent.channels.messages import ChannelMessage, ChannelMessageSender
 from tracecat.agent.session.activities import (
     LoadSessionMessagesInput,
     load_session_messages_activity,

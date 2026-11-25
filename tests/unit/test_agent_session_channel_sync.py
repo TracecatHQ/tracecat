@@ -19,9 +19,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.agent import channel_notifier
 from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.backends.types import SessionWorkflowContext
-from tracecat.agent.channel_bots import channel_threads
-from tracecat.agent.channel_bots.messages import ChannelMessage, ChannelMessageSender
-from tracecat.agent.channel_bots.schemas import ChannelBotProvider, InboxChannelThread
 from tracecat.agent.channel_notifier import (
     ChannelDestination,
     ChannelDestinationNotRoutable,
@@ -43,6 +40,9 @@ from tracecat.agent.channel_notifier import (
     open_channel_thread,
     turn_started_updates,
 )
+from tracecat.agent.channels.bots import channel_threads
+from tracecat.agent.channels.bots.schemas import ChannelBotProvider, InboxChannelThread
+from tracecat.agent.channels.messages import ChannelMessage, ChannelMessageSender
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.session import activities as session_activities
 from tracecat.agent.session import channel_sync

@@ -18,13 +18,15 @@ from tracecat.agent.executor.activity import AgentExecutorInput, SandboxedAgentE
 from tracecat.agent.mcp import plugin_tools, trusted_server
 from tracecat.agent.mcp.internal_tools import InternalToolError
 from tracecat.agent.mcp.plugin_tools import (
-    PluginInternalTool,
-    PluginToolGroup,
-    SessionPluginTools,
     agent_plugin_tools,
     is_superseded,
     plugin_internal_tools,
     session_plugin_grant,
+)
+from tracecat.agent.mcp.types import (
+    PluginInternalTool,
+    PluginToolGroup,
+    SessionPluginTools,
 )
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.tokens import MCPTokenClaims

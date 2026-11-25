@@ -10,8 +10,8 @@ from pydantic import BaseModel, Field
 
 from tracecat.agent.adapter.vercel import UIMessage
 from tracecat.agent.backends.types import PendingMessageType
-from tracecat.agent.channel_bots.schemas import InboxChannelThread
 from tracecat.agent.channel_notifier import ChannelDestination, ChannelDestinationRef
+from tracecat.agent.channels.bots.schemas import InboxChannelThread
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.artifacts.schemas import Artifact

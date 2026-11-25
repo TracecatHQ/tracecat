@@ -68,10 +68,10 @@ from tracecat.agent.backends.types import (
     SessionTurnContext,
     TurnAlreadyStarted,
 )
-from tracecat.agent.channel_bots.messages import ChannelMessage
 from tracecat.agent.channel_notifier import ChannelDestinationRef
-from tracecat.agent.channel_users.service import linked_members
-from tracecat.agent.channel_users.types import ChannelIdentity
+from tracecat.agent.channels.messages import ChannelMessage
+from tracecat.agent.channels.users.service import linked_members
+from tracecat.agent.channels.users.types import ChannelIdentity
 from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.control.schemas import (
     AgentCancelControl,

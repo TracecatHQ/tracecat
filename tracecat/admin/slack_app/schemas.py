@@ -6,7 +6,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from tracecat.agent.channel_bots.schemas import (
+from tracecat.agent.channels.bots.schemas import (
     ChannelBotPlatformAppSetup,
     check_slack_app_refresh_token,
 )

@@ -10,7 +10,7 @@ from typing import Any
 import orjson
 from pydantic import BaseModel, ValidationError
 
-from tracecat.agent.channel_bots.schemas import ChannelBotProvider
+from tracecat.agent.channels.bots.schemas import ChannelBotProvider
 from tracecat.logger import logger
 
 CHANNEL_MESSAGE_VERSION = "1"

@@ -38,7 +38,7 @@ from tracecat.agent.approvals.policy import (
     ensure_approver_allowed,
     ensure_decider_allowed,
 )
-from tracecat.agent.channel_users.service import resolve_channel_actor
+from tracecat.agent.channels.users.service import resolve_channel_actor
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.preset.approvers import AgentPresetApproverService
 from tracecat.agent.preset.schemas import (

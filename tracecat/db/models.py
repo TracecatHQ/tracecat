@@ -65,7 +65,7 @@ from sqlalchemy.orm import (
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.types import PersistedApprovalDecision
-from tracecat.agent.channel_users.enums import ChannelAccessPolicy
+from tracecat.agent.channels.users.enums import ChannelAccessPolicy
 from tracecat.agent.control.enums import CommandState, CommandType
 from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.auth.schemas import UserRole

@@ -13,18 +13,18 @@ from sqlalchemy import ColumnElement, and_, delete, exists, func, select, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.agent.channel_bots.provider import require_channel_bot_admin
-from tracecat.agent.channel_users.enums import (
+from tracecat.agent.channels.bots.provider import require_channel_bot_admin
+from tracecat.agent.channels.users.enums import (
     ChannelAccessPolicy,
     ChannelAction,
     ChannelLinkError,
 )
-from tracecat.agent.channel_users.schemas import (
+from tracecat.agent.channels.users.schemas import (
     AgentChannelUserRead,
     channel_link_callback_url,
     channel_link_page_url,
 )
-from tracecat.agent.channel_users.tokens import (
+from tracecat.agent.channels.users.tokens import (
     ChannelLinkClaims,
     ChannelLinkInvalid,
     ChannelLinkSignIn,
@@ -32,7 +32,7 @@ from tracecat.agent.channel_users.tokens import (
     mint_sign_in_state,
     read_link_token,
 )
-from tracecat.agent.channel_users.types import ChannelActor, ChannelIdentity
+from tracecat.agent.channels.users.types import ChannelActor, ChannelIdentity
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES

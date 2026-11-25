@@ -11,7 +11,7 @@ from tracecat.admin.slack_app.schemas import (
     SlackPlatformAppSetupStepsUpdate,
     SlackPlatformAppUpdate,
 )
-from tracecat.agent.channel_bots.platform_app import (
+from tracecat.agent.channels.bots.platform_app import (
     SlackPlatformApp,
     UnreadableSlackPlatformApp,
     delete_slack_platform_app,
@@ -19,7 +19,7 @@ from tracecat.agent.channel_bots.platform_app import (
     read_slack_platform_app,
     write_slack_platform_app,
 )
-from tracecat.agent.channel_bots.schemas import (
+from tracecat.agent.channels.bots.schemas import (
     ChannelBotPlatformAppSetup,
     ChannelBotProvider,
     ChannelBotTransport,

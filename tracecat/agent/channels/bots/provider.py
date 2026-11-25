@@ -9,7 +9,7 @@ from typing import Protocol, runtime_checkable
 from pydantic import JsonValue
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.agent.channel_bots.schemas import (
+from tracecat.agent.channels.bots.schemas import (
     AgentChannelBotCreate,
     AgentChannelBotRead,
     AgentChannelBotUpdate,
@@ -28,7 +28,7 @@ from tracecat.agent.channel_bots.schemas import (
     ChannelBotPlatformInstall,
     ChannelBotProvider,
 )
-from tracecat.agent.channel_users.types import ProviderSignIn
+from tracecat.agent.channels.users.types import ProviderSignIn
 from tracecat.api.extensions import load_api_extensions
 from tracecat.auth.types import Role
 from tracecat.exceptions import EntitlementRequired, TracecatException

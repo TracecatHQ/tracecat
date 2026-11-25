@@ -10,8 +10,8 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.adapter import vercel
-from tracecat.agent.channel_bots.messages import ChannelMessage, ChannelMessageSender
-from tracecat.agent.channel_bots.schemas import ChannelBotProvider
+from tracecat.agent.channels.bots.schemas import ChannelBotProvider
+from tracecat.agent.channels.messages import ChannelMessage, ChannelMessageSender
 from tracecat.agent.control.schemas import AgentSteerControl
 from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.service import AgentSessionService

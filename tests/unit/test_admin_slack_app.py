@@ -14,15 +14,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.admin.slack_app import router as router_module
-from tracecat.agent.channel_bots import platform_app
-from tracecat.agent.channel_bots.platform_app import (
+from tracecat.agent.channels.bots import platform_app
+from tracecat.agent.channels.bots.platform_app import (
     SLACK_PLATFORM_APP_KEY,
     SlackPlatformApp,
     read_slack_platform_app,
     slack_platform_app,
     write_slack_platform_app,
 )
-from tracecat.agent.channel_bots.schemas import (
+from tracecat.agent.channels.bots.schemas import (
     ChannelBotAppManifest,
     ChannelBotPlatformAppSetup,
     ChannelBotProvider,

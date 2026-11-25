@@ -16,7 +16,7 @@ from temporalio.client import WorkflowExecutionStatus
 
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.backends.registry import DEFAULT_AGENT_BACKEND, find_agent_backend
-from tracecat.agent.channel_bots.channel_threads import channel_threads_by_session
+from tracecat.agent.channels.bots.channel_threads import channel_threads_by_session
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.chat.enums import MessageKind

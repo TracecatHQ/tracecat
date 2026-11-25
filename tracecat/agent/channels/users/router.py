@@ -9,21 +9,21 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import RedirectResponse
 
-from tracecat.agent.channel_users.enums import ChannelLinkError
-from tracecat.agent.channel_users.schemas import (
+from tracecat.agent.channels.users.enums import ChannelLinkError
+from tracecat.agent.channels.users.schemas import (
     CHANNEL_LINK_CALLBACK_ROUTE,
     CHANNEL_LINKS_PREFIX,
     AgentChannelUserRead,
     ChannelLinkSignInRead,
     channel_link_page_url,
 )
-from tracecat.agent.channel_users.service import (
+from tracecat.agent.channels.users.service import (
     complete_channel_link,
     list_channel_users,
     start_provider_sign_in,
     unlink_channel_user,
 )
-from tracecat.agent.channel_users.tokens import (
+from tracecat.agent.channels.users.tokens import (
     ChannelLinkInvalid,
     ChannelLinkSignIn,
     read_link_token,
