@@ -2,7 +2,8 @@
 
 The feed carries state only: no authors, message bodies, or tokens. The session
 row (``curr_run_id``, ``active_stream_id``) stays the source of truth, so
-publishing is best effort and readers start from a row snapshot.
+publishing is best effort and readers start from a row snapshot. The one notice,
+``channel_sync.failed``, reaches only tabs open when it happens.
 """
 
 from __future__ import annotations
@@ -50,6 +51,14 @@ class SessionFeedEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class ChannelSyncFailed:
+    """A turn's channel thread could not open."""
+
+    reason: str
+    type: Literal["channel_sync.failed"] = "channel_sync.failed"
+
+
+@dataclass(frozen=True, slots=True)
 class SessionFeedSnapshot:
     """Session row state sent first on every (re)connect."""
 
@@ -70,7 +79,7 @@ def _sse_data(data: str) -> str:
     return f"data: {data}\n\n"
 
 
-def _dumps(value: SessionFeedEvent | SessionFeedSnapshot) -> str:
+def _dumps(value: SessionFeedEvent | ChannelSyncFailed | SessionFeedSnapshot) -> str:
     # Row values are asyncpg UUIDs, which orjson only serializes via `default`.
     return orjson.dumps(value, default=str).decode()
 
@@ -95,7 +104,7 @@ class SessionFeed:
         client = await get_redis_client()
         return cls(client=client, workspace_id=workspace_id, session_id=session_id)
 
-    async def publish(self, event: SessionFeedEvent) -> None:
+    async def publish(self, event: SessionFeedEvent | ChannelSyncFailed) -> None:
         await self.client.xadd(
             self.key,
             {tokens.DATA_KEY: _dumps(event)},
@@ -146,16 +155,12 @@ class SessionFeed:
             await asyncio.sleep(FEED_POLL_INTERVAL_SECONDS)
 
 
-async def publish_session_event(
-    *,
+async def _publish(
     workspace_id: uuid.UUID,
     session_id: uuid.UUID,
-    type: SessionFeedEventType,
-    run_id: uuid.UUID,
-    stream_id: uuid.UUID | None = None,
+    event: SessionFeedEvent | ChannelSyncFailed,
 ) -> None:
-    """Publish a run state change; failures are logged, never raised."""
-    event = SessionFeedEvent(type=type, run_id=run_id, stream_id=stream_id)
+    """Publish to the session's feed; failures are logged, never raised."""
     try:
         async with asyncio.timeout(PUBLISH_TIMEOUT_SECONDS):
             feed = await SessionFeed.new(
@@ -166,7 +171,29 @@ async def publish_session_event(
         logger.warning(
             "Failed to publish session feed event",
             session_id=str(session_id),
-            run_id=str(run_id),
-            event_type=type.value,
+            event=_dumps(event),
             error=str(e),
         )
+
+
+async def publish_session_event(
+    *,
+    workspace_id: uuid.UUID,
+    session_id: uuid.UUID,
+    type: SessionFeedEventType,
+    run_id: uuid.UUID,
+    stream_id: uuid.UUID | None = None,
+) -> None:
+    """Publish a run state change; failures are logged, never raised."""
+    await _publish(
+        workspace_id,
+        session_id,
+        SessionFeedEvent(type=type, run_id=run_id, stream_id=stream_id),
+    )
+
+
+async def publish_channel_sync_failed(
+    *, workspace_id: uuid.UUID, session_id: uuid.UUID, reason: str
+) -> None:
+    """Tell open tabs a turn's thread could not open; failures are logged, never raised."""
+    await _publish(workspace_id, session_id, ChannelSyncFailed(reason=reason))

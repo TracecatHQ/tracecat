@@ -14109,6 +14109,10 @@ export type VercelChatRequest = {
    * The page the chat is docked on. Only Workspace chat uses it.
    */
   page_context?: ChatPageContext | null
+  /**
+   * Where to open the session's synced thread when this turn ends: a channel the agent's bot is in, or a DM with the sender (no id).
+   */
+  channel_destination?: ChannelDestinationRef | null
 }
 
 /**

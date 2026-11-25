@@ -7,12 +7,21 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from claude_agent_sdk.types import Message as ClaudeSDKMessage
-from pydantic import UUID4, BaseModel, ConfigDict, Discriminator, Field, ValidationError
+from pydantic import (
+    UUID4,
+    BaseModel,
+    ConfigDict,
+    Discriminator,
+    Field,
+    ValidationError,
+    model_validator,
+)
 
 from tracecat.agent.adapter import vercel
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.types import PersistedApprovalDecision
 from tracecat.agent.channel_bots.messages import ChannelMessage
+from tracecat.agent.channel_notifier import ChannelDestinationRef
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.session.types import AgentSessionEntity
@@ -88,6 +97,25 @@ class VercelChatRequest(BaseModel):
         default=None,
         description="The page the chat is docked on. Only Workspace chat uses it.",
     )
+    channel_destination: ChannelDestinationRef | None = Field(
+        default=None,
+        description=(
+            "Where to open the session's synced thread when this turn ends: a "
+            "channel the agent's bot is in, or a DM with the sender (no id)."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def check_web_destination(self) -> VercelChatRequest:
+        # Only workflows DM someone else, by email.
+        destination = self.channel_destination
+        if destination is None:
+            return self
+        if destination.kind == "direct_message" and destination.id is not None:
+            raise ValueError("A direct message destination takes no id")
+        if destination.kind == "channel" and not destination.id:
+            raise ValueError("A channel destination needs the channel's id")
+        return self
 
 
 class ChatResponse(BaseModel):

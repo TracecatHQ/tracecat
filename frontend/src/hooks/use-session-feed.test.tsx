@@ -6,6 +6,7 @@ import {
   type FeedState,
   feedActionFor,
   knownStateAfter,
+  parseChannelSyncFailure,
   parseSessionFeedEvent,
   useSessionFeed,
 } from "@/hooks/use-session-feed"
@@ -111,6 +112,23 @@ describe("parseSessionFeedEvent", () => {
     ]) {
       expect(parseSessionFeedEvent(data)).toBeNull()
     }
+  })
+})
+
+describe("parseChannelSyncFailure", () => {
+  it("reads why a turn's thread could not open, and nothing else", () => {
+    const reason = "Couldn't open Slack thread: the channel is gone"
+    expect(
+      parseChannelSyncFailure(
+        JSON.stringify({ type: "channel_sync.failed", reason })
+      )
+    ).toBe(reason)
+    expect(
+      parseChannelSyncFailure(
+        JSON.stringify({ type: "run.finished", run_id: "r", stream_id: null })
+      )
+    ).toBeNull()
+    expect(parseChannelSyncFailure("not json")).toBeNull()
   })
 })
 

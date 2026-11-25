@@ -26,6 +26,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import {
+  useChannelBotReadsAllowed,
+  useWorkspaceChannelBots,
+} from "@/hooks/use-agent-channel-bots"
+import {
+  channelDestinationLabel,
   useSessionChannelDestinations,
   useSessionChannelSync,
 } from "@/hooks/use-session-channel-sync"
@@ -50,34 +55,53 @@ const TOOLTIPS: Record<SlackSyncState, string> = {
  * The composer's Slack sync toggle. A linked session turns sync on or off; an
  * unlinked one opens the channel picker. Hidden when the actor may not change
  * sync or the session's agent has no bot.
+ *
+ * With `onPickedChange`, a session with no messages keeps its pick in the
+ * caller's state; the first send carries it and the thread opens at that turn's end.
+ * `openPicker` opens the picker on mount, for a draft that made its session to pick.
  */
 export function SlackSyncButton({
   workspaceId,
   sessionId,
   disabled = false,
+  picked = null,
+  onPickedChange,
+  openPicker = false,
 }: {
   workspaceId: string
   sessionId: string
   disabled?: boolean
+  picked?: ChannelDestination | null
+  onPickedChange?: (destination: ChannelDestination | null) => void
+  openPicker?: boolean
 }) {
   const { sync, changeSync, isPending } = useSessionChannelSync(
     workspaceId,
     sessionId
   )
-  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(openPicker)
   if (!sync?.available) {
     return null
   }
+  const pickFirst = !sync.linked && onPickedChange !== undefined
+  const waiting = pickFirst ? picked : null
   let state: SlackSyncState = "unlinked"
   if (sync.linked) {
     state = sync.enabled ? "on" : "off"
+  } else if (waiting) {
+    state = "on"
   }
+  const tooltip = waiting
+    ? `Syncs to ${channelDestinationLabel(waiting)} when you send · click to cancel`
+    : TOOLTIPS[state]
 
   // Unlinked, the button is the picker's trigger, so a second click closes it.
   const PickerAnchor = state === "unlinked" ? PopoverTrigger : PopoverAnchor
 
   function handleClick() {
-    if (state !== "unlinked") {
+    if (waiting) {
+      onPickedChange?.(null)
+    } else if (state !== "unlinked") {
       changeSync({ enabled: state === "off" })
     }
   }
@@ -86,7 +110,10 @@ export function SlackSyncButton({
 
   function handleSelect(destination: ChannelDestination) {
     setPickerOpen(false)
-    if (!inactive) {
+    if (inactive) return
+    if (pickFirst) {
+      onPickedChange?.(destination)
+    } else {
       changeSync({ enabled: true, destination })
     }
   }
@@ -113,7 +140,7 @@ export function SlackSyncButton({
                 <SlackSyncIcon state={state} />
               </PromptInputButton>
             </TooltipTrigger>
-            <TooltipContent side="top">{TOOLTIPS[state]}</TooltipContent>
+            <TooltipContent side="top">{tooltip}</TooltipContent>
           </Tooltip>
         </span>
       </PickerAnchor>
@@ -127,6 +154,55 @@ export function SlackSyncButton({
         ) : null}
       </PopoverContent>
     </Popover>
+  )
+}
+
+/**
+ * A draft chat's Slack button, shown when the workspace has an active bot.
+ * Clicking creates the session; its own button then opens the picker.
+ */
+export function DraftSlackSyncButton({
+  workspaceId,
+  disabled = false,
+  onCreateSession,
+}: {
+  workspaceId: string
+  disabled?: boolean
+  onCreateSession: () => Promise<void>
+}) {
+  const { data: bots } = useWorkspaceChannelBots(
+    workspaceId,
+    useChannelBotReadsAllowed()
+  )
+  const [creating, setCreating] = useState(false)
+  if (!bots?.some((bot) => bot.status === "active")) {
+    return null
+  }
+
+  async function handleClick() {
+    setCreating(true)
+    try {
+      await onCreateSession()
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <PromptInputButton
+          aria-label={BUTTON_LABELS.unlinked}
+          data-state-sync="unlinked"
+          disabled={disabled || creating}
+          onClick={() => void handleClick()}
+          className="h-7"
+        >
+          <SlackSyncIcon state="unlinked" />
+        </PromptInputButton>
+      </TooltipTrigger>
+      <TooltipContent side="top">{TOOLTIPS.unlinked}</TooltipContent>
+    </Tooltip>
   )
 }
 

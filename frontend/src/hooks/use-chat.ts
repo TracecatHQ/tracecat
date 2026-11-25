@@ -28,12 +28,16 @@ import {
   agentSessionsListSessions,
   agentSessionsRemoveSessionArtifact,
   agentSessionsUpdateSession,
+  type ChannelDestinationRef,
   type ChatPageContext,
   type ContinueRunRequest,
   type VercelChatRequest,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
-import { sessionChannelSyncQueryKey } from "@/hooks/use-session-channel-sync"
+import {
+  channelDestinationFromOptions,
+  sessionChannelSyncQueryKey,
+} from "@/hooks/use-session-channel-sync"
 import { useSessionFeed } from "@/hooks/use-session-feed"
 import { getBaseUrl } from "@/lib/api"
 import {
@@ -166,6 +170,30 @@ function parseValidationError(error: unknown): string | null {
   return messages.length > 0 ? messages.join(" ") : null
 }
 
+/** The `detail` of a send the API rejected; the transport throws its body as the message. */
+function sendErrorDetail(error: unknown): unknown {
+  if (!(error instanceof Error)) return undefined
+  try {
+    const parsed: unknown = JSON.parse(error.message)
+    return parsed && typeof parsed === "object" && "detail" in parsed
+      ? parsed.detail
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** Whether a failed send is the API refusing its Slack destination. */
+export function isChannelDestinationRefused(error: unknown): boolean {
+  const detail = sendErrorDetail(error)
+  return (
+    !!detail &&
+    typeof detail === "object" &&
+    "type" in detail &&
+    detail.type === "ChannelDestinationRefused"
+  )
+}
+
 export function parseChatError(error: unknown): string {
   if (!error) {
     return DEFAULT_CHAT_ERROR_MESSAGE
@@ -204,11 +232,18 @@ export function parseChatError(error: unknown): string {
             return parsedMessage.trim()
           }
         }
-        // A rejected send carries the API's `{"detail": "..."}` body as its message.
+        // A rejected send carries the API's `{"detail": ...}` body as its message.
         if (parsed && typeof parsed === "object" && "detail" in parsed) {
           const detail = (parsed as { detail?: unknown }).detail
           if (typeof detail === "string" && detail.trim()) {
             return detail.trim()
+          }
+          const detailMessage =
+            detail && typeof detail === "object" && "message" in detail
+              ? (detail as { message?: unknown }).message
+              : undefined
+          if (typeof detailMessage === "string" && detailMessage.trim()) {
+            return detailMessage.trim()
           }
         }
         // Typed API errors such as EntitlementRequired carry it in `message`.
@@ -809,6 +844,11 @@ export function useVercelChat({
   pageContextRef.current = pageContext
   // Whether the reconnect in flight streamed turn output, not just a finish.
   const reconnectStreamedRef = useRef(false)
+  // A first send's Slack destination, resent by a Retry of that prompt until a turn finishes.
+  const firstSendDestinationRef = useRef<{
+    messageId: string
+    destination: ChannelDestinationRef
+  } | null>(null)
 
   // Use Vercel's useChat hook for streaming. On reconnect the server replays the
   // whole active turn from the start (it hides the active run's DB rows mid-turn,
@@ -833,7 +873,11 @@ export function useVercelChat({
           credentials: "include",
         }
       },
-      prepareSendMessagesRequest: ({ messages }) => {
+      prepareSendMessagesRequest: ({
+        messages,
+        body: requestBody,
+        trigger,
+      }) => {
         // Support both normal vercel chat turns and approval continuations.
         const last = messages[messages.length - 1]
         const dataPart = last.parts.find((p) => p.type === "data-continue") as
@@ -860,11 +904,26 @@ export function useVercelChat({
         if (baseUrl != null) body.base_url = baseUrl
         const currentPageContext = pageContextRef.current
         if (currentPageContext) body.page_context = currentPageContext
+        let destination = channelDestinationFromOptions(requestBody)
+        if (trigger === "submit-message") {
+          firstSendDestinationRef.current = destination
+            ? { messageId: last.id, destination }
+            : null
+        } else if (firstSendDestinationRef.current?.messageId === last.id) {
+          destination = firstSendDestinationRef.current.destination
+        } else {
+          destination = undefined
+        }
+        if (destination) body.channel_destination = destination
         return { body }
       },
     }),
     onError: (error) => {
       const friendlyMessage = parseChatError(error)
+      // A refused destination would refuse every Retry; that Retry runs unsynced.
+      if (isChannelDestinationRefused(error)) {
+        firstSendDestinationRef.current = null
+      }
       // A reconnect that fails before its stream opens gets no onFinish and
       // leaves status untouched; the turn is unknown, so mark it dropped.
       const streamOpened =
@@ -887,6 +946,7 @@ export function useVercelChat({
     onFinish: ({ messages: turnMessages, isAbort, isDisconnect, isError }) => {
       if (!isAbort && !isDisconnect && !isError) {
         void subagentStore.complete()
+        firstSendDestinationRef.current = null
       }
       // Leaving a chat aborts its request, and the SDK runs that abort's
       // onFinish with the next chat's callbacks; sends already cleared state.
@@ -1000,6 +1060,18 @@ export function useVercelChat({
       }
     },
     onRefresh: refreshFromFeed,
+    onChannelSyncFailed: (reason) => {
+      toast({
+        title: "Slack sync failed",
+        description: reason,
+        variant: "destructive",
+      })
+      if (chatId) {
+        queryClient.invalidateQueries({
+          queryKey: sessionChannelSyncQueryKey(workspaceId, chatId),
+        })
+      }
+    },
   })
   const waitForResume = useCallback(async () => {
     const pending = pendingResumeRef.current

@@ -28,10 +28,14 @@ from tracecat.agent.backends.types import (
     AgentControlUncertain,
     SessionDispatchUncertain,
 )
-from tracecat.agent.channel_notifier import list_channel_destinations
+from tracecat.agent.channel_notifier import (
+    ChannelReplyError,
+    list_channel_destinations,
+)
 from tracecat.agent.control.schemas import AgentControlReceipt, AgentControlRequest
 from tracecat.agent.session.channel_sync import (
     ChannelThreadUnavailable,
+    check_turn_destination,
     get_channel_sync,
     get_channel_sync_enabled,
     set_channel_sync,
@@ -697,6 +701,10 @@ async def send_message(
                     stream_id=rotated_stream_id,
                 )
             else:
+                if (destination := request.channel_destination) is not None:
+                    # End the read transaction: no connection sits idle across Slack calls.
+                    await svc.session.commit()
+                    await check_turn_destination(role, agent_session, destination)
                 stream_id = uuid.uuid4()
                 stream = await AgentStream.new(
                     session_id=session_id,
@@ -778,6 +786,15 @@ async def send_message(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(e),
+        ) from e
+    except ChannelReplyError as e:
+        # Typed so the web drops the refused destination from a Retry.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "type": "ChannelDestinationRefused",
+                "message": f"Couldn't open Slack thread: {e}",
+            },
         ) from e
     except TracecatNotFoundError as e:
         raise HTTPException(

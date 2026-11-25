@@ -97,4 +97,5 @@ class DefaultBackend(AgentBackend[AgentWorkflowArgs, AgentOutput]):
             agent_preset_id=context.agent_preset_id,
             agent_preset_version_id=context.agent_preset_version_id,
             prompt_run_id=context.prompt_run_id,
+            channel_destination=context.channel_destination,
         )

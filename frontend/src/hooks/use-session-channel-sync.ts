@@ -1,11 +1,13 @@
 "use client"
 
+import { useCallback, useState } from "react"
 import {
   type AgentSessionChannelSyncRead,
   agentSessionsGetSessionChannelSync,
   agentSessionsListSessionChannelDestinations,
   agentSessionsUpdateSessionChannelSync,
   type ChannelDestination,
+  type ChannelDestinationRef,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import { getApiErrorDetail, type TracecatApiError } from "@/lib/errors"
@@ -30,6 +32,54 @@ export function channelDestinationLabel(destination: ChannelDestination) {
   return destination.kind === "direct_message"
     ? "your direct messages"
     : `#${destination.name}`
+}
+
+/**
+ * A destination picked before a session's first message, kept in this tab only.
+ * `takeSendOptions` hands it to the next send and clears it.
+ */
+export function usePickedChannelDestination(
+  sessionId: string | undefined,
+  empty: boolean
+) {
+  const [pick, setPick] = useState<{
+    sessionId: string
+    destination: ChannelDestination
+  } | null>(null)
+  const picked =
+    empty && sessionId !== undefined && pick?.sessionId === sessionId
+      ? pick.destination
+      : null
+  const onPickedChange = useCallback(
+    (destination: ChannelDestination | null) =>
+      setPick(
+        destination && sessionId !== undefined
+          ? { sessionId, destination }
+          : null
+      ),
+    [sessionId]
+  )
+  function takeSendOptions() {
+    setPick(null)
+    if (!picked) return undefined
+    const channel_destination: ChannelDestinationRef = {
+      kind: picked.kind,
+      id: picked.id ?? null,
+    }
+    return { body: { channel_destination } }
+  }
+  return {
+    picked,
+    onPickedChange: empty ? onPickedChange : undefined,
+    takeSendOptions,
+  }
+}
+
+/** The destination a send's options carry; the turn's end opens its thread there. */
+export function channelDestinationFromOptions(
+  body: Record<string, unknown> | undefined
+): ChannelDestinationRef | undefined {
+  return body?.channel_destination as ChannelDestinationRef | undefined
 }
 
 function syncChangedToast(change: ChannelSyncChange) {

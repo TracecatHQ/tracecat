@@ -11,19 +11,35 @@ jest.mock("@/components/chat/chat-session-pane", () => ({
     chat,
     mcpEnabled,
     onBeforeSend,
+    onCreateSessionForSync,
+    syncDraft,
+    presetSelector,
     inputDisabled,
   }: {
     chat?: { id: string }
     mcpEnabled: boolean
     onBeforeSend?: (message: string) => Promise<string | null>
+    onCreateSessionForSync?: (draftText: string) => Promise<void>
+    syncDraft?: string
+    presetSelector?: { selectedPresetId: string | null }
     inputDisabled?: boolean
   }) => (
     <div
       data-mcp-enabled={String(mcpEnabled)}
       data-input-disabled={String(Boolean(inputDisabled))}
+      data-sync-draft={syncDraft}
       data-testid="chat-session-pane"
     >
       {chat && <p>Transcript of {chat.id}</p>}
+      {/* The real pane shows it only for a draft with a preset. */}
+      {onCreateSessionForSync && presetSelector?.selectedPresetId && (
+        <button
+          type="button"
+          onClick={() => void onCreateSessionForSync("half a thought")}
+        >
+          Sync with Slack
+        </button>
+      )}
       {onBeforeSend && (
         <button type="button" onClick={() => void onBeforeSend("Hello")}>
           Send first message
@@ -69,13 +85,14 @@ jest.mock("@/hooks/use-chat", () => ({
   useUpdateChat: () => ({ updateChat: jest.fn(), isUpdating: false }),
   parseChatError: (error: unknown) => String(error),
 }))
+let mockSelectedPresetId: string | null = null
 jest.mock("@/hooks/use-chat-preset-manager", () => ({
   useChatPresetManager: () => ({
     selectedPreset: undefined,
     selectedPresetConfig: null,
     selectedPresetConfigError: undefined,
     selectedPresetVersionIsLoading: false,
-    selectedPresetId: null,
+    selectedPresetId: mockSelectedPresetId,
     selectedPresetVersionId: null,
     handlePresetChange: jest.fn(),
     getPendingPresetSelection: () => ({
@@ -628,5 +645,35 @@ describe("ChatInterface session fetch errors", () => {
     expect(screen.getByLabelText("New chat")).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Retry" }))
     expect(mockRefetchChat).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("ChatInterface Slack sync from a draft", () => {
+  beforeEach(() => {
+    setScopeResult("integration:read", true)
+    mockSelectedPresetId = "preset-1"
+  })
+  afterEach(() => {
+    mockSelectedPresetId = null
+  })
+
+  it("offers no Slack button to a draft without a preset", () => {
+    mockSelectedPresetId = null
+    renderChat()
+    expect(
+      screen.queryByRole("button", { name: "Sync with Slack" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("creates the session and carries the draft to its picker", async () => {
+    renderChat()
+    fireEvent.click(screen.getByRole("button", { name: "Sync with Slack" }))
+    mockGetChat.mockReturnValue({ id: "chat-1", messages: [] })
+
+    expect(await screen.findByText("Transcript of chat-1")).toBeInTheDocument()
+    expect(mockCreateChat).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId("chat-session-pane").dataset.syncDraft).toBe(
+      "half a thought"
+    )
   })
 })
