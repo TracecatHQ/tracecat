@@ -788,9 +788,13 @@ async def send_message(
             detail=str(e),
         ) from e
     except ChannelReplyError as e:
+        # Typed so the web drops the refused destination from a Retry.
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Couldn't open Slack thread: {e}",
+            detail={
+                "type": "ChannelDestinationRefused",
+                "message": f"Couldn't open Slack thread: {e}",
+            },
         ) from e
     except TracecatNotFoundError as e:
         raise HTTPException(

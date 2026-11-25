@@ -62,7 +62,12 @@ it("drops a refused destination so a Retry can run", async () => {
     ok: false,
     status: 422,
     text: async () =>
-      JSON.stringify({ detail: "Couldn't open Slack thread: bot paused" }),
+      JSON.stringify({
+        detail: {
+          type: "ChannelDestinationRefused",
+          message: "Couldn't open Slack thread: bot paused",
+        },
+      }),
   })
   global.fetch = fetchMock as unknown as typeof fetch
   jest.spyOn(console, "error").mockImplementation(() => {})

@@ -106,7 +106,7 @@ class VercelChatRequest(BaseModel):
     )
 
     @model_validator(mode="after")
-    def destination_names_its_place(self) -> VercelChatRequest:
+    def check_web_destination(self) -> VercelChatRequest:
         # Only workflows DM someone else, by email.
         destination = self.channel_destination
         if destination is None:

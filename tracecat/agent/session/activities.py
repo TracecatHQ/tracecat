@@ -17,7 +17,7 @@ from temporalio.exceptions import ApplicationError
 from tracecat.agent.backends.registry import DEFAULT_AGENT_BACKEND
 from tracecat.agent.channel_notifier import (
     TURN_STARTED_PUSH_BUDGET,
-    ChannelDestinationRef,
+    LateChannelDelivery,
     RunUpdate,
     is_channel_linked,
     push_updates,
@@ -84,7 +84,7 @@ class CreateSessionResult(BaseModel):
     error: str | None = None
     channel_linked: bool = False
     # Unlinked at the start with a bot in the workspace: read the link again at the end.
-    channel_bot_installed: bool = False
+    recheck_channel_link: bool = False
 
 
 class PendingToolResult(BaseModel):
@@ -332,7 +332,7 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
             session_id=input.session_id,
             success=True,
             channel_linked=linked,
-            channel_bot_installed=not linked and await has_channel_bot(input.role),
+            recheck_channel_link=not linked and await has_channel_bot(input.role),
         )
 
     except ApplicationError:
@@ -538,9 +538,7 @@ class FinalizeTurnInput(BaseModel):
     emit_terminal_done: bool = False
     # Pushed before the release, so the reply posts before the next turn starts.
     channel_updates: list[RunUpdate] = Field(default_factory=list)
-    # The turn started unlinked: open its destination, then post the reply if linked now.
-    resolve_channel_link: bool = False
-    channel_destination: ChannelDestinationRef | None = None
+    late_channel_delivery: LateChannelDelivery | None = None
 
 
 class FinalizeTurnResult(BaseModel):
@@ -563,9 +561,9 @@ async def finalize_turn_activity(
     """
     ctx_role.set(input.role)
     await push_updates(input.role, input.channel_updates)
-    if input.resolve_channel_link:
+    if (late := input.late_channel_delivery) is not None:
         await push_late_turn_finished(
-            input.role, input.session_id, input.run_id, input.channel_destination
+            input.role, input.session_id, input.run_id, late.destination
         )
     try:
         async with AgentSessionService.with_session(role=input.role) as service:

@@ -29,6 +29,7 @@ from tracecat.agent.channel_notifier import (
     ChannelRecipientNotLinked,
     ChannelReplyError,
     ChannelsNotEntitled,
+    LateChannelDelivery,
     MessageSent,
     NoChannelBot,
     RunUpdate,
@@ -960,8 +961,8 @@ async def test_an_opened_thread_gets_the_reply_without_a_link_check(
     [
         pytest.param(NoChannelBot("bot paused"), "bot paused", id="bot-gone"),
         pytest.param(
-            ChannelRecipientNotLinked("You hasn't linked Slack"),
-            "You hasn't linked Slack",
+            ChannelRecipientNotLinked("You haven't linked Slack"),
+            "You haven't linked Slack",
             id="dm-unlinked",
         ),
         pytest.param(ChannelDestinationNotRoutable("gone"), "gone", id="not-routable"),
@@ -1006,7 +1007,7 @@ async def test_a_turns_thread_that_cannot_open_is_told_to_the_session(
         pytest.param(ChannelsNotEntitled("Agent Channels is off"), id="not-entitled"),
         pytest.param(NoChannelBot("No bot"), id="no-bot"),
         pytest.param(ChannelDestinationNotRoutable("Not in C1"), id="not-routable"),
-        pytest.param(ChannelRecipientNotLinked("You hasn't linked Slack"), id="dm"),
+        pytest.param(ChannelRecipientNotLinked("You haven't linked Slack"), id="dm"),
     ],
 )
 def test_a_web_turns_destination_is_refused_before_the_turn_starts(
@@ -1064,7 +1065,12 @@ def test_a_web_turns_destination_is_refused_before_the_turn_starts(
         )
 
     assert response.status_code == 422
-    assert response.json() == {"detail": f"Couldn't open Slack thread: {error}"}
+    assert response.json() == {
+        "detail": {
+            "type": "ChannelDestinationRefused",
+            "message": f"Couldn't open Slack thread: {error}",
+        }
+    }
     assert check.await_args is not None
     assert check.await_args.args[2] == PICKED
     run_turn.assert_not_awaited()
@@ -1079,6 +1085,26 @@ async def test_a_session_without_a_preset_has_no_bot_to_open_a_thread() -> None:
     )
 
     with pytest.raises(NoChannelBot):
+        await check_turn_destination(role, agent_session, PICKED)
+
+
+@pytest.mark.anyio
+async def test_a_service_cannot_open_a_thread_with_its_turn() -> None:
+    role = Role(
+        type="service_account",
+        service_id="tracecat-api",
+        service_account_id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:read", "agent:execute"}),
+    )
+    assert role.workspace_id is not None
+    agent_session = _agent_session(
+        role.workspace_id, created_by=USER_ID, entity_type="copilot"
+    )
+    agent_session.agent_preset_id = uuid.uuid4()
+
+    with pytest.raises(ChannelReplyError, match="Only a person's message"):
         await check_turn_destination(role, agent_session, PICKED)
 
 
@@ -1211,8 +1237,9 @@ async def test_the_turns_end_reads_the_link_only_when_the_start_saw_a_bot(
             role=role,
             session_id=SESSION_ID,
             run_id=RUN_ID,
-            resolve_channel_link=bot,
-            channel_destination=PICKED if bot else None,
+            late_channel_delivery=(
+                LateChannelDelivery(destination=PICKED) if bot else None
+            ),
         )
     )
 

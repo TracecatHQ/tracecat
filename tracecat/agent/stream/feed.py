@@ -155,16 +155,12 @@ class SessionFeed:
             await asyncio.sleep(FEED_POLL_INTERVAL_SECONDS)
 
 
-async def publish_session_event(
-    *,
+async def _publish(
     workspace_id: uuid.UUID,
     session_id: uuid.UUID,
-    type: SessionFeedEventType,
-    run_id: uuid.UUID,
-    stream_id: uuid.UUID | None = None,
+    event: SessionFeedEvent | ChannelSyncFailed,
 ) -> None:
-    """Publish a run state change; failures are logged, never raised."""
-    event = SessionFeedEvent(type=type, run_id=run_id, stream_id=stream_id)
+    """Publish to the session's feed; failures are logged, never raised."""
     try:
         async with asyncio.timeout(PUBLISH_TIMEOUT_SECONDS):
             feed = await SessionFeed.new(
@@ -175,25 +171,29 @@ async def publish_session_event(
         logger.warning(
             "Failed to publish session feed event",
             session_id=str(session_id),
-            run_id=str(run_id),
-            event_type=type.value,
+            event=_dumps(event),
             error=str(e),
         )
+
+
+async def publish_session_event(
+    *,
+    workspace_id: uuid.UUID,
+    session_id: uuid.UUID,
+    type: SessionFeedEventType,
+    run_id: uuid.UUID,
+    stream_id: uuid.UUID | None = None,
+) -> None:
+    """Publish a run state change; failures are logged, never raised."""
+    await _publish(
+        workspace_id,
+        session_id,
+        SessionFeedEvent(type=type, run_id=run_id, stream_id=stream_id),
+    )
 
 
 async def publish_channel_sync_failed(
     *, workspace_id: uuid.UUID, session_id: uuid.UUID, reason: str
 ) -> None:
     """Tell open tabs a turn's thread could not open; failures are logged, never raised."""
-    try:
-        async with asyncio.timeout(PUBLISH_TIMEOUT_SECONDS):
-            feed = await SessionFeed.new(
-                workspace_id=workspace_id, session_id=session_id
-            )
-            await feed.publish(ChannelSyncFailed(reason=reason))
-    except Exception as e:
-        logger.warning(
-            "Failed to publish a channel sync failure",
-            session_id=str(session_id),
-            error=str(e),
-        )
+    await _publish(workspace_id, session_id, ChannelSyncFailed(reason=reason))

@@ -105,9 +105,11 @@ interface ChatInterfaceProps {
   headerActions?: ReactNode
 }
 
+/** A draft carried into the session it created: sent, or kept to pick a Slack channel. */
 type PendingFirstMessage = {
   chatId: string
   text: string
+  then: "send" | "pickChannel"
 }
 
 type PresetConfigLike = Pick<
@@ -169,8 +171,6 @@ export function ChatInterface({
   const [isDraftChat, setIsDraftChat] = useState(false)
   const [pendingFirstMessage, setPendingFirstMessage] =
     useState<PendingFirstMessage | null>(null)
-  // The draft text of a session created to pick a Slack channel.
-  const [syncDraft, setSyncDraft] = useState<PendingFirstMessage | null>(null)
   const [historyScope, setHistoryScope] = useState<ChatHistoryScope>("team")
 
   // Keep local selection aligned when a parent-driven chatId changes.
@@ -353,7 +353,6 @@ export function ChatInterface({
     if (deferSessionCreation) {
       setIsDraftChat(true)
       setPendingFirstMessage(null)
-      setSyncDraft(null)
       setSelectedChatId(undefined)
       return
     }
@@ -373,12 +372,12 @@ export function ChatInterface({
   }
 
   /**
-   * Creates the draft's session and selects it; null when it can't or fails.
-   * `onCreated` runs in the same update as the selection, so the new pane mounts with it.
+   * Creates the draft's session and selects it, carrying the draft; null when it
+   * can't or fails.
    */
   const createDraftSession = async (
-    failureLog: string,
-    onCreated: (chatId: string) => void,
+    text: string,
+    then: PendingFirstMessage["then"],
     selectedTools?: string[],
     selectedMcpIntegrations?: string[]
   ) => {
@@ -417,11 +416,11 @@ export function ChatInterface({
 
       setIsDraftChat(false)
       setSelectedChatId(newChat.id)
-      onCreated(newChat.id)
+      setPendingFirstMessage({ chatId: newChat.id, text, then })
       onChatSelect?.(newChat.id)
       return newChat.id
     } catch (error) {
-      console.error(failureLog, error)
+      console.error("Failed to create chat from a draft:", error)
       toast({
         title: "Failed to create chat",
         description: parseChatError(error),
@@ -431,15 +430,14 @@ export function ChatInterface({
     }
   }
 
-  const handleCreateSessionOnFirstSend = async (
+  const handleCreateSessionOnFirstSend = (
     messageText: string,
     selectedTools?: string[],
     selectedMcpIntegrations?: string[]
   ) =>
     createDraftSession(
-      "Failed to create chat on first message:",
-      (newChatId) =>
-        setPendingFirstMessage({ chatId: newChatId, text: messageText }),
+      messageText,
+      "send",
       selectedTools,
       selectedMcpIntegrations
     )
@@ -451,15 +449,18 @@ export function ChatInterface({
     selectedMcpIntegrations?: string[]
   ) => {
     await createDraftSession(
-      "Failed to create chat to sync with Slack:",
-      (newChatId) => setSyncDraft({ chatId: newChatId, text: draftText }),
+      draftText,
+      "pickChannel",
       selectedTools,
       selectedMcpIntegrations
     )
   }
 
   const handleSelectChat = (chatId: string) => {
-    setSyncDraft(null)
+    // A kept draft would refill the composer on coming back.
+    setPendingFirstMessage((current) =>
+      current?.then === "pickChannel" ? null : current
+    )
     setIsDraftChat(false)
     setSelectedChatId(chatId)
     onChatSelect?.(chatId)
@@ -508,14 +509,13 @@ export function ChatInterface({
         onSelect: handlePresetChange,
       }
     : undefined
-  const pendingMessageText =
+  const carried =
     selectedChatId && pendingFirstMessage?.chatId === selectedChatId
-      ? pendingFirstMessage.text
+      ? pendingFirstMessage
       : null
+  const pendingMessageText = carried?.then === "send" ? carried.text : null
   const syncDraftText =
-    selectedChatId && syncDraft?.chatId === selectedChatId
-      ? syncDraft.text
-      : undefined
+    carried?.then === "pickChannel" ? carried.text : undefined
   const handlePendingMessageSent = () =>
     setPendingFirstMessage((current) =>
       current?.chatId === selectedChatId ? null : current

@@ -171,6 +171,14 @@ class ChannelDestinationRef(BaseModel):
         return cls(kind="direct_message" if "@" in value else "channel", id=value)
 
 
+class LateChannelDelivery(BaseModel):
+    """A turn that started unlinked: open its destination, then post its reply if linked."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    destination: ChannelDestinationRef | None = None
+
+
 class ChannelDestination(ChannelDestinationRef):
     """A place the session's bot can open its thread, for the picker."""
 

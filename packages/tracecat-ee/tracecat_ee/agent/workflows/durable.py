@@ -36,6 +36,7 @@ with workflow.unsafe.imports_passed_through():
         LATE_TURN_FINISHED_BUDGET,
         TURN_START_PUSH_BUDGET,
         ChannelDestinationRef,
+        LateChannelDelivery,
         RunUpdate,
         TurnFinished,
         push_budget,
@@ -596,7 +597,7 @@ class DurableAgentWorkflow:
         # Set when the session is linked to a channel: the run pushes updates to it.
         self.channel_run_id: uuid.UUID | None = None
         # Unlinked at the start with a bot in the workspace: the end reads the link again.
-        self.channel_bot_installed = False
+        self.recheck_channel_link = False
         # Checked before the turn started; set once the session exists, its end opens the thread.
         self.channel_destination: ChannelDestinationRef | None = None
         self.max_requests = args.agent_args.max_requests
@@ -1112,14 +1113,17 @@ class DurableAgentWorkflow:
                 TurnFinished(session_id=self.session_id, run_id=self.channel_run_id),
             ]
         # Sync turned on mid-turn, or the turn carried a destination: deliver this reply too.
-        channel_destination = self.channel_destination
-        resolve_channel_link = (
+        late_channel_delivery = None
+        if (
             self.channel_run_id is None
-            and (self.channel_bot_installed or channel_destination is not None)
+            and (self.recheck_channel_link or self.channel_destination is not None)
             and workflow.patched(
                 DurableAgentWorkflowPatch.RESOLVE_CHANNEL_LINK_AT_DELIVERY
             )
-        )
+        ):
+            late_channel_delivery = LateChannelDelivery(
+                destination=self.channel_destination
+            )
         try:
             result: FinalizeTurnResult | None = await workflow.execute_activity(
                 finalize_turn_activity,
@@ -1130,10 +1134,7 @@ class DurableAgentWorkflow:
                     active_stream_id=active_stream_id,
                     emit_terminal_done=emit_terminal_done,
                     channel_updates=updates,
-                    resolve_channel_link=resolve_channel_link,
-                    channel_destination=(
-                        channel_destination if resolve_channel_link else None
-                    ),
+                    late_channel_delivery=late_channel_delivery,
                 ),
                 # Preserve the two former 10-second operation budgets when DB
                 # cleanup and Redis completion run inside one activity.
@@ -1141,7 +1142,7 @@ class DurableAgentWorkflow:
                     seconds=20 if emit_terminal_done else 10
                 )
                 + push_budget(updates)
-                + (LATE_TURN_FINISHED_BUDGET if resolve_channel_link else timedelta()),
+                + (LATE_TURN_FINISHED_BUDGET if late_channel_delivery else timedelta()),
                 # Retry-safe: pointer cleanup is compare-and-clear by run_id,
                 # clients tolerate a duplicate END, and pushing is idempotent.
                 retry_policy=RETRY_POLICIES["activity:fail_slow"],
@@ -1488,7 +1489,7 @@ class DurableAgentWorkflow:
             )
         if create_result.channel_linked:
             self.channel_run_id = curr_run_id
-        self.channel_bot_installed = create_result.channel_bot_installed
+        self.recheck_channel_link = create_result.recheck_channel_link
         self.channel_destination = args.channel_destination
 
         # Build internal tool context for builder assistant sessions

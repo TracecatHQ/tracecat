@@ -35,8 +35,8 @@ import {
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import {
-  CHANNEL_DESTINATION_REFUSED,
   channelDestinationFromOptions,
+  isChannelDestinationRefused,
   sessionChannelSyncQueryKey,
 } from "@/hooks/use-session-channel-sync"
 import { useSessionFeed } from "@/hooks/use-session-feed"
@@ -209,11 +209,18 @@ export function parseChatError(error: unknown): string {
             return parsedMessage.trim()
           }
         }
-        // A rejected send carries the API's `{"detail": "..."}` body as its message.
+        // A rejected send carries the API's `{"detail": ...}` body as its message.
         if (parsed && typeof parsed === "object" && "detail" in parsed) {
           const detail = (parsed as { detail?: unknown }).detail
           if (typeof detail === "string" && detail.trim()) {
             return detail.trim()
+          }
+          const detailMessage =
+            detail && typeof detail === "object" && "message" in detail
+              ? (detail as { message?: unknown }).message
+              : undefined
+          if (typeof detailMessage === "string" && detailMessage.trim()) {
+            return detailMessage.trim()
           }
         }
         // Typed API errors such as EntitlementRequired carry it in `message`.
@@ -891,7 +898,7 @@ export function useVercelChat({
     onError: (error) => {
       const friendlyMessage = parseChatError(error)
       // A refused destination would refuse every Retry; that Retry runs unsynced.
-      if (friendlyMessage.startsWith(CHANNEL_DESTINATION_REFUSED)) {
+      if (isChannelDestinationRefused(error)) {
         firstSendDestinationRef.current = null
       }
       // A reconnect that fails before its stream opens gets no onFinish and

@@ -139,6 +139,9 @@ async def check_turn_destination(
     Raises:
         ChannelReplyError: The session's agent cannot open a thread there.
     """
+    if role.type != "user" or role.user_id is None:
+        # The thread's root is the sender's prompt, as them; a service has none.
+        raise ChannelReplyError("Only a person's message can open a Slack thread")
     if agent_session.agent_preset_id is None:
         raise NoChannelBot("The agent has no live channel bot that opens threads")
     try:
@@ -146,7 +149,9 @@ async def check_turn_destination(
             role, agent_session.agent_preset_id, destination
         )
     except TimeoutError as e:
-        raise ChannelReplyError("Slack didn't respond. Try again.") from e
+        raise ChannelReplyError(
+            "Slack didn't respond. Turn sync on to try again."
+        ) from e
 
 
 async def has_channel_bot(role: Role) -> bool:
