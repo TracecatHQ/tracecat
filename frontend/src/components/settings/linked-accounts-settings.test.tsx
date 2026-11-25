@@ -6,6 +6,11 @@ import {
   agentChannelUsersUnlinkMyChannelUser,
 } from "@/client"
 import { LinkedAccountsSettings } from "@/components/settings/linked-accounts-settings"
+import {
+  SettingsModalProvider,
+  useSettingsDeepLink,
+  useSettingsModal,
+} from "@/components/settings/settings-modal-context"
 import { toast } from "@/components/ui/use-toast"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
@@ -47,7 +52,32 @@ function renderSettings() {
   })
   return render(
     <QueryClientProvider client={queryClient}>
-      <LinkedAccountsSettings />
+      <SettingsModalProvider>
+        <LinkedAccountsSettings />
+      </SettingsModalProvider>
+    </QueryClientProvider>
+  )
+}
+
+function DeepLinkedSettings({ signedIn }: { signedIn: boolean }) {
+  useSettingsDeepLink(signedIn)
+  const { open, activeSection } = useSettingsModal()
+  return open && activeSection === "linked-accounts" ? (
+    <LinkedAccountsSettings />
+  ) : (
+    <p>Settings closed</p>
+  )
+}
+
+function renderDeepLink(signedIn: boolean) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <SettingsModalProvider>
+        <DeepLinkedSettings signedIn={signedIn} />
+      </SettingsModalProvider>
     </QueryClientProvider>
   )
 }
@@ -115,14 +145,14 @@ test("hides the link button without the channels preview", async () => {
   ).not.toBeInTheDocument()
 })
 
-test("a sign-in result toasts once and leaves the URL", async () => {
+test("a Settings deep link opens Linked accounts and toasts the result", async () => {
   window.history.replaceState(
     {},
     "",
-    "/workspaces/w?tab=a&result=error&error=no_bot"
+    "/workspaces?settings=linked-accounts&result=error&error=no_bot"
   )
   listLinks.mockResolvedValue({ items: [] })
-  renderSettings()
+  renderDeepLink(true)
   expect(await screen.findByText("No linked accounts.")).toBeInTheDocument()
   expect(toast).toHaveBeenCalledTimes(1)
   expect(toast).toHaveBeenCalledWith(
@@ -132,5 +162,12 @@ test("a sign-in result toasts once and leaves the URL", async () => {
       variant: "destructive",
     })
   )
-  expect(window.location.search).toBe("?tab=a")
+  expect(window.location.search).toBe("")
+})
+
+test("a Settings deep link stays closed while signed out", () => {
+  window.history.replaceState({}, "", "/workspaces?settings=linked-accounts")
+  renderDeepLink(false)
+  expect(screen.getByText("Settings closed")).toBeInTheDocument()
+  expect(toast).not.toHaveBeenCalled()
 })

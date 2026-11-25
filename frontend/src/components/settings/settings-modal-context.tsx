@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from "react"
 
@@ -31,6 +32,9 @@ interface SettingsModalContextValue {
   setOpen: (open: boolean) => void
   activeSection: SettingsSection
   setActiveSection: (section: SettingsSection) => void
+  /** Open at `section`, handing it `params` once through `takeSectionParams`. */
+  openAt: (section: SettingsSection, params?: URLSearchParams) => void
+  takeSectionParams: () => URLSearchParams | null
 }
 
 const SettingsModalContext = createContext<SettingsModalContextValue | null>(
@@ -45,27 +49,41 @@ export function SettingsModalProvider({
   const [open, setOpenRaw] = useState(false)
   const [activeSection, setActiveSection] = useState<SettingsSection>("profile")
 
+  const sectionParams = useRef<URLSearchParams | null>(null)
+
   const setOpen = useCallback((value: boolean) => {
     setOpenRaw(value)
     if (!value) {
       setActiveSection("profile")
+      sectionParams.current = null
     }
   }, [])
 
-  // `?settings=<section>` opens Settings at that section, e.g. after a sign-in redirect.
-  useEffect(() => {
-    const url = new URL(window.location.href)
-    const section = url.searchParams.get("settings")
-    if (!isSettingsSection(section)) return
-    url.searchParams.delete("settings")
-    window.history.replaceState(window.history.state, "", url.toString())
-    setActiveSection(section)
-    setOpenRaw(true)
+  const openAt = useCallback(
+    (section: SettingsSection, params?: URLSearchParams) => {
+      sectionParams.current = params ?? null
+      setActiveSection(section)
+      setOpenRaw(true)
+    },
+    []
+  )
+
+  const takeSectionParams = useCallback(() => {
+    const params = sectionParams.current
+    sectionParams.current = null
+    return params
   }, [])
 
   return (
     <SettingsModalContext.Provider
-      value={{ open, setOpen, activeSection, setActiveSection }}
+      value={{
+        open,
+        setOpen,
+        activeSection,
+        setActiveSection,
+        openAt,
+        takeSectionParams,
+      }}
     >
       {children}
     </SettingsModalContext.Provider>
@@ -80,4 +98,36 @@ export function useSettingsModal() {
     )
   }
   return ctx
+}
+
+/**
+ * Open Settings from `?settings=<section>` once `signedIn`; the rest of the query
+ * goes to that section. Captured on mount, before any landing redirect drops it.
+ */
+export function useSettingsDeepLink(signedIn: boolean) {
+  const { openAt } = useSettingsModal()
+  const pending = useRef<{
+    section: SettingsSection
+    params: URLSearchParams
+  } | null>(null)
+
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    const section = url.searchParams.get("settings")
+    if (!isSettingsSection(section)) return
+    url.searchParams.delete("settings")
+    pending.current = { section, params: url.searchParams }
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${url.pathname}${url.hash}`
+    )
+  }, [])
+
+  useEffect(() => {
+    if (!signedIn || !pending.current) return
+    const { section, params } = pending.current
+    pending.current = null
+    openAt(section, params)
+  }, [signedIn, openAt])
 }

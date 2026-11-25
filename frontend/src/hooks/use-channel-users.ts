@@ -8,6 +8,7 @@ import {
   agentChannelUsersUnlinkMyChannelUser,
   type ChannelLinkSignInRead,
 } from "@/client"
+import { useSettingsModal } from "@/components/settings/settings-modal-context"
 import { toast } from "@/components/ui/use-toast"
 import { linkFailureMessage } from "@/lib/channel-link-failures"
 import { getApiErrorDetail, type TracecatApiError } from "@/lib/errors"
@@ -76,24 +77,20 @@ export function useMyChannelUsers() {
   }
 }
 
-/** Toast the outcome of a sign-in started from Settings, once, then drop it from the URL. */
+/** Toast the outcome of a sign-in started from Settings, handed over by its deep link. */
 export function useChannelLinkResultToast() {
+  const { takeSectionParams } = useSettingsModal()
   useEffect(() => {
-    const url = new URL(window.location.href)
-    const result = url.searchParams.get("result")
-    if (result !== "linked" && result !== "error") return
-    const errorCode = url.searchParams.get("error") ?? ""
-    url.searchParams.delete("result")
-    url.searchParams.delete("error")
-    window.history.replaceState(window.history.state, "", url.toString())
+    const params = takeSectionParams()
+    const result = params?.get("result")
     if (result === "linked") {
       toast({ title: "Slack account linked" })
-      return
+    } else if (result === "error") {
+      toast({
+        title: "Couldn't link your Slack account",
+        description: linkFailureMessage(params?.get("error") ?? ""),
+        variant: "destructive",
+      })
     }
-    toast({
-      title: "Couldn't link your Slack account",
-      description: linkFailureMessage(errorCode),
-      variant: "destructive",
-    })
-  }, [])
+  }, [takeSectionParams])
 }
