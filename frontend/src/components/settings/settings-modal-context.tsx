@@ -101,8 +101,8 @@ export function useSettingsModal() {
 }
 
 /**
- * Open Settings from `?settings=<section>` once `signedIn`; the rest of the query
- * goes to that section. Captured on mount, before any landing redirect drops it.
+ * Open Settings from `?settings=<section>` once `signedIn`, handing that section a copy
+ * of the query. Captured on mount, before any landing redirect drops it.
  */
 export function useSettingsDeepLink(signedIn: boolean) {
   const { openAt } = useSettingsModal()
@@ -116,12 +116,8 @@ export function useSettingsDeepLink(signedIn: boolean) {
     const section = url.searchParams.get("settings")
     if (!isSettingsSection(section)) return
     url.searchParams.delete("settings")
-    pending.current = { section, params: url.searchParams }
-    window.history.replaceState(
-      window.history.state,
-      "",
-      `${url.pathname}${url.hash}`
-    )
+    pending.current = { section, params: new URLSearchParams(url.searchParams) }
+    window.history.replaceState(window.history.state, "", url.toString())
   }, [])
 
   useEffect(() => {

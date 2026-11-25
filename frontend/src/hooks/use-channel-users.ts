@@ -83,6 +83,12 @@ export function useChannelLinkResultToast() {
   useEffect(() => {
     const params = takeSectionParams()
     const result = params?.get("result")
+    const url = new URL(window.location.href)
+    if (url.searchParams.has("result")) {
+      url.searchParams.delete("result")
+      url.searchParams.delete("error")
+      window.history.replaceState(window.history.state, "", url.toString())
+    }
     if (result === "linked") {
       toast({ title: "Slack account linked" })
     } else if (result === "error") {

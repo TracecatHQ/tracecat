@@ -69,17 +69,23 @@ function DeepLinkedSettings({ signedIn }: { signedIn: boolean }) {
   )
 }
 
-function renderDeepLink(signedIn: boolean) {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  })
-  return render(
-    <QueryClientProvider client={queryClient}>
+const deepLinkQueryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false } },
+})
+
+function deepLinkTree(signedIn: boolean) {
+  return (
+    <QueryClientProvider client={deepLinkQueryClient}>
       <SettingsModalProvider>
         <DeepLinkedSettings signedIn={signedIn} />
       </SettingsModalProvider>
     </QueryClientProvider>
   )
+}
+
+function renderDeepLink(signedIn: boolean) {
+  deepLinkQueryClient.clear()
+  return render(deepLinkTree(signedIn))
 }
 
 beforeEach(() => {
@@ -149,7 +155,7 @@ test("a Settings deep link opens Linked accounts and toasts the result", async (
   window.history.replaceState(
     {},
     "",
-    "/workspaces?settings=linked-accounts&result=error&error=no_bot"
+    "/workspaces?tab=a&settings=linked-accounts&result=error&error=no_bot"
   )
   listLinks.mockResolvedValue({ items: [] })
   renderDeepLink(true)
@@ -162,12 +168,22 @@ test("a Settings deep link opens Linked accounts and toasts the result", async (
       variant: "destructive",
     })
   )
-  expect(window.location.search).toBe("")
+  expect(window.location.search).toBe("?tab=a")
 })
 
-test("a Settings deep link stays closed while signed out", () => {
-  window.history.replaceState({}, "", "/workspaces?settings=linked-accounts")
-  renderDeepLink(false)
+test("a Settings deep link waits until signed in", async () => {
+  window.history.replaceState(
+    {},
+    "",
+    "/workspaces?settings=linked-accounts&result=linked"
+  )
+  listLinks.mockResolvedValue({ items: [] })
+  const { rerender } = renderDeepLink(false)
   expect(screen.getByText("Settings closed")).toBeInTheDocument()
   expect(toast).not.toHaveBeenCalled()
+
+  rerender(deepLinkTree(true))
+  expect(await screen.findByText("No linked accounts.")).toBeInTheDocument()
+  expect(toast).toHaveBeenCalledTimes(1)
+  expect(toast).toHaveBeenCalledWith({ title: "Slack account linked" })
 })

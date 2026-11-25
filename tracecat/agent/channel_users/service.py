@@ -8,6 +8,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Collection
 from datetime import UTC, datetime
+from typing import assert_never
 
 from sqlalchemy import ColumnElement, and_, delete, exists, func, select, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -535,6 +536,8 @@ async def complete_sign_in(
             await complete_channel_link(
                 session, sign_in=sign_in, code=code, user_id=user_id
             )
+        case _:
+            assert_never(sign_in)
 
 
 async def unlink_channel_user(
