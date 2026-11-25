@@ -39,8 +39,11 @@ from tracecat.db.models import (
     Group,
     GroupRoleAssignment,
     Membership,
+    RoleScope,
+    Scope,
     User,
     UserRoleAssignment,
+    effective_group_members,
 )
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -304,7 +307,7 @@ class AgentPresetApproverService(BaseWorkspaceService):
         )
 
     def _options(self) -> _Principals:
-        """Principals granted in this workspace; org-wide grants never count."""
+        """Members and org admins; groups and roles granted in this workspace."""
         workspace_role = and_(
             DBRole.organization_id == self.organization_id,
             # Custom roles have no slug; NOT IN alone would drop them.
@@ -323,10 +326,34 @@ class AgentPresetApproverService(BaseWorkspaceService):
             UserRoleAssignment.organization_id == self.organization_id,
             UserRoleAssignment.workspace_id == self.workspace_id,
         )
-        return _Principals(
-            users=select(Membership.user_id).where(
+        # Mirrors the org:member:invite check in _is_org_admin_via_rbac.
+        org_admin_roles = (
+            select(RoleScope.role_id)
+            .join(Scope, Scope.id == RoleScope.scope_id)
+            .where(Scope.name == "org:member:invite")
+        )
+        users = union(
+            select(Membership.user_id).where(
                 Membership.workspace_id == self.workspace_id
             ),
+            select(UserRoleAssignment.user_id).where(
+                UserRoleAssignment.organization_id == self.organization_id,
+                UserRoleAssignment.workspace_id.is_(None),
+                UserRoleAssignment.role_id.in_(org_admin_roles),
+            ),
+            select(effective_group_members.c.user_id)
+            .join(
+                GroupRoleAssignment,
+                GroupRoleAssignment.group_id == effective_group_members.c.group_id,
+            )
+            .where(
+                GroupRoleAssignment.organization_id == self.organization_id,
+                GroupRoleAssignment.workspace_id.is_(None),
+                GroupRoleAssignment.role_id.in_(org_admin_roles),
+            ),
+        )
+        return _Principals(
+            users=users,
             groups=group_grants.with_only_columns(GroupRoleAssignment.group_id),
             roles=select(DBRole.id).where(
                 workspace_role,
