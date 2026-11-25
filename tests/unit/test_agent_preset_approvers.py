@@ -852,7 +852,7 @@ async def test_a_listed_org_admin_decides(
     await session.commit()
 
     assert await _allowed(session, svc_role, preset, admin)
-    # Web and channel clicks both decide through this path.
+    # Approver policy only; web and Slack access gates are not exercised here.
     with _mock_approval_continuation_dependencies(
         _ApprovalContinuationRedis(), AsyncMock(return_value=False)
     ):

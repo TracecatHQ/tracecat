@@ -33,14 +33,12 @@ from tracecat.agent.preset.schemas import (
 )
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
-from tracecat.authz.scopes import ALL_WORKSPACES_SCOPE
-from tracecat.authz.service import scope_holder_ids
+from tracecat.authz.service import workspace_user_ids
 from tracecat.db.models import (
     AgentPreset,
     AgentPresetApprover,
     Group,
     GroupRoleAssignment,
-    Membership,
     User,
     UserRoleAssignment,
 )
@@ -306,10 +304,7 @@ class AgentPresetApproverService(BaseWorkspaceService):
         )
 
     async def _options(self) -> _Principals:
-        """Principals granted in this workspace; org-wide grants never count.
-
-        Users are the exception: org users who open every workspace are offered.
-        """
+        """Users who can open this workspace; groups and roles granted in it."""
         workspace_role = and_(
             DBRole.organization_id == self.organization_id,
             # Custom roles have no slug; NOT IN alone would drop them.
@@ -329,16 +324,8 @@ class AgentPresetApproverService(BaseWorkspaceService):
             UserRoleAssignment.workspace_id == self.workspace_id,
         )
         return _Principals(
-            users=union(
-                select(Membership.user_id).where(
-                    Membership.workspace_id == self.workspace_id
-                ),
-                await scope_holder_ids(
-                    self.session,
-                    self.organization_id,
-                    self.workspace_id,
-                    ALL_WORKSPACES_SCOPE,
-                ),
+            users=await workspace_user_ids(
+                self.session, self.organization_id, self.workspace_id
             ),
             groups=group_grants.with_only_columns(GroupRoleAssignment.group_id),
             roles=select(DBRole.id).where(
