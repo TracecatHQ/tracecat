@@ -1153,10 +1153,12 @@ class CasesService(BaseWorkspaceService):
             return
 
         events: list[tuple[Case, CaseEventVariant]] = []
-        events.extend(
-            await self._fill_sub_case_closure_fields(parent, sub_cases, wf_exec_id)
-        )
+        # Closure requirements are an Enterprise feature, so only entitled
+        # orgs copy the parent's required values into its sub-cases.
         if await self.has_entitlement(Entitlement.CASE_ADDONS):
+            events.extend(
+                await self._fill_sub_case_closure_fields(parent, sub_cases, wf_exec_id)
+            )
             events.extend(
                 await self._fill_sub_case_closure_dropdowns(
                     parent, sub_cases, wf_exec_id

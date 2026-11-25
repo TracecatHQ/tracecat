@@ -586,7 +586,7 @@ async def test_closing_parent_fills_sub_case_resolution_from_parent(
 
 
 @pytest.mark.anyio
-async def test_closing_parent_skips_dropdowns_without_case_addons(
+async def test_closing_parent_skips_closure_copy_without_case_addons(
     cases_service: CasesService, session: AsyncSession
 ) -> None:
     definitions = CaseDropdownDefinitionsService(
@@ -605,14 +605,19 @@ async def test_closing_parent_skips_dropdowns_without_case_addons(
         definition.id,
         CaseDropdownOptionCreate(label="False positive", ref="fp", position=0),
     )
+    fields = CaseFieldsService(session=session, role=cases_service.role)
+    await fields.create_field(
+        CaseFieldCreate(name="root_cause", type=SqlType.TEXT, required_on_closure=True)
+    )
     parent = await _create(cases_service, "Parent")
     sub_case = await _create(cases_service, "Alert", parent.id)
     await cases_service.update_case(
         parent,
         CaseUpdate(
+            fields={"root_cause": "Benign scanner"},
             dropdown_values=[
                 CaseDropdownValueInput(definition_id=definition.id, option_id=option.id)
-            ]
+            ],
         ),
     )
 
@@ -624,6 +629,7 @@ async def test_closing_parent_skips_dropdowns_without_case_addons(
     assert await _status(session, sub_case.id) == CaseStatus.CLOSED
     dropdowns = CaseDropdownValuesService(session=session, role=cases_service.role)
     assert await dropdowns.list_values_for_case(sub_case.id) == []
+    assert (await fields.get_fields(sub_case) or {}).get("root_cause") is None
 
 
 @pytest.mark.anyio
