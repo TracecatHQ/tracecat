@@ -1,0 +1,77 @@
+type: action
+definition:
+  title: List findings
+  description: >-
+    List findings. Calls GET /v1/findings.
+  display_group: Push Security
+  doc_url: https://developer.pushsecurity.com/rest-v1/findings/get-findings
+  namespace: tools.push_security
+  name: list_findings
+  secrets:
+    - name: push_security
+      keys: ["PUSH_SECURITY_API_KEY"]
+  expects:
+    state:
+      type: str | None
+      description: "Filter by finding state."
+      default: null
+    type:
+      type: str | None
+      description: "Filter by finding type."
+      default: null
+    employeeId:
+      type: str | None
+      description: "Filter by employee ID."
+      default: null
+    appType:
+      type: str | None
+      description: "Filter by app type."
+      default: null
+    accountId:
+      type: str | None
+      description: "Filter by account ID."
+      default: null
+    passwordId:
+      type: str | None
+      description: "Filter by password ID."
+      default: null
+    creationTimestampAfter:
+      type: int | None
+      description: "Only include objects created after this timestamp (Unix epoch seconds)."
+      default: null
+    creationTimestampBefore:
+      type: int | None
+      description: "Only include objects created before this timestamp (Unix epoch seconds)."
+      default: null
+    limit:
+      type: int | None
+      description: "Used for pagination. Number of objects to return. Maximum 500, provider default 500."
+      default: null
+    nextToken:
+      type: str | None
+      description: "Used for pagination. Token to be used for the next request, from paging.nextToken in the previous response."
+      default: null
+    base_url:
+      type: str | None
+      description: "Push Security regional API base URL: https://us1.api.pushsecurity.com (US) or https://eu1.api.pushsecurity.com (EU). Falls back to the workspace variable push_security.base_url."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.push_security.base_url }}/v1/findings
+        method: GET
+        headers:
+          x-api-key: ${{ SECRETS.push_security.PUSH_SECURITY_API_KEY }}
+        params:
+          state: ${{ inputs.state }}
+          type: ${{ inputs.type }}
+          employeeId: ${{ inputs.employeeId }}
+          appType: ${{ inputs.appType }}
+          accountId: ${{ inputs.accountId }}
+          passwordId: ${{ inputs.passwordId }}
+          creationTimestampAfter: ${{ inputs.creationTimestampAfter }}
+          creationTimestampBefore: ${{ inputs.creationTimestampBefore }}
+          limit: ${{ inputs.limit }}
+          nextToken: ${{ inputs.nextToken }}
+  returns: ${{ steps.request.result }}

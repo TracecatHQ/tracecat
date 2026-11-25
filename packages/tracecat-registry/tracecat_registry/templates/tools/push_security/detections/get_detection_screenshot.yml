@@ -1,0 +1,36 @@
+type: action
+definition:
+  title: Get detection screenshot
+  description: >-
+    Retrieve the screenshot associated with a detection event. Calls GET
+    /v1/detections/{id}/events/{eventId}/screenshot. The JPEG is returned base64-encoded in
+    data.
+  display_group: Push Security
+  doc_url: https://developer.pushsecurity.com/rest-v1/detections/get-detection-screenshot
+  namespace: tools.push_security
+  name: get_detection_screenshot
+  secrets:
+    - name: push_security
+      keys: ["PUSH_SECURITY_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: "Unique identifier for the detection."
+    eventId:
+      type: str
+      description: "Unique identifier for the detection event."
+    base_url:
+      type: str | None
+      description: "Push Security regional API base URL: https://us1.api.pushsecurity.com (US) or https://eu1.api.pushsecurity.com (EU). Falls back to the workspace variable push_security.base_url."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.push_security.base_url }}/v1/detections/${{ FN.url_encode(inputs.id) }}/events/${{ FN.url_encode(inputs.eventId) }}/screenshot
+        method: GET
+        headers:
+          x-api-key: ${{ SECRETS.push_security.PUSH_SECURITY_API_KEY }}
+          Accept: image/jpeg
+        base64_encode_data: true
+  returns: ${{ steps.request.result }}

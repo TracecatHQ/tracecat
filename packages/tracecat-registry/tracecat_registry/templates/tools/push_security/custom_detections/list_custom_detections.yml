@@ -1,0 +1,26 @@
+type: action
+definition:
+  title: List custom detections
+  description: >-
+    List your organization's custom detections. Calls GET /v1/controls/customDetections.
+  display_group: Push Security
+  doc_url: https://developer.pushsecurity.com/rest-v1/custom-detections/get-controls-customdetections
+  namespace: tools.push_security
+  name: list_custom_detections
+  secrets:
+    - name: push_security
+      keys: ["PUSH_SECURITY_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: "Push Security regional API base URL: https://us1.api.pushsecurity.com (US) or https://eu1.api.pushsecurity.com (EU). Falls back to the workspace variable push_security.base_url."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.push_security.base_url }}/v1/controls/customDetections
+        method: GET
+        headers:
+          x-api-key: ${{ SECRETS.push_security.PUSH_SECURITY_API_KEY }}
+  returns: ${{ steps.request.result }}

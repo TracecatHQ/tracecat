@@ -1,0 +1,36 @@
+type: action
+definition:
+  title: Archive detection
+  description: >-
+    Update a detection's archive status. Calls PATCH /v1/detections/{id}.
+  display_group: Push Security
+  doc_url: https://developer.pushsecurity.com/rest-v1/detections/patch-detections-id
+  namespace: tools.push_security
+  name: archive_detection
+  secrets:
+    - name: push_security
+      keys: ["PUSH_SECURITY_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: "Unique identifier for the detection."
+    archived:
+      type: bool
+      description: "The desired archive status for the detection."
+      default: true
+    base_url:
+      type: str | None
+      description: "Push Security regional API base URL: https://us1.api.pushsecurity.com (US) or https://eu1.api.pushsecurity.com (EU). Falls back to the workspace variable push_security.base_url."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.push_security.base_url }}/v1/detections/${{ FN.url_encode(inputs.id) }}
+        method: PATCH
+        headers:
+          x-api-key: ${{ SECRETS.push_security.PUSH_SECURITY_API_KEY }}
+          Content-Type: application/json
+        payload:
+          archived: ${{ inputs.archived }}
+  returns: ${{ steps.request.result }}

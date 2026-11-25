@@ -1,0 +1,52 @@
+type: action
+definition:
+  title: List employees
+  description: >-
+    List employees. Calls GET /v1/employees.
+  display_group: Push Security
+  doc_url: https://developer.pushsecurity.com/rest-v1/employees/get-employees
+  namespace: tools.push_security
+  name: list_employees
+  secrets:
+    - name: push_security
+      keys: ["PUSH_SECURITY_API_KEY"]
+  expects:
+    email:
+      type: str | None
+      description: "Filter by email address."
+      default: null
+    groups:
+      type: list[str] | None
+      description: "Filter by groups the employee is in."
+      default: null
+    licensed:
+      type: bool | None
+      description: "Filter by whether the employee is licensed on the Push platform."
+      default: null
+    limit:
+      type: int | None
+      description: "Used for pagination. Number of objects to return. Maximum 1000, provider default 1000."
+      default: null
+    nextToken:
+      type: str | None
+      description: "Used for pagination. Token to be used for the next request, from paging.nextToken in the previous response."
+      default: null
+    base_url:
+      type: str | None
+      description: "Push Security regional API base URL: https://us1.api.pushsecurity.com (US) or https://eu1.api.pushsecurity.com (EU). Falls back to the workspace variable push_security.base_url."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.push_security.base_url }}/v1/employees
+        method: GET
+        headers:
+          x-api-key: ${{ SECRETS.push_security.PUSH_SECURITY_API_KEY }}
+        params:
+          email: ${{ inputs.email }}
+          groups: ${{ inputs.groups }}
+          licensed: ${{ inputs.licensed }}
+          limit: ${{ inputs.limit }}
+          nextToken: ${{ inputs.nextToken }}
+  returns: ${{ steps.request.result }}

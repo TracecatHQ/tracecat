@@ -610,6 +610,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.pan_strata": createIconRenderer(PaloAltoIcon),
     "tools.proofpoint_tap": createIconRenderer(ProofpointIcon),
     "tools.proofpoint_threat_protection": createIconRenderer(ProofpointIcon),
+    "tools.push_security": createIconRenderer(PushSecurityIcon),
     "tools.runreveal": createIconRenderer(RunRevealIcon),
     "tools.spur": createIconRenderer(SpurIcon),
     "tools.swif": createIconRenderer(SwifIcon),
@@ -1193,6 +1194,11 @@ export const secretIcons: Record<
   spur: ({ className, ...rest }) => (
     <div className={className}>
       <SpurIcon {...rest} />
+    </div>
+  ),
+  push_security: ({ className, ...rest }) => (
+    <div className={className}>
+      <PushSecurityIcon {...rest} />
     </div>
   ),
   swif: ({ className, ...rest }) => (
@@ -3098,6 +3104,20 @@ export function SpurIcon({ className, ...rest }: IconProps) {
       <path
         fill="currentColor"
         d="M19.7852 0C20.1147 5.07404 20.293 10.1515 20.293 15.2256C20.293 20.2996 20.114 25.3742 19.7852 30.4482H18.7705C18.4517 25.3742 18.2627 20.2996 18.2627 15.2256C18.2627 10.1515 18.4517 5.07404 18.7705 0H19.7852ZM15.7314 13.6963C16.0219 14.1289 16.2379 14.6054 16.2393 15.1055C16.2378 15.6054 16.0219 16.0541 15.7314 16.4873L8.12012 27.3975H7.10449C7.11677 27.3747 12.4345 17.501 13.4482 16.9941V16.2334C11.9258 16.2334 0 15.7256 0 15.7256V14.7109C0 14.7109 11.9258 14.2031 13.4482 14.2031V13.4424C12.4333 12.4274 7.10449 3.03906 7.10449 3.03906H8.12012L15.7314 13.6963ZM31.46 3.03906C31.46 3.03906 26.1312 12.4274 25.1162 13.4424V14.2031C26.6386 14.2031 38.5645 14.7109 38.5645 14.7109V15.7256C38.5645 15.7256 26.6386 16.2334 25.1162 16.2334V16.9941C26.1301 18.008 31.4485 27.3772 31.46 27.3975H30.4443L22.833 16.4873C22.5426 16.0541 22.3266 15.6054 22.3252 15.1055C22.3265 14.6055 22.5425 14.1289 22.833 13.6963L30.4443 3.03906H31.46Z"
+      />
+    </svg>
+  )
+}
+
+export function PushSecurityIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg role="img" viewBox="0 0 49 22" className={className} {...rest}>
+      <title>Push Security</title>
+      <path
+        fill="#FF4824"
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M0 21.98L13.6931 0H19.1522L5.45911 21.98H0ZM22.2338 0L8.54065 21.98H13.9998L27.6929 0H22.2407H22.2338ZM36.7288 21.98C43.2686 21.98 48.5883 17.051 48.5883 10.99C48.5883 4.92901 43.2686 0 36.7288 0C30.189 0 24.8694 4.92901 24.8694 10.99C24.8694 17.051 30.189 21.98 36.7288 21.98ZM31.6811 6.31327C33.0267 5.06484 34.8185 4.37918 36.7218 4.37918C38.6252 4.37918 40.417 5.06484 41.7626 6.31327C43.1082 7.56169 43.8543 9.2241 43.8543 10.99C43.8543 12.7559 43.1152 14.4183 41.7626 15.6667C40.417 16.9152 38.6252 17.6008 36.7218 17.6008C34.8185 17.6008 33.0267 16.9152 31.6811 15.6667C30.3354 14.4183 29.5964 12.7559 29.5964 10.99C29.5964 9.2241 30.3354 7.56169 31.6811 6.31327Z"
       />
     </svg>
   )

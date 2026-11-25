@@ -1,0 +1,29 @@
+type: action
+definition:
+  title: List account users
+  description: >-
+    List the employees that use an account. Calls GET /v1/accounts/{id}/usedBy.
+  display_group: Push Security
+  doc_url: https://developer.pushsecurity.com/rest-v1/accounts/get-accounts-id-used-by
+  namespace: tools.push_security
+  name: list_account_users
+  secrets:
+    - name: push_security
+      keys: ["PUSH_SECURITY_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: "Unique identifier for this object."
+    base_url:
+      type: str | None
+      description: "Push Security regional API base URL: https://us1.api.pushsecurity.com (US) or https://eu1.api.pushsecurity.com (EU). Falls back to the workspace variable push_security.base_url."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.push_security.base_url }}/v1/accounts/${{ FN.url_encode(inputs.id) }}/usedBy
+        method: GET
+        headers:
+          x-api-key: ${{ SECRETS.push_security.PUSH_SECURITY_API_KEY }}
+  returns: ${{ steps.request.result }}

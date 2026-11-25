@@ -1,0 +1,90 @@
+type: action
+definition:
+  title: Block app
+  description: >-
+    Block employees from logging in or signing up to apps. Adds the app types to one
+    appBanner rule in BLOCK mode (created at the top if missing) and keeps every other rule.
+    Calls GET then PUT /v1/controls/appBanner/configuration. Edits made to the control
+    between the read and the write are lost.
+  display_group: Push Security
+  doc_url: https://developer.pushsecurity.com/rest-v1/app-banner/put-controls-appbanner
+  namespace: tools.push_security
+  name: block_app
+  secrets:
+    - name: push_security
+      keys: ["PUSH_SECURITY_API_KEY"]
+  expects:
+    appTypes:
+      type: list[str]
+      description: "App types to block, from the type field of get_app or list_apps."
+    rule_name:
+      type: str
+      description: "Name of the rule this action manages. If no rule has this name, one is created as the highest-priority rule; otherwise the values are added to the first rule with this name."
+      default: "Blocked by Tracecat"
+    title:
+      type: str
+      description: "Heading shown to the user (max 75 characters)."
+      default: "App blocked"
+    subtext:
+      type: str
+      description: "Message shown to the user (max 1000 characters)."
+      default: "Your security team has blocked this app."
+    allowReasonSubmission:
+      type: bool
+      description: "Whether users can submit a reason to request an exception."
+      default: false
+    buttonText:
+      type: str | None
+      description: "Label for the request button (max 75 characters). Required when allowReasonSubmission is true."
+      default: null
+    base_url:
+      type: str | None
+      description: "Push Security regional API base URL: https://us1.api.pushsecurity.com (US) or https://eu1.api.pushsecurity.com (EU). Falls back to the workspace variable push_security.base_url."
+      default: null
+  steps:
+    - ref: get_configuration
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.push_security.base_url }}/v1/controls/appBanner/configuration
+        method: GET
+        headers:
+          x-api-key: ${{ SECRETS.push_security.PUSH_SECURITY_API_KEY }}
+    - ref: build_configuration
+      action: core.script.run_python
+      args:
+        inputs:
+          current: ${{ steps.get_configuration.result.data }}
+          appTypes: ${{ inputs.appTypes }}
+          rule_name: ${{ inputs.rule_name }}
+          title: ${{ inputs.title }}
+          subtext: ${{ inputs.subtext }}
+          allowReasonSubmission: ${{ inputs.allowReasonSubmission }}
+          buttonText: ${{ inputs.buttonText }}
+        script: |
+          def main(current, appTypes, rule_name, title, subtext, allowReasonSubmission, buttonText):
+              rules = list(current.get("rules") or [])
+              rule = next((r for r in rules if r.get("name") == rule_name), None)
+              if rule is None:
+                  rule = {"name": rule_name, "criteria": {"appTypes": {"matches": []}}}
+                  rules.insert(0, rule)
+              criteria = dict(rule.get("criteria") or {})
+              condition = dict(criteria.get("appTypes") or {})
+              matches = list(condition.get("matches") or [])
+              matches += [value for value in appTypes if value not in matches]
+              condition.update({"matches": matches, "action": "INCLUDE"})
+              criteria["appTypes"] = condition
+              rule.update({"enabled": True, "mode": "BLOCK", "title": title, "subtext": subtext, "criteria": criteria})
+              rule["allowReasonSubmission"] = allowReasonSubmission
+              if buttonText is not None:
+                  rule["buttonText"] = buttonText
+              return {**current, "rules": rules}
+    - ref: update_configuration
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.push_security.base_url }}/v1/controls/appBanner/configuration
+        method: PUT
+        headers:
+          x-api-key: ${{ SECRETS.push_security.PUSH_SECURITY_API_KEY }}
+          Content-Type: application/json
+        payload: ${{ steps.build_configuration.result }}
+  returns: ${{ steps.update_configuration.result }}

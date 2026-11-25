@@ -1,0 +1,75 @@
+type: action
+definition:
+  title: Update control rule
+  description: >-
+    Update one rule of a browser control by its id. Fields you send replace the rule's top-
+    level fields of the same name; other fields are kept. Calls GET then PUT
+    /v1/controls/{control}/configuration. The PUT replaces the whole configuration, so this
+    action reads the current configuration first and sends it back with only this change.
+    Rules are evaluated in order and the first match wins. Edits made to the same control
+    between the read and the write are lost.
+  display_group: Push Security
+  doc_url: https://developer.pushsecurity.com/rest-v1
+  namespace: tools.push_security
+  name: update_control_rule
+  secrets:
+    - name: push_security
+      keys: ["PUSH_SECURITY_API_KEY"]
+  expects:
+    control:
+      type: str
+      description: "The control's name in the API path. One of: accountConditionEnforcement, appBanner, appBannerUrlPattern, browserExtensionBlocking, clipboardBlocking, clonedLoginPageDetection, domainCategoryBlocking, fileDownloadBlocking, fileUploadBlocking, mfaEnforcement, maliciousBrowserExtensionDetection, maliciousCopyPasteDetection, passwordLoggingPrevention, phishingToolDetection, strongPasswordEnforcement."
+      enum: [accountConditionEnforcement, appBanner, appBannerUrlPattern, browserExtensionBlocking, clipboardBlocking, clonedLoginPageDetection, domainCategoryBlocking, fileDownloadBlocking, fileUploadBlocking, mfaEnforcement, maliciousBrowserExtensionDetection, maliciousCopyPasteDetection, passwordLoggingPrevention, phishingToolDetection, strongPasswordEnforcement]
+    rule_id:
+      type: str
+      description: "The rule's unique identifier, from get_control_configuration."
+    fields:
+      type: dict[str, Any]
+      description: "API-native rule fields to replace, e.g. {\"enabled\": false}. A criteria value replaces the whole criteria object."
+    position:
+      type: int | None
+      description: "Zero-based index to move the rule to. 0 makes it the highest-priority rule. null keeps its current position."
+      default: null
+    base_url:
+      type: str | None
+      description: "Push Security regional API base URL: https://us1.api.pushsecurity.com (US) or https://eu1.api.pushsecurity.com (EU). Falls back to the workspace variable push_security.base_url."
+      default: null
+  steps:
+    - ref: get_configuration
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.push_security.base_url }}/v1/controls/${{ FN.url_encode(inputs.control) }}/configuration
+        method: GET
+        headers:
+          x-api-key: ${{ SECRETS.push_security.PUSH_SECURITY_API_KEY }}
+    - ref: build_configuration
+      action: core.script.run_python
+      args:
+        inputs:
+          current: ${{ steps.get_configuration.result.data }}
+          rule_id: ${{ inputs.rule_id }}
+          fields: ${{ inputs.fields }}
+          position: ${{ inputs.position }}
+        script: |
+          def find_rule(rules, rule_id):
+              for index, rule in enumerate(rules):
+                  if rule.get("id") == rule_id:
+                      return index
+              raise ValueError(f"No rule with id {rule_id!r} in this control's configuration")
+
+          def main(current, rule_id, fields, position):
+              rules = list(current.get("rules") or [])
+              index = find_rule(rules, rule_id)
+              rule = {**rules.pop(index), **fields, "id": rule_id}
+              rules.insert(index if position is None else position, rule)
+              return {**current, "rules": rules}
+    - ref: update_configuration
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.push_security.base_url }}/v1/controls/${{ FN.url_encode(inputs.control) }}/configuration
+        method: PUT
+        headers:
+          x-api-key: ${{ SECRETS.push_security.PUSH_SECURITY_API_KEY }}
+          Content-Type: application/json
+        payload: ${{ steps.build_configuration.result }}
+  returns: ${{ steps.update_configuration.result }}

@@ -1,0 +1,62 @@
+type: action
+definition:
+  title: Add control rule
+  description: >-
+    Add a rule to a browser control. Calls GET then PUT
+    /v1/controls/{control}/configuration. The PUT replaces the whole configuration, so this
+    action reads the current configuration first and sends it back with only this change.
+    Rules are evaluated in order and the first match wins. Edits made to the same control
+    between the read and the write are lost.
+  display_group: Push Security
+  doc_url: https://developer.pushsecurity.com/rest-v1
+  namespace: tools.push_security
+  name: add_control_rule
+  secrets:
+    - name: push_security
+      keys: ["PUSH_SECURITY_API_KEY"]
+  expects:
+    control:
+      type: str
+      description: "The control's name in the API path. One of: accountConditionEnforcement, appBanner, appBannerUrlPattern, browserExtensionBlocking, clipboardBlocking, clonedLoginPageDetection, domainCategoryBlocking, fileDownloadBlocking, fileUploadBlocking, mfaEnforcement, maliciousBrowserExtensionDetection, maliciousCopyPasteDetection, passwordLoggingPrevention, phishingToolDetection, strongPasswordEnforcement."
+      enum: [accountConditionEnforcement, appBanner, appBannerUrlPattern, browserExtensionBlocking, clipboardBlocking, clonedLoginPageDetection, domainCategoryBlocking, fileDownloadBlocking, fileUploadBlocking, mfaEnforcement, maliciousBrowserExtensionDetection, maliciousCopyPasteDetection, passwordLoggingPrevention, phishingToolDetection, strongPasswordEnforcement]
+    rule:
+      type: dict[str, Any]
+      description: "API-native rule without an id. Every control requires name, enabled and mode; mode values, message fields and criteria keys differ by control (see the control's configuration schema). Example for browserExtensionBlocking: {\"name\": \"Block risky extension\", \"enabled\": true, \"mode\": \"BLOCK\", \"title\": \"Extension blocked\", \"subtext\": \"Contact IT.\", \"criteria\": {\"browserExtensions\": {\"matches\": [\"<extension id>\"]}}}."
+    position:
+      type: int | None
+      description: "Zero-based index to insert the rule at. 0 makes it the highest-priority rule. null appends it as the lowest-priority rule."
+      default: null
+    base_url:
+      type: str | None
+      description: "Push Security regional API base URL: https://us1.api.pushsecurity.com (US) or https://eu1.api.pushsecurity.com (EU). Falls back to the workspace variable push_security.base_url."
+      default: null
+  steps:
+    - ref: get_configuration
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.push_security.base_url }}/v1/controls/${{ FN.url_encode(inputs.control) }}/configuration
+        method: GET
+        headers:
+          x-api-key: ${{ SECRETS.push_security.PUSH_SECURITY_API_KEY }}
+    - ref: build_configuration
+      action: core.script.run_python
+      args:
+        inputs:
+          current: ${{ steps.get_configuration.result.data }}
+          rule: ${{ inputs.rule }}
+          position: ${{ inputs.position }}
+        script: |
+          def main(current, rule, position):
+              rules = list(current.get("rules") or [])
+              rules.insert(len(rules) if position is None else position, rule)
+              return {**current, "rules": rules}
+    - ref: update_configuration
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.push_security.base_url }}/v1/controls/${{ FN.url_encode(inputs.control) }}/configuration
+        method: PUT
+        headers:
+          x-api-key: ${{ SECRETS.push_security.PUSH_SECURITY_API_KEY }}
+          Content-Type: application/json
+        payload: ${{ steps.build_configuration.result }}
+  returns: ${{ steps.update_configuration.result }}

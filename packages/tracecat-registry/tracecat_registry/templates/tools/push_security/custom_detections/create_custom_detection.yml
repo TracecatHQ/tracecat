@@ -1,0 +1,41 @@
+type: action
+definition:
+  title: Create custom detection
+  description: >-
+    Create a custom detection from the name, detection logic and rules you send. Calls POST
+    /v1/controls/customDetections.
+  display_group: Push Security
+  doc_url: https://developer.pushsecurity.com/rest-v1/custom-detections/post-controls-customdetections
+  namespace: tools.push_security
+  name: create_custom_detection
+  secrets:
+    - name: push_security
+      keys: ["PUSH_SECURITY_API_KEY"]
+  expects:
+    detectionEventName:
+      type: str
+      description: "The custom detection's name (max 75 characters). May only contain letters, numbers, spaces and underscores. The detection event type is derived from it (uppercased, spaces become underscores, prefixed with CUSTOM_) and returned in the response."
+    detectionLogic:
+      type: str
+      description: "The detection logic: one or more detection rules, each a YAML document describing what the browser extension matches on, separated by the standard YAML document separator. At most 100 rules and 10KB in total. It is stored exactly as sent."
+    rules:
+      type: list[dict[str, Any]]
+      description: "The control rules the custom detection starts with, in priority order. 1 to 50 rules, each without an id: name, enabled, mode (MONITOR, WARN, BLOCK or OFF), severity, title, subtext, buttonText, detectOnInternalHosts and criteria."
+    base_url:
+      type: str | None
+      description: "Push Security regional API base URL: https://us1.api.pushsecurity.com (US) or https://eu1.api.pushsecurity.com (EU). Falls back to the workspace variable push_security.base_url."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.push_security.base_url }}/v1/controls/customDetections
+        method: POST
+        headers:
+          x-api-key: ${{ SECRETS.push_security.PUSH_SECURITY_API_KEY }}
+          Content-Type: application/json
+        payload:
+          detectionEventName: ${{ inputs.detectionEventName }}
+          detectionLogic: ${{ inputs.detectionLogic }}
+          rules: ${{ inputs.rules }}
+  returns: ${{ steps.request.result }}

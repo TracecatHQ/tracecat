@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: Get custom detection
+  description: >-
+    Retrieve a custom detection, including its detection logic and rules. Calls GET
+    /v1/controls/customDetections/{detectionEventType}.
+  display_group: Push Security
+  doc_url: https://developer.pushsecurity.com/rest-v1/custom-detections/get-controls-customdetections-detectioneventtype
+  namespace: tools.push_security
+  name: get_custom_detection
+  secrets:
+    - name: push_security
+      keys: ["PUSH_SECURITY_API_KEY"]
+  expects:
+    detectionEventType:
+      type: str
+      description: "The custom detection's unique identifier. Always an uppercase identifier beginning with CUSTOM_."
+    base_url:
+      type: str | None
+      description: "Push Security regional API base URL: https://us1.api.pushsecurity.com (US) or https://eu1.api.pushsecurity.com (EU). Falls back to the workspace variable push_security.base_url."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.push_security.base_url }}/v1/controls/customDetections/${{ FN.url_encode(inputs.detectionEventType) }}
+        method: GET
+        headers:
+          x-api-key: ${{ SECRETS.push_security.PUSH_SECURITY_API_KEY }}
+  returns: ${{ steps.request.result }}

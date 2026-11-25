@@ -1,0 +1,75 @@
+type: action
+definition:
+  title: List detections
+  description: >-
+    List detections. Calls GET /v1/detections.
+  display_group: Push Security
+  doc_url: https://developer.pushsecurity.com/rest-v1/detections/get-detections
+  namespace: tools.push_security
+  name: list_detections
+  secrets:
+    - name: push_security
+      keys: ["PUSH_SECURITY_API_KEY"]
+  expects:
+    archived:
+      type: bool | None
+      description: "Filter by archive status."
+      default: null
+    severity:
+      type: str | None
+      description: "Filter by severity."
+      enum: [LOW, MEDIUM, HIGH, CRITICAL]
+      default: null
+    detectionType:
+      type: str | None
+      description: "Filter by detection type."
+      enum: [BLOCKED_URL, CUSTOM, PHISHING, MALICIOUS_BROWSER_EXTENSION, MALWARE_DELIVERY, STOLEN_CREDENTIALS]
+      default: null
+    response:
+      type: str | None
+      description: "Filter by the response taken."
+      enum: [BLOCKED, EMPLOYEE_IGNORED_WARNING, EMPLOYEE_WARNED, NOT_BLOCKED]
+      default: null
+    classification:
+      type: str | None
+      description: "Filter by classification: NOT_SET, TRUE_POSITIVE, BENIGN_TRUE_POSITIVE or FALSE_POSITIVE."
+      default: null
+    creationTimestampAfter:
+      type: int | None
+      description: "Only include objects created after this timestamp (Unix epoch seconds)."
+      default: null
+    creationTimestampBefore:
+      type: int | None
+      description: "Only include objects created before this timestamp (Unix epoch seconds)."
+      default: null
+    limit:
+      type: int | None
+      description: "Used for pagination. Number of objects to return. Maximum 500, provider default 500."
+      default: null
+    nextToken:
+      type: str | None
+      description: "Used for pagination. Token to be used for the next request, from paging.nextToken in the previous response."
+      default: null
+    base_url:
+      type: str | None
+      description: "Push Security regional API base URL: https://us1.api.pushsecurity.com (US) or https://eu1.api.pushsecurity.com (EU). Falls back to the workspace variable push_security.base_url."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.push_security.base_url }}/v1/detections
+        method: GET
+        headers:
+          x-api-key: ${{ SECRETS.push_security.PUSH_SECURITY_API_KEY }}
+        params:
+          archived: ${{ inputs.archived }}
+          severity: ${{ inputs.severity }}
+          detectionType: ${{ inputs.detectionType }}
+          response: ${{ inputs.response }}
+          classification: ${{ inputs.classification }}
+          creationTimestampAfter: ${{ inputs.creationTimestampAfter }}
+          creationTimestampBefore: ${{ inputs.creationTimestampBefore }}
+          limit: ${{ inputs.limit }}
+          nextToken: ${{ inputs.nextToken }}
+  returns: ${{ steps.request.result }}

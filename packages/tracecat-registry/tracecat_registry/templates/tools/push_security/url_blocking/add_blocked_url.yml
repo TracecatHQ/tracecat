@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Add blocked URL
+  description: >-
+    Add a URL pattern to URL blocking. Calls POST /v1/controls/blockedUrls. A maximum of
+    2,000 blocked URLs is supported.
+  display_group: Push Security
+  doc_url: https://developer.pushsecurity.com/rest-v1/url-blocking/post-controls-blockedurls
+  namespace: tools.push_security
+  name: add_blocked_url
+  secrets:
+    - name: push_security
+      keys: ["PUSH_SECURITY_API_KEY"]
+  expects:
+    url:
+      type: str
+      description: "The whole URL pattern - a combination of host and path. The host can be a domain or a subdomain. Wildcards (*) are supported in the path and anywhere in the host, including partial labels and the TLD (e.g. *.com, ai*.domain.com, example.*). Host patterns that match every host, such as * or *.*, are not allowed. If no path is specified, the wildcard * is assumed for path, matching all paths for the derived host."
+    base_url:
+      type: str | None
+      description: "Push Security regional API base URL: https://us1.api.pushsecurity.com (US) or https://eu1.api.pushsecurity.com (EU). Falls back to the workspace variable push_security.base_url."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.push_security.base_url }}/v1/controls/blockedUrls
+        method: POST
+        headers:
+          x-api-key: ${{ SECRETS.push_security.PUSH_SECURITY_API_KEY }}
+          Content-Type: application/json
+        payload:
+          url: ${{ inputs.url }}
+  returns: ${{ steps.request.result }}

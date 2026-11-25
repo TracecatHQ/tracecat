@@ -1,0 +1,37 @@
+type: action
+definition:
+  title: Set app approval status
+  description: >-
+    Set an app's approval status. Calls PATCH /v1/apps/{id} with only approvalStatus, so the
+    app's sensitivity level, notes and owner are left unchanged.
+  display_group: Push Security
+  doc_url: https://developer.pushsecurity.com/rest-v1/apps/patch-apps-id
+  namespace: tools.push_security
+  name: set_app_approval_status
+  secrets:
+    - name: push_security
+      keys: ["PUSH_SECURITY_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: "Unique identifier for the app."
+    approvalStatus:
+      type: str | None
+      description: "The desired approval status for the app: APPROVED, NOT_APPROVED or UNDER_REVIEW. If null, the current approval status will be unset."
+      default: null
+    base_url:
+      type: str | None
+      description: "Push Security regional API base URL: https://us1.api.pushsecurity.com (US) or https://eu1.api.pushsecurity.com (EU). Falls back to the workspace variable push_security.base_url."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.push_security.base_url }}/v1/apps/${{ FN.url_encode(inputs.id) }}
+        method: PATCH
+        headers:
+          x-api-key: ${{ SECRETS.push_security.PUSH_SECURITY_API_KEY }}
+          Content-Type: application/json
+        payload:
+          approvalStatus: ${{ inputs.approvalStatus }}
+  returns: ${{ steps.request.result }}
