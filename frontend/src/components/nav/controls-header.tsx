@@ -1659,40 +1659,36 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
                 )}
               </DropdownMenuSubContent>
             </DropdownMenuSub>
-            {caseAddonsEnabled && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  disabled={!canChangeParent}
-                  onSelect={(event) => {
-                    event.preventDefault()
-                    setParentPickerOpen(true)
-                  }}
-                >
-                  <span className="flex items-center gap-2">
-                    <ListTreeIcon
-                      className="size-3 text-muted-foreground"
-                      aria-hidden
-                    />
-                    <span>Group case</span>
-                  </span>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={!canChangeParent}
-                  onSelect={async () => {
-                    await setParentForSelectedCases?.(null)
-                  }}
-                >
-                  <span className="flex items-center gap-2">
-                    <UngroupIcon
-                      className="size-3 text-muted-foreground"
-                      aria-hidden
-                    />
-                    <span>Ungroup case</span>
-                  </span>
-                </DropdownMenuItem>
-              </>
-            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              disabled={!canChangeParent}
+              onSelect={(event) => {
+                event.preventDefault()
+                setParentPickerOpen(true)
+              }}
+            >
+              <span className="flex items-center gap-2">
+                <ListTreeIcon
+                  className="size-3 text-muted-foreground"
+                  aria-hidden
+                />
+                <span>Group case</span>
+              </span>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!canChangeParent}
+              onSelect={async () => {
+                await setParentForSelectedCases?.(null)
+              }}
+            >
+              <span className="flex items-center gap-2">
+                <UngroupIcon
+                  className="size-3 text-muted-foreground"
+                  aria-hidden
+                />
+                <span>Ungroup case</span>
+              </span>
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               disabled={isBusy}

@@ -4468,9 +4468,6 @@ export function useCaseTasks({
   } = useQuery<CaseTaskRead[], TracecatApiError>({
     queryKey: ["case-tasks", caseId, workspaceId],
     queryFn: async () => await casesListTasks({ caseId, workspaceId }),
-    // Tasks are gated behind the `case_addons` entitlement; callers outside
-    // the gate (the switcher's progress ring) must pass `enabled` so
-    // non-entitled orgs never fire the request.
     enabled: Boolean(caseId && workspaceId) && enabled,
   })
 

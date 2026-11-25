@@ -1209,13 +1209,10 @@ async def test_search_cases_rejects_oversized_exact_short_id(
     detail: str,
 ) -> None:
     """Pasted oversized short IDs receive a readable 400 from real validation."""
-    with (
-        patch.object(
-            cases_router.CasesService,
-            "has_entitlement",
-            new=AsyncMock(return_value=True),
-        ),
-        patch.object(CaseHierarchyService, "enabled", new=AsyncMock(return_value=True)),
+    with patch.object(
+        cases_router.CasesService,
+        "has_entitlement",
+        new=AsyncMock(return_value=True),
     ):
         response = client.get(
             "/cases/search",

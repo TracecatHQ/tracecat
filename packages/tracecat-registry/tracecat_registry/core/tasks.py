@@ -1,9 +1,4 @@
-"""SDK-only case task UDFs.
-
-These UDFs are always registered but route to internal endpoints that are
-gated by entitlements on the server side. If the entitlement is not enabled,
-the server will return 404.
-"""
+"""Case task UDFs."""
 
 from typing import Annotated, Any
 
@@ -17,7 +12,6 @@ from tracecat_registry import ctx, registry, types
     display_group="Cases",
     description="Create a new task for a case.",
     namespace="core.cases",
-    required_entitlements=["case_addons"],
 )
 async def create_task(
     case_id: Annotated[
@@ -76,7 +70,6 @@ async def create_task(
     display_group="Cases",
     description="Get details of a specific case task by ID.",
     namespace="core.cases",
-    required_entitlements=["case_addons"],
 )
 async def get_task(
     task_id: Annotated[
@@ -93,7 +86,6 @@ async def get_task(
     display_group="Cases",
     description="List all tasks for a specific case.",
     namespace="core.cases",
-    required_entitlements=["case_addons"],
 )
 async def list_tasks(
     case_id: Annotated[
@@ -110,7 +102,6 @@ async def list_tasks(
     display_group="Cases",
     description="Update an existing case task.",
     namespace="core.cases",
-    required_entitlements=["case_addons"],
 )
 async def update_task(
     task_id: Annotated[
@@ -184,7 +175,6 @@ async def update_task(
         "task like a run started from the case."
     ),
     namespace="core.cases",
-    required_entitlements=["case_addons"],
 )
 async def run_task(
     case_id: Annotated[
@@ -209,7 +199,6 @@ async def run_task(
     display_group="Cases",
     description="Delete a case task.",
     namespace="core.cases",
-    required_entitlements=["case_addons"],
 )
 async def delete_task(
     task_id: Annotated[

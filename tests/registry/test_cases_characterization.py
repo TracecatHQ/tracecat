@@ -57,7 +57,7 @@ from tracecat_registry.core.cases import (
     upload_attachment,
 )
 from tracecat_registry.core.ee.durations import get_case_metrics
-from tracecat_registry.core.ee.tasks import create_task, list_tasks
+from tracecat_registry.core.tasks import create_task, list_tasks
 from tracecat_registry.sdk.exceptions import (
     TracecatNotFoundError as SDKNotFoundError,
 )

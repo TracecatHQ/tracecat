@@ -62,10 +62,10 @@ async def test_registry_actions_filtered_by_entitlements(test_role, monkeypatch)
         entries = await service.list_actions_from_index(namespace="core.cases")
         actions = {f"{entry.namespace}.{entry.name}" for entry, _ in entries}
 
-        assert "core.cases.create_task" not in actions
+        assert "core.cases.create_task" in actions
         assert "core.cases.get_case_metrics" not in actions
 
-        result = await service.get_action_from_index("core.cases.create_task")
+        result = await service.get_action_from_index("core.cases.get_case_metrics")
         assert result is None
 
 
@@ -89,8 +89,9 @@ async def test_registry_actions_include_locked_marks_missing_entitlements(
         )
 
     actions = {f"{entry.namespace}.{entry.name}": entry for entry, _ in entries}
-    locked_action = actions["core.cases.create_task"]
+    locked_action = actions["core.cases.get_case_metrics"]
     assert locked_action.missing_entitlements == ("case_addons",)
+    assert actions["core.cases.create_task"].missing_entitlements == ()
 
 
 @pytest.mark.anyio

@@ -91,7 +91,6 @@ const CASE_SORT_OPTIONS: Array<{
   value: CaseSortField
   label: string
   icon: ComponentType<{ className?: string }>
-  description?: string
 }> = [
   { value: "updated_at", label: "Updated", icon: ClockIcon },
   { value: "created_at", label: "Created", icon: CalendarIcon },
@@ -99,18 +98,8 @@ const CASE_SORT_OPTIONS: Array<{
   { value: "severity", label: "Severity", icon: ShieldAlertIcon },
   { value: "status", label: "Status", icon: SignalIcon },
   { value: "tasks", label: "Tasks", icon: ListIcon },
-  {
-    value: "assignee",
-    label: "Assignee",
-    icon: UserIcon,
-    description: "By email; unassigned cases last.",
-  },
-  {
-    value: "tags",
-    label: "Tags",
-    icon: TagIcon,
-    description: "First alphabetical tag; untagged cases last.",
-  },
+  { value: "assignee", label: "Assignee", icon: UserIcon },
+  { value: "tags", label: "Tags", icon: TagIcon },
 ]
 
 function isDefaultCaseSort(value: CaseSortValue): boolean {
@@ -200,16 +189,9 @@ function CaseSortSelect({
                 value={option.value}
                 textValue={option.label}
               >
-                <span className="flex flex-col gap-1">
-                  <span className="flex items-center gap-2">
-                    <Icon className="size-3.5 text-muted-foreground" />
-                    <span>{option.label}</span>
-                  </span>
-                  {option.description && (
-                    <span className="max-w-[220px] text-[11px] text-muted-foreground">
-                      {option.description}
-                    </span>
-                  )}
+                <span className="flex items-center gap-2">
+                  <Icon className="size-3.5 text-muted-foreground" />
+                  <span>{option.label}</span>
                 </span>
               </SelectItem>
             )

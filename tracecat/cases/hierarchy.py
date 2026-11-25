@@ -1,8 +1,4 @@
-"""Sub-case hierarchy: one-level parent/child grouping of cases.
-
-Every operation here requires the ``case_addons`` entitlement. Without it the
-hierarchy is invisible: every case reads as top-level and lists stay flat.
-"""
+"""Sub-case hierarchy: one-level parent/child grouping of cases."""
 
 from __future__ import annotations
 
@@ -32,12 +28,10 @@ from tracecat.cases.schemas import (
 from tracecat.contexts import ctx_run
 from tracecat.db.models import Case
 from tracecat.exceptions import (
-    EntitlementRequired,
     TracecatNotFoundError,
     TracecatValidationError,
 )
 from tracecat.service import BaseWorkspaceService
-from tracecat.tiers.enums import Entitlement
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,9 +62,6 @@ class CaseHierarchyService(BaseWorkspaceService):
         super().__init__(session, role)
         self.events = CaseEventsService(session=self.session, role=self.role)
 
-    async def enabled(self) -> bool:
-        return await self.has_entitlement(Entitlement.CASE_ADDONS)
-
     async def lock_open_sub_cases(self, parent_id: uuid.UUID) -> list[Case]:
         """Lock a parent's sub-cases that are not closed or resolved, in ID order."""
         result = await self.session.execute(
@@ -94,21 +85,13 @@ class CaseHierarchyService(BaseWorkspaceService):
     ) -> tuple[uuid.UUID | None, bool]:
         """Return ``(parent_id, top_level_only)`` for a case search.
 
-        Without ``case_addons`` the list stays flat: stored sub-cases are not
-        hidden, and filtering by parent is rejected.
-
         Raises:
-            EntitlementRequired: If ``parent_id`` is set without ``case_addons``.
             TracecatValidationError: If ``parent_id`` is combined with ``top_level``.
         """
         if parent_id is not None and hierarchy == "top_level":
             raise TracecatValidationError(
                 "parent_id cannot be combined with hierarchy=top_level"
             )
-        if not await self.enabled():
-            if parent_id is not None:
-                raise EntitlementRequired(Entitlement.CASE_ADDONS.value)
-            return None, False
         return parent_id, hierarchy == "top_level"
 
     async def get_hierarchy(
@@ -116,10 +99,9 @@ class CaseHierarchyService(BaseWorkspaceService):
     ) -> dict[uuid.UUID, CaseHierarchy]:
         """Return each case's parent summary and sub-case count in two queries.
 
-        Cases missing from the result are top-level with no sub-cases, which is
-        how every case reads without ``case_addons``.
+        Cases missing from the result are top-level with no sub-cases.
         """
-        if not cases or not await self.enabled():
+        if not cases:
             return {}
         counts = await self._get_sub_case_counts([case.id for case in cases])
         parents = await self._get_parent_reads([case.parent_id for case in cases])
@@ -189,11 +171,7 @@ class CaseHierarchyService(BaseWorkspaceService):
 
         FOR SHARE lets concurrent creates under the same parent proceed while
         conflicting with the FOR NO KEY UPDATE taken by parent reassignment.
-
-        Raises:
-            EntitlementRequired: Without ``case_addons``.
         """
-        await self.require_entitlement(Entitlement.CASE_ADDONS)
         parent = await self.session.scalar(
             select(Case)
             .options(raiseload("*"))

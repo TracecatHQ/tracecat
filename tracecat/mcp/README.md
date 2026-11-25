@@ -164,9 +164,8 @@ stored config whole. Submissions are not exposed over MCP.
 
 Notes:
 
-- Sub-case tools and the `parent_id` arguments require the case add-ons entitlement.
 - `get_case`, `list_cases`, and `search_cases` return `parent` and `num_sub_cases` on every case.
-- Sub-cases are one level deep. Closing a parent case does not change its sub-cases.
+- Sub-cases are one level deep. Closing or resolving a parent case also closes or resolves its open sub-cases unless the workspace's `close_sub_cases_with_parent` setting is off.
 
 ## Case view tools
 

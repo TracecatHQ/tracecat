@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter, useSearchParams } from "next/navigation"
-import { useCallback, useEffect, useId, useMemo, useState } from "react"
+import { useCallback, useId, useMemo, useState } from "react"
 import type {
   CaseDropdownDefinitionRead,
   CasePriority,
@@ -38,7 +38,6 @@ import { getCaseTaskProgress } from "@/components/cases/case-task-status"
 import { CaseValueDrawerProvider } from "@/components/cases/case-value-drawer"
 import { CaseVersionHistory } from "@/components/cases/case-version-history"
 import { CaseWorkflowTrigger } from "@/components/cases/case-workflow-trigger"
-import { LockedFeatureModal } from "@/components/locked-feature-modal"
 import { AlertNotification } from "@/components/notifications"
 import { TagBadge } from "@/components/tag-badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -110,7 +109,7 @@ export function CasePanelView({
   const { members } = useWorkspaceMembers(workspaceId)
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { hasEntitlement, isLoading: entitlementsIsLoading } = useEntitlements()
+  const { hasEntitlement } = useEntitlements()
   const caseAddonsEnabled = hasEntitlement("case_addons")
 
   const { caseData, caseDataIsLoading, caseDataError } = useGetCase({
@@ -150,37 +149,17 @@ export function CasePanelView({
     [customFields, showAllCustomFields]
   )
   // Active panel from the URL `?tab=` param (or embedded state), defaulting
-  // to the description. A locked panel's tab still renders — indistinguishable
-  // from the rest — and entitlement gating has three surfaces: pressing the
-  // tab (or its digit shortcut) opens the upgrade dialog instead of switching,
-  // and a `?tab=tasks` deep link resolves to the default silently — a dialog
-  // on arrival would be hostile, and landing on the empty panel would strand
-  // the reader. While entitlements load, presses on a locked tab are no-ops
-  // rather than dialogs, so an entitled org never sees an upsell flash.
+  // to the description.
   const routePanel =
     parseCasePanelKey(searchParams?.get("tab")) ?? DEFAULT_CASE_PANEL
-  const requestedPanel = embedded ? embeddedPanel : routePanel
-  const lockedPanelKeys = useMemo<readonly CasePanelKey[]>(
-    () => (caseAddonsEnabled ? [] : ["tasks", "sub-cases"]),
-    [caseAddonsEnabled]
-  )
-  const activePanel = lockedPanelKeys.includes(requestedPanel)
-    ? DEFAULT_CASE_PANEL
-    : requestedPanel
+  const activePanel = embedded ? embeddedPanel : routePanel
   const panelIdPrefix = useId()
-  const [lockedFeatureDialogOpen, setLockedFeatureDialogOpen] = useState(false)
-  const [lockedPanel, setLockedPanel] = useState<CasePanelKey | null>(null)
 
   // The ring's query lives in the view, not the Tasks panel: the switcher
   // must show progress while the panel is unmounted. React Query dedupes on
   // the shared ["case-tasks", ...] key, so mounting the panel adds no second
-  // request and its mutations refresh the ring for free. `enabled` keeps the
-  // gated endpoint quiet for orgs without `case_addons`.
-  const { caseTasks } = useCaseTasks({
-    caseId,
-    workspaceId,
-    enabled: caseAddonsEnabled,
-  })
+  // request and its mutations refresh the ring for free.
+  const { caseTasks } = useCaseTasks({ caseId, workspaceId })
   const taskProgress = useMemo(
     () => getCaseTaskProgress(caseTasks),
     [caseTasks]
@@ -198,28 +177,22 @@ export function CasePanelView({
   const showDockedDetails = !embedded && canDock
   const showInlineDetails = !embedded && !canDock
 
-  useEffect(() => {
-    if (!embedded) {
-      return
-    }
-    const nextPanel = parseCasePanelKey(initialTab) ?? DEFAULT_CASE_PANEL
-    if (nextPanel !== embeddedPanel) {
-      setEmbeddedPanel(nextPanel)
-    }
-  }, [caseId, embedded, embeddedPanel, initialTab])
+  // Re-sync the embedded panel only when the case or `initialTab` changes, so
+  // a tab press in a host without `initialTab` (the side panel) sticks.
+  const [embeddedPanelSource, setEmbeddedPanelSource] = useState({
+    caseId,
+    initialTab,
+  })
+  if (
+    embeddedPanelSource.caseId !== caseId ||
+    embeddedPanelSource.initialTab !== initialTab
+  ) {
+    setEmbeddedPanelSource({ caseId, initialTab })
+    setEmbeddedPanel(parseCasePanelKey(initialTab) ?? DEFAULT_CASE_PANEL)
+  }
 
   const handlePanelChange = useCallback(
     (panel: CasePanelKey) => {
-      if (lockedPanelKeys.includes(panel)) {
-        // No navigation either way. The dialog waits for a resolved answer:
-        // `hasEntitlement` reports false while entitlements load, and an
-        // entitled org must not glimpse an upsell for a feature it has.
-        if (!entitlementsIsLoading) {
-          setLockedPanel(panel)
-          setLockedFeatureDialogOpen(true)
-        }
-        return
-      }
       if (embedded) {
         setEmbeddedPanel(panel)
         onTabChange?.(panel)
@@ -235,16 +208,7 @@ export function CasePanelView({
         { scroll: false }
       )
     },
-    [
-      lockedPanelKeys,
-      entitlementsIsLoading,
-      embedded,
-      router,
-      searchParams,
-      workspaceId,
-      caseId,
-      onTabChange,
-    ]
+    [embedded, router, searchParams, workspaceId, caseId, onTabChange]
   )
 
   const handleDigitShortcut = useCallback(
@@ -670,7 +634,7 @@ export function CasePanelView({
                   from the description editor's sticky toolbar padding — see
                   `cases/editor.css`. */}
                 <div className="flex flex-col">
-                  {caseAddonsEnabled && caseData.parent && (
+                  {caseData.parent && (
                     <CaseParentBreadcrumb
                       parent={caseData.parent}
                       workspaceId={workspaceId}
@@ -786,20 +750,6 @@ export function CasePanelView({
           )}
         </div>
       </div>
-      {/* One dialog for every locked tab press — mounted here rather than in
-          the switcher so the embedded and route layouts share it, and so the
-          switcher keeps knowing nothing of entitlements. */}
-      <LockedFeatureModal
-        open={lockedFeatureDialogOpen}
-        onOpenChange={setLockedFeatureDialogOpen}
-        title="Enterprise only"
-        description={
-          lockedPanel === "sub-cases"
-            ? "Sub-cases are only available on enterprise plans."
-            : "Case tasks are only available on enterprise plans."
-        }
-        bullets={[]}
-      />
       {closureDialog && (
         <CaseClosureDialog
           open={closureDialog.open}

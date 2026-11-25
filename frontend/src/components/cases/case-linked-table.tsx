@@ -28,10 +28,6 @@ import {
 } from "@/components/cases/case-related-cases-drawer"
 import { TASK_ICON_TRIGGER_CLASS } from "@/components/cases/case-task-fields"
 import { Spinner } from "@/components/loading/spinner"
-import {
-  LockedFeatureChip,
-  LockedFeatureModal,
-} from "@/components/locked-feature-modal"
 import { AgGridPagination } from "@/components/tables/ag-grid-pagination"
 import {
   TABLE_PANEL_TITLES,
@@ -127,11 +123,6 @@ export interface CaseLinkedTableProps {
   canAddRow: boolean
   /** Whether the viewer holds `table:update`; gates editing cells. */
   canEditCells: boolean
-  /**
-   * Whether the org has `case_addons`, `undefined` while entitlements load.
-   * Without it, *View related cases* opens the Enterprise-only dialog.
-   */
-  canViewRelatedCases: boolean | undefined
   onLinkRows: () => void
   /**
    * Opens a row's related cases. The expanded dialog hands this up to the
@@ -180,7 +171,6 @@ export function CaseLinkedTable({
   canLink,
   canAddRow,
   canEditCells,
-  canViewRelatedCases,
   onLinkRows,
   onViewRelatedCases,
   variant = "inline",
@@ -188,7 +178,6 @@ export function CaseLinkedTable({
   const isExpanded = variant === "expanded"
   const [menuRow, setMenuRow] = useState<TableRowRead | null>(null)
   const [editRow, setEditRow] = useState<TableRowRead | null>(null)
-  const [lockedDialogOpen, setLockedDialogOpen] = useState(false)
   const [relatedTarget, setRelatedTarget] = useState<RelatedCasesTarget | null>(
     null
   )
@@ -346,12 +335,6 @@ export function CaseLinkedTable({
   }
 
   function viewRelatedCases(row: TableRowRead) {
-    // An entitled org must not glimpse the upsell while entitlements load.
-    if (canViewRelatedCases === undefined) return
-    if (!canViewRelatedCases) {
-      setLockedDialogOpen(true)
-      return
-    }
     const target: RelatedCasesTarget = {
       tableId,
       tableName,
@@ -494,9 +477,6 @@ export function CaseLinkedTable({
               >
                 <Layers className="mr-2 size-3.5" />
                 View related cases
-                {canViewRelatedCases === false && (
-                  <LockedFeatureChip className="ml-auto" />
-                )}
               </ContextMenuItem>
               {canEditCells && (
                 <ContextMenuItem
@@ -524,13 +504,6 @@ export function CaseLinkedTable({
             </ContextMenuContent>
           )}
         </ContextMenu>
-        <LockedFeatureModal
-          open={lockedDialogOpen}
-          onOpenChange={setLockedDialogOpen}
-          title="Enterprise only"
-          description="Related cases are only available on enterprise plans."
-          bullets={[]}
-        />
       </>
     )
   }
@@ -719,7 +692,6 @@ export function CaseLinkedTable({
         canLink={canLink}
         canAddRow={canAddRow}
         canEditCells={canEditCells}
-        canViewRelatedCases={canViewRelatedCases}
         onLinkRows={onLinkRows}
         onViewRelatedCases={(target) => {
           // The page's drawer sits outside the modal dialog, inert under it.

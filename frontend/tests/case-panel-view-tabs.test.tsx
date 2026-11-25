@@ -3,7 +3,6 @@
  */
 
 import { fireEvent, render, screen } from "@testing-library/react"
-import type { ReactNode } from "react"
 import { CasePanelView } from "@/components/cases/case-panel-view"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import {
@@ -61,7 +60,7 @@ jest.mock("@/components/cases/case-panel-content", () => ({
 }))
 
 // Heavy children with their own test coverage; stubbed to keep this suite on
-// the view's switching and gating behavior.
+// the view's switching behavior.
 jest.mock("@/components/cases/case-panel-summary", () => ({
   CasePanelSummary: () => <div />,
 }))
@@ -89,24 +88,6 @@ jest.mock("@/components/cases/case-tag-picker", () => ({
 }))
 jest.mock("@/components/cases/case-closure-dialog", () => ({
   CaseClosureDialog: () => <div />,
-}))
-
-jest.mock("@/components/locked-feature-modal", () => ({
-  LockedFeatureModal: ({
-    open,
-    title,
-    description,
-  }: {
-    open?: boolean
-    title?: string
-    description?: ReactNode
-  }) =>
-    open ? (
-      <div role="dialog">
-        <h2>{title}</h2>
-        <p>{description}</p>
-      </div>
-    ) : null,
 }))
 
 const mockUseEntitlements = useEntitlements as jest.MockedFunction<
@@ -164,7 +145,7 @@ function renderView() {
   render(<CasePanelView caseId="case-1" />)
 }
 
-describe("CasePanelView entitlement-locked tabs", () => {
+describe("CasePanelView tabs", () => {
   beforeEach(() => {
     jest.clearAllMocks()
     searchParamsValue = new URLSearchParams()
@@ -196,97 +177,64 @@ describe("CasePanelView entitlement-locked tabs", () => {
     )
   })
 
-  it("renders the Tasks tab without case_addons and opens the dialog on press", () => {
+  it.each([
+    ["Tasks", "tasks"],
+    ["Sub-cases", "sub-cases"],
+  ])("switches to the %s panel without case_addons", (name, panel) => {
     mockEntitlements([])
     renderView()
 
-    const tasksTab = screen.getByRole("tab", { name: "Tasks" })
-    fireEvent.click(tasksTab)
+    fireEvent.click(screen.getByRole("tab", { name }))
 
-    expect(screen.getByRole("dialog")).toBeInTheDocument()
-    expect(screen.getByText("Enterprise only")).toBeInTheDocument()
-    expect(
-      screen.getByText("Case tasks are only available on enterprise plans.")
-    ).toBeInTheDocument()
-    // Blocked press: no navigation, panel stays on the default.
-    expect(mockReplace).not.toHaveBeenCalled()
-    expect(screen.getByTestId("panel-content")).toHaveTextContent("description")
+    expect(mockReplace).toHaveBeenCalledWith(
+      `/workspaces/ws-1/cases/case-1?tab=${panel}`,
+      { scroll: false }
+    )
   })
 
-  it("resolves a ?tab=tasks deep link to the default panel without a dialog", () => {
-    mockEntitlements([])
-    searchParamsValue = new URLSearchParams("tab=tasks")
-    renderView()
+  it.each(["tasks", "sub-cases"])(
+    "opens a ?tab=%s deep link without case_addons",
+    (panel) => {
+      mockEntitlements([])
+      searchParamsValue = new URLSearchParams(`tab=${panel}`)
+      renderView()
 
-    expect(screen.getByTestId("panel-content")).toHaveTextContent("description")
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
-  })
+      expect(screen.getByTestId("panel-content")).toHaveTextContent(panel)
+    }
+  )
 
-  it("opens the dialog from the digit shortcut of a locked panel", () => {
+  it("switches panels from the digit shortcut without case_addons", () => {
     mockEntitlements([])
     renderView()
 
     fireEvent.keyDown(document.body, { key: "2" })
 
-    expect(screen.getByRole("dialog")).toBeInTheDocument()
-    expect(mockReplace).not.toHaveBeenCalled()
-  })
-
-  it("treats a locked press as a no-op while entitlements load", () => {
-    mockEntitlements([], true)
-    renderView()
-
-    fireEvent.click(screen.getByRole("tab", { name: "Tasks" }))
-
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
-    expect(mockReplace).not.toHaveBeenCalled()
-  })
-
-  it("locks the Sub-cases tab without case_addons", () => {
-    mockEntitlements([])
-    renderView()
-
-    fireEvent.click(screen.getByRole("tab", { name: "Sub-cases" }))
-
-    expect(
-      screen.getByText("Sub-cases are only available on enterprise plans.")
-    ).toBeInTheDocument()
-    expect(mockReplace).not.toHaveBeenCalled()
-    expect(screen.getByTestId("panel-content")).toHaveTextContent("description")
-  })
-
-  it("resolves a ?tab=sub-cases deep link to the default panel without case_addons", () => {
-    mockEntitlements([])
-    searchParamsValue = new URLSearchParams("tab=sub-cases")
-    renderView()
-
-    expect(screen.getByTestId("panel-content")).toHaveTextContent("description")
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
-  })
-
-  it("switches to the Sub-cases panel with case_addons", () => {
-    mockEntitlements(["case_addons"])
-    renderView()
-
-    fireEvent.click(screen.getByRole("tab", { name: "Sub-cases" }))
-
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
-    expect(mockReplace).toHaveBeenCalledWith(
-      "/workspaces/ws-1/cases/case-1?tab=sub-cases",
-      { scroll: false }
-    )
-  })
-
-  it("switches to the Tasks panel with case_addons", () => {
-    mockEntitlements(["case_addons"])
-    renderView()
-
-    fireEvent.click(screen.getByRole("tab", { name: "Tasks" }))
-
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     expect(mockReplace).toHaveBeenCalledWith(
       "/workspaces/ws-1/cases/case-1?tab=tasks",
       { scroll: false }
     )
+  })
+
+  it.each([
+    ["Tasks", "tasks"],
+    ["Sub-cases", "sub-cases"],
+  ])("keeps the %s panel open when embedded without a tab", (name, panel) => {
+    mockEntitlements([])
+    render(<CasePanelView caseId="case-1" embedded />)
+
+    fireEvent.click(screen.getByRole("tab", { name }))
+
+    expect(screen.getByTestId("panel-content")).toHaveTextContent(panel)
+    expect(mockReplace).not.toHaveBeenCalled()
+  })
+
+  it("loads case tasks without case_addons", () => {
+    mockEntitlements([])
+    renderView()
+
+    expect(mockUseCaseTasks).toHaveBeenCalledWith({
+      caseId: "case-1",
+      workspaceId: "ws-1",
+    })
   })
 })

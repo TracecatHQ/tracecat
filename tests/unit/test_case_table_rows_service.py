@@ -29,7 +29,7 @@ from tracecat.cases.rows.service import (
 from tracecat.cases.schemas import CaseCreate
 from tracecat.cases.service import CasesService
 from tracecat.db.models import CaseEvent, CaseTableRow, Table, Workspace
-from tracecat.exceptions import EntitlementRequired, TracecatNotFoundError
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import CursorPaginationParams
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableColumnCreate, TableCreate, TableRowInsert
@@ -1683,7 +1683,7 @@ async def test_list_linked_cases_raises_for_missing_table(
 
 
 @pytest.mark.anyio
-async def test_list_linked_cases_requires_case_addons(
+async def test_list_linked_cases_does_not_require_case_addons(
     case_rows_service: CaseTableRowsService,
 ) -> None:
     with patch.object(
@@ -1691,7 +1691,7 @@ async def test_list_linked_cases_requires_case_addons(
         "has_entitlement",
         new=AsyncMock(return_value=False),
     ):
-        with pytest.raises(EntitlementRequired, match="case_addons"):
+        with pytest.raises(TracecatNotFoundError):
             await case_rows_service.list_linked_cases(
                 table_id=uuid.uuid4(),
                 row_id=uuid.uuid4(),
