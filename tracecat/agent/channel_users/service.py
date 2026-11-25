@@ -46,6 +46,7 @@ from tracecat.agent.channel_users.tokens import (
 )
 from tracecat.agent.channel_users.types import ChannelActor, ChannelIdentity
 from tracecat.agent.session.enums import UserMessageOrigin
+from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -161,7 +162,8 @@ async def _author_in_workspace(
         .join(AgentSession, AgentSession.id == AgentSessionHistory.session_id)
         .where(
             AgentSessionThread.workspace_id == workspace_id,
-            # Authorship grants participation; ownerless sessions grant nothing new.
+            # Authorship grants participation; ownerless channel sessions grant nothing new.
+            AgentSession.entity_type == AgentSessionEntity.EXTERNAL_CHANNEL.value,
             AgentSession.created_by.is_(None),
             AgentSessionHistory.workspace_id == workspace_id,
             AgentChannelBot.provider == identity.provider,
