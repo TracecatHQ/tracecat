@@ -1,11 +1,15 @@
 import { act, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import {
+  agentChannelBotsListBots,
   agentSessionsGetSessionChannelSync,
   agentSessionsListSessionChannelDestinations,
   agentSessionsUpdateSessionChannelSync,
 } from "@/client"
-import { SlackSyncButton } from "@/components/chat/slack-sync-button"
+import {
+  DraftSlackSyncButton,
+  SlackSyncButton,
+} from "@/components/chat/slack-sync-button"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { usePickedChannelDestination } from "@/hooks/use-session-channel-sync"
@@ -13,6 +17,7 @@ import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/client", () => ({
   ...jest.requireActual("@/client"),
+  agentChannelBotsListBots: jest.fn(),
   agentSessionsGetSessionChannelSync: jest.fn(),
   agentSessionsListSessionChannelDestinations: jest.fn(),
   agentSessionsUpdateSessionChannelSync: jest.fn(),
@@ -22,6 +27,10 @@ jest.mock("@/components/ui/use-toast", () => ({
   toast: jest.fn(),
 }))
 
+jest.mock("@/hooks/use-entitlements", () => ({
+  useEntitlements: () => ({ hasEntitlement: () => true, isLoading: false }),
+}))
+
 const getSync = jest.mocked(agentSessionsGetSessionChannelSync)
 const listDestinations = jest.mocked(
   agentSessionsListSessionChannelDestinations
@@ -29,20 +38,31 @@ const listDestinations = jest.mocked(
 const updateSync = jest.mocked(agentSessionsUpdateSessionChannelSync)
 const mockToast = jest.mocked(toast)
 
-function renderButton({ disabled = false }: { disabled?: boolean } = {}) {
+function renderWithClient(ui: React.ReactElement) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   return render(
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <SlackSyncButton
-          workspaceId="ws-1"
-          sessionId="session-1"
-          disabled={disabled}
-        />
-      </TooltipProvider>
+      <TooltipProvider>{ui}</TooltipProvider>
     </QueryClientProvider>
+  )
+}
+
+function renderButton({
+  disabled = false,
+  openPicker = false,
+}: {
+  disabled?: boolean
+  openPicker?: boolean
+} = {}) {
+  return renderWithClient(
+    <SlackSyncButton
+      workspaceId="ws-1"
+      sessionId="session-1"
+      disabled={disabled}
+      openPicker={openPicker}
+    />
   )
 }
 
@@ -292,5 +312,51 @@ describe("a pick before the first message", () => {
     })
     expect(options).toBeUndefined()
     expect(updateSync).not.toHaveBeenCalled()
+  })
+})
+
+describe("a draft chat", () => {
+  const listBots = jest.mocked(agentChannelBotsListBots)
+  const page = (status: string) =>
+    ({ items: [{ id: "bot-1", status }] }) as unknown as Awaited<
+      ReturnType<typeof agentChannelBotsListBots>
+    >
+
+  beforeEach(() => listBots.mockReset())
+
+  test("creates the session when the workspace has an active bot", async () => {
+    listBots.mockResolvedValue(page("active"))
+    const onCreateSession = jest.fn().mockResolvedValue(undefined)
+    renderWithClient(
+      <DraftSlackSyncButton
+        workspaceId="ws-1"
+        onCreateSession={onCreateSession}
+      />
+    )
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Sync with Slack" })
+    )
+    expect(onCreateSession).toHaveBeenCalledTimes(1)
+  })
+
+  test("hides the button without an active bot", async () => {
+    listBots.mockResolvedValue(page("paused"))
+    renderWithClient(
+      <DraftSlackSyncButton workspaceId="ws-1" onCreateSession={jest.fn()} />
+    )
+    await waitFor(() => expect(listBots).toHaveBeenCalled())
+    expect(screen.queryByRole("button")).not.toBeInTheDocument()
+  })
+
+  test("the session made to pick opens straight on the picker", async () => {
+    getSync.mockResolvedValue({
+      available: true,
+      enabled: false,
+      linked: false,
+    })
+    listDestinations.mockResolvedValue({ items: [] })
+    renderButton({ openPicker: true })
+    expect(await screen.findByPlaceholderText("Search in Slack…")).toBeVisible()
   })
 })

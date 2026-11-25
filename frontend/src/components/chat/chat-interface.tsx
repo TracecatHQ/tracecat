@@ -169,6 +169,8 @@ export function ChatInterface({
   const [isDraftChat, setIsDraftChat] = useState(false)
   const [pendingFirstMessage, setPendingFirstMessage] =
     useState<PendingFirstMessage | null>(null)
+  // The draft text of a session created to pick a Slack channel.
+  const [syncDraft, setSyncDraft] = useState<PendingFirstMessage | null>(null)
   const [historyScope, setHistoryScope] = useState<ChatHistoryScope>("team")
 
   // Keep local selection aligned when a parent-driven chatId changes.
@@ -351,6 +353,7 @@ export function ChatInterface({
     if (deferSessionCreation) {
       setIsDraftChat(true)
       setPendingFirstMessage(null)
+      setSyncDraft(null)
       setSelectedChatId(undefined)
       return
     }
@@ -369,8 +372,13 @@ export function ChatInterface({
     }
   }
 
-  const handleCreateSessionOnFirstSend = async (
-    messageText: string,
+  /**
+   * Creates the draft's session and selects it; null when it can't or fails.
+   * `onCreated` runs in the same update as the selection, so the new pane mounts with it.
+   */
+  const createDraftSession = async (
+    failureLog: string,
+    onCreated: (chatId: string) => void,
     selectedTools?: string[],
     selectedMcpIntegrations?: string[]
   ) => {
@@ -409,14 +417,11 @@ export function ChatInterface({
 
       setIsDraftChat(false)
       setSelectedChatId(newChat.id)
-      setPendingFirstMessage({
-        chatId: newChat.id,
-        text: messageText,
-      })
+      onCreated(newChat.id)
       onChatSelect?.(newChat.id)
       return newChat.id
     } catch (error) {
-      console.error("Failed to create chat on first message:", error)
+      console.error(failureLog, error)
       toast({
         title: "Failed to create chat",
         description: parseChatError(error),
@@ -426,7 +431,35 @@ export function ChatInterface({
     }
   }
 
+  const handleCreateSessionOnFirstSend = async (
+    messageText: string,
+    selectedTools?: string[],
+    selectedMcpIntegrations?: string[]
+  ) =>
+    createDraftSession(
+      "Failed to create chat on first message:",
+      (newChatId) =>
+        setPendingFirstMessage({ chatId: newChatId, text: messageText }),
+      selectedTools,
+      selectedMcpIntegrations
+    )
+
+  // Destinations are listed per session, so picking a channel needs one first.
+  const handleCreateSessionForSync = async (
+    draftText: string,
+    selectedTools?: string[],
+    selectedMcpIntegrations?: string[]
+  ) => {
+    await createDraftSession(
+      "Failed to create chat to sync with Slack:",
+      (newChatId) => setSyncDraft({ chatId: newChatId, text: draftText }),
+      selectedTools,
+      selectedMcpIntegrations
+    )
+  }
+
   const handleSelectChat = (chatId: string) => {
+    setSyncDraft(null)
     setIsDraftChat(false)
     setSelectedChatId(chatId)
     onChatSelect?.(chatId)
@@ -479,6 +512,10 @@ export function ChatInterface({
     selectedChatId && pendingFirstMessage?.chatId === selectedChatId
       ? pendingFirstMessage.text
       : null
+  const syncDraftText =
+    selectedChatId && syncDraft?.chatId === selectedChatId
+      ? syncDraft.text
+      : undefined
   const handlePendingMessageSent = () =>
     setPendingFirstMessage((current) =>
       current?.chatId === selectedChatId ? null : current
@@ -631,6 +668,12 @@ export function ChatInterface({
           onCreateSessionBeforeSend={
             deferSessionCreation ? handleCreateSessionOnFirstSend : undefined
           }
+          onCreateSessionForSync={
+            deferSessionCreation && inWorkspaceChat
+              ? handleCreateSessionForSync
+              : undefined
+          }
+          syncDraft={syncDraftText}
           draftInputDisabled={createChatPending || !backendSelectionReady}
           pendingMessage={pendingMessageText}
           onPendingMessageSent={handlePendingMessageSent}
@@ -711,6 +754,12 @@ interface ChatBodyProps {
     selectedTools?: string[],
     selectedMcpIntegrations?: string[]
   ) => Promise<string | null>
+  onCreateSessionForSync?: (
+    draftText: string,
+    selectedTools?: string[],
+    selectedMcpIntegrations?: string[]
+  ) => Promise<void>
+  syncDraft?: string
   draftInputDisabled: boolean
   pendingMessage: string | null
   onPendingMessageSent: () => void
@@ -738,6 +787,8 @@ function ChatBody({
   draftMode,
   presetSelector,
   onCreateSessionBeforeSend,
+  onCreateSessionForSync,
+  syncDraft,
   draftInputDisabled,
   pendingMessage,
   onPendingMessageSent,
@@ -895,6 +946,7 @@ function ChatBody({
         mcpEnabled={mcpEnabled}
         presetSelector={presetSelector}
         onBeforeSend={onCreateSessionBeforeSend}
+        onCreateSessionForSync={onCreateSessionForSync}
         optimisticBeforeSend
         inputDisabled={draftInputDisabled}
         inputDisabledPlaceholder="Creating chat..."
@@ -929,6 +981,7 @@ function ChatBody({
       presetSelector={presetSelector}
       pendingMessage={pendingMessage ?? undefined}
       onPendingMessageSent={onPendingMessageSent}
+      syncDraft={syncDraft}
       inputDisabled={modelUnavailable}
       inputDisabledPlaceholder={getModelUnavailableMessage(chatReadyReason)}
       surface={surface}

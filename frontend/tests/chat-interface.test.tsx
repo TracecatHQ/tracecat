@@ -11,19 +11,32 @@ jest.mock("@/components/chat/chat-session-pane", () => ({
     chat,
     mcpEnabled,
     onBeforeSend,
+    onCreateSessionForSync,
+    syncDraft,
     inputDisabled,
   }: {
     chat?: { id: string }
     mcpEnabled: boolean
     onBeforeSend?: (message: string) => Promise<string | null>
+    onCreateSessionForSync?: (draftText: string) => Promise<void>
+    syncDraft?: string
     inputDisabled?: boolean
   }) => (
     <div
       data-mcp-enabled={String(mcpEnabled)}
       data-input-disabled={String(Boolean(inputDisabled))}
+      data-sync-draft={syncDraft}
       data-testid="chat-session-pane"
     >
       {chat && <p>Transcript of {chat.id}</p>}
+      {onCreateSessionForSync && (
+        <button
+          type="button"
+          onClick={() => void onCreateSessionForSync("half a thought")}
+        >
+          Sync with Slack
+        </button>
+      )}
       {onBeforeSend && (
         <button type="button" onClick={() => void onBeforeSend("Hello")}>
           Send first message
@@ -628,5 +641,23 @@ describe("ChatInterface session fetch errors", () => {
     expect(screen.getByLabelText("New chat")).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Retry" }))
     expect(mockRefetchChat).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("ChatInterface Slack sync from a draft", () => {
+  beforeEach(() => {
+    setScopeResult("integration:read", true)
+  })
+
+  it("creates the session and carries the draft to its picker", async () => {
+    renderChat()
+    fireEvent.click(screen.getByRole("button", { name: "Sync with Slack" }))
+    mockGetChat.mockReturnValue({ id: "chat-1", messages: [] })
+
+    expect(await screen.findByText("Transcript of chat-1")).toBeInTheDocument()
+    expect(mockCreateChat).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId("chat-session-pane").dataset.syncDraft).toBe(
+      "half a thought"
+    )
   })
 })

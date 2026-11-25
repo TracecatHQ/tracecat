@@ -71,7 +71,10 @@ import {
   MessageParts,
   RunningLine,
 } from "@/components/chat/message-part"
-import { SlackSyncButton } from "@/components/chat/slack-sync-button"
+import {
+  DraftSlackSyncButton,
+  SlackSyncButton,
+} from "@/components/chat/slack-sync-button"
 import { SessionChannelThreadContext } from "@/components/chat/user-bubble"
 import { getIcon, ProviderIcon } from "@/components/icons"
 import { MentionHint } from "@/components/mentions/mention-hint"
@@ -276,6 +279,14 @@ export interface ChatSessionPaneProps {
    * Used to clear the pending message state in the parent.
    */
   onPendingMessageSent?: () => void
+  /** A draft's Slack button: create the session, keeping the draft, to pick a channel. */
+  onCreateSessionForSync?: (
+    draftText: string,
+    selectedTools?: string[],
+    selectedMcpIntegrations?: string[]
+  ) => Promise<void>
+  /** The draft carried from a draft pane that made this session to pick; opens the picker. */
+  syncDraft?: string
   /**
    * Disable the input field. Used when user must take an action
    * (e.g., make an approval decision) before sending messages.
@@ -328,6 +339,8 @@ export function ChatSessionPane({
   optimisticBeforeSend = false,
   pendingMessage,
   onPendingMessageSent,
+  onCreateSessionForSync,
+  syncDraft,
   inputDisabled = false,
   inputDisabledPlaceholder,
   approvalsDisabled = false,
@@ -352,7 +365,7 @@ export function ChatSessionPane({
     | undefined
   >(undefined)
 
-  const [input, setInput] = useState<string>("")
+  const [input, setInput] = useState<string>(syncDraft ?? "")
   const [isInputFocused, setIsInputFocused] = useState(false)
   const promptTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const getInputText = useCallback(() => input, [input])
@@ -1598,6 +1611,23 @@ export function ChatSessionPane({
                   disabled={cannotExecuteAgents}
                   picked={pickedDestination.picked}
                   onPickedChange={pickedDestination.onPickedChange}
+                  openPicker={syncDraft !== undefined}
+                />
+              ) : // A draft without a preset has no bot to open a thread.
+              isWorkspaceChat &&
+                !chat &&
+                onCreateSessionForSync &&
+                presetSelector?.selectedPresetId ? (
+                <DraftSlackSyncButton
+                  workspaceId={workspaceId}
+                  disabled={cannotExecuteAgents || inputDisabled}
+                  onCreateSession={() =>
+                    onCreateSessionForSync(
+                      promptTextareaRef.current?.value ?? input,
+                      selectedTools,
+                      selectedMcpIntegrations
+                    )
+                  }
                 />
               ) : null}
               {!isReadonly && modelInfo ? (

@@ -25,6 +25,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useWorkspaceChannelBots } from "@/hooks/use-agent-channel-bots"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import {
   channelDestinationLabel,
   useSessionChannelDestinations,
@@ -54,6 +56,7 @@ const TOOLTIPS: Record<SlackSyncState, string> = {
  *
  * With `onPickedChange`, a session with no messages keeps its pick in the
  * caller's state; the first send carries it and the thread opens at that turn's end.
+ * `openPicker` opens the picker on mount, for a draft that made its session to pick.
  */
 export function SlackSyncButton({
   workspaceId,
@@ -61,18 +64,20 @@ export function SlackSyncButton({
   disabled = false,
   picked = null,
   onPickedChange,
+  openPicker = false,
 }: {
   workspaceId: string
   sessionId: string
   disabled?: boolean
   picked?: ChannelDestination | null
   onPickedChange?: (destination: ChannelDestination | null) => void
+  openPicker?: boolean
 }) {
   const { sync, changeSync, isPending } = useSessionChannelSync(
     workspaceId,
     sessionId
   )
-  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(openPicker)
   if (!sync?.available) {
     return null
   }
@@ -151,6 +156,56 @@ export function SlackSyncButton({
 }
 
 /** The Slack mark: full color when syncing, grey with a strike when off, plain grey when unlinked. */
+/**
+ * A draft chat's Slack button, shown when the workspace has an active bot.
+ * Clicking creates the session; its own button then opens the picker.
+ */
+export function DraftSlackSyncButton({
+  workspaceId,
+  disabled = false,
+  onCreateSession,
+}: {
+  workspaceId: string
+  disabled?: boolean
+  onCreateSession: () => Promise<void>
+}) {
+  const { hasEntitlement } = useEntitlements()
+  const { data: bots } = useWorkspaceChannelBots(
+    workspaceId,
+    hasEntitlement("agent_channels_preview")
+  )
+  const [creating, setCreating] = useState(false)
+  if (!bots?.some((bot) => bot.status === "active")) {
+    return null
+  }
+
+  async function handleClick() {
+    setCreating(true)
+    try {
+      await onCreateSession()
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <PromptInputButton
+          aria-label={BUTTON_LABELS.unlinked}
+          data-state-sync="unlinked"
+          disabled={disabled || creating}
+          onClick={() => void handleClick()}
+          className="h-7"
+        >
+          <SlackSyncIcon state="unlinked" />
+        </PromptInputButton>
+      </TooltipTrigger>
+      <TooltipContent side="top">{TOOLTIPS.unlinked}</TooltipContent>
+    </Tooltip>
+  )
+}
+
 export function SlackSyncIcon({ state }: { state: SlackSyncState }) {
   return (
     <span className="relative inline-flex size-4 items-center justify-center">
