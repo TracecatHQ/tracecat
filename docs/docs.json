@@ -115,8 +115,8 @@
               "automations/cases/linked-rows",
               "automations/cases/sub-cases",
               "automations/cases/tasks",
-              "automations/cases/agent-mentions",
               "automations/cases/correlations",
+              "automations/cases/agent-mentions",
               "automations/cases/workflow-triggers",
               "automations/cases/views"
             ]

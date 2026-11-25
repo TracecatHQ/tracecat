@@ -36,10 +36,9 @@ from tracecat.pagination import (
     PageParams,
     paginate,
 )
-from tracecat.service import BaseWorkspaceService, requires_entitlement
+from tracecat.service import BaseWorkspaceService
 from tracecat.tables.schemas import TableColumnRead
 from tracecat.tables.service import TablesService
-from tracecat.tiers.enums import Entitlement
 
 # Linked-row caps. The case page pages through every row linked to a case, so
 # these caps bound how much link data one case can accumulate:
@@ -676,7 +675,6 @@ class CaseTableRowsService(BaseWorkspaceService):
             self.session, self.role, tables=self.tables
         )._get_tables_by_id(table_ids)
 
-    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def list_linked_cases(
         self,
         *,
