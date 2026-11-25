@@ -38,6 +38,9 @@ class _ExecuteResult:
     def scalars(self) -> _ScalarResult:
         return _ScalarResult(self._items)
 
+    def tuples(self) -> list[Any]:
+        return list(self._items)
+
 
 class _RecordingSession:
     def __init__(self, batches: Sequence[Sequence[AgentSession]] | None = None) -> None:

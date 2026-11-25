@@ -547,6 +547,33 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         )
         return set(result.scalars().all())
 
+    async def _fetch_session_starters(
+        self,
+        session_ids: Sequence[uuid.UUID],
+    ) -> dict[uuid.UUID, uuid.UUID]:
+        """The author of each session's earliest authored message, by session id.
+
+        Shown as Created by when ``created_by`` is null, as for a channel thread.
+        """
+        if not session_ids:
+            return {}
+        stmt = (
+            select(AgentSessionHistory.session_id, AgentSessionHistory.author_id)
+            .where(
+                AgentSessionHistory.workspace_id == self.workspace_id,
+                AgentSessionHistory.session_id.in_(list(session_ids)),
+                AgentSessionHistory.author_id.is_not(None),
+            )
+            .distinct(AgentSessionHistory.session_id)
+            .order_by(AgentSessionHistory.session_id, AgentSessionHistory.surrogate_id)
+        )
+        result = await self.session.execute(stmt)
+        return {
+            session_id: author_id
+            for session_id, author_id in result.tuples()
+            if author_id is not None
+        }
+
     async def _classify_sessions_for_group(
         self,
         sessions: Sequence[AgentSession],
@@ -852,8 +879,12 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             workflows = workflow_result.scalars().all()
             workflows_by_id = {w.id: w for w in workflows}
 
-        # Fetch creators for user-initiated sessions
+        # Fetch creators for user-initiated sessions, else who started the session
+        starters = await self._fetch_session_starters(
+            [s.id for s in sessions if s.created_by is None]
+        )
         creator_ids = {s.created_by for s in sessions if s.created_by}
+        creator_ids.update(starters.values())
         users_by_id: dict[uuid.UUID, User] = {}
         if creator_ids:
             user_stmt = select(User).where(
@@ -912,8 +943,10 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
 
             # Get creator info
             created_by: UserSummary | None = None
-            if session.created_by and session.created_by in users_by_id:
-                user = users_by_id[session.created_by]
+            # Display only: a starter never owns the session.
+            creator_id = session.created_by or starters.get(session.id)
+            if creator_id and creator_id in users_by_id:
+                user = users_by_id[creator_id]
                 created_by = UserSummary(
                     id=user.id,
                     email=user.email,
