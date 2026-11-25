@@ -153,8 +153,10 @@ export function CaseViewMenu({
     const isMenuKey =
       event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")
     if (!isMenuKey) return
+    if (!(event.target instanceof HTMLElement)) return
+    if (!event.target.hasAttribute("cmdk-input")) return
     const item = event.currentTarget.querySelector<HTMLElement>(
-      '[cmdk-item][data-selected="true"]'
+      '[cmdk-item][data-selected="true"][data-view-actions]'
     )
     if (!item) return
     event.preventDefault()
@@ -176,6 +178,7 @@ export function CaseViewMenu({
         key={item.id}
         value={`${item.name} ${item.id}`}
         onSelect={() => select(item.id)}
+        data-view-actions={item.kind === "custom" ? "" : undefined}
         className="group flex items-center gap-2 text-xs"
       >
         <CheckIcon
