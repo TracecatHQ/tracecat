@@ -188,6 +188,7 @@ jest.mock("@/hooks/use-forms-access", () => ({
   useFormsAccess: () => "locked",
 }))
 jest.mock("@/hooks/use-session-channel-sync", () => ({
+  ...jest.requireActual("@/hooks/use-session-channel-sync"),
   useSessionChannelSync: jest.fn(() => ({
     sync: undefined,
     isLoading: false,

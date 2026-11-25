@@ -1490,14 +1490,16 @@ export function ChatSessionPane({
       await persistToolsChainRef.current.catch(() => undefined)
       await persistMcpChainRef.current.catch(() => undefined)
       clearError()
-      sendMessage(
-        {
-          text: messageText,
-          metadata: authorMetadata,
-          ...(message.files?.length ? { files: message.files } : {}),
-        },
-        sendOptions
-      )
+      const userMessage = {
+        text: messageText,
+        metadata: authorMetadata,
+        ...(message.files?.length ? { files: message.files } : {}),
+      }
+      if (sendOptions) {
+        sendMessage(userMessage, sendOptions)
+      } else {
+        sendMessage(userMessage)
+      }
     } catch (error) {
       console.error("Failed to send message:", error)
     }
