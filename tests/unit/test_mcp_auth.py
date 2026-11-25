@@ -7,7 +7,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from types import SimpleNamespace
-from typing import cast
+from typing import TYPE_CHECKING, cast
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlsplit
 
@@ -39,9 +39,13 @@ from starlette.testclient import TestClient
 from starlette.types import Receive, Scope, Send
 
 from tracecat.auth.types import Role
+from tracecat.logger import logger
 from tracecat.mcp import auth as mcp_auth
 from tracecat.mcp.personal_access_tokens.constants import MCP_PAT_PREFIX
 from tracecat.mcp.personal_access_tokens.types import MCPPATIdentity
+
+if TYPE_CHECKING:
+    from loguru import Message
 
 type AsyncLookup = Callable[..., Awaitable[object]]
 
@@ -2217,6 +2221,113 @@ async def test_private_key_jwt_cimd_client_rejects_invalid_client_auth(
 
     assert response.status_code == 401
     assert response.json()["error"] == "invalid_client"
+
+
+_TOKEN_REJECTED_LOG_MESSAGE = "MCP token request rejected"
+
+
+def _capture_token_rejection_logs() -> tuple[list[dict[str, object]], int]:
+    captured: list[dict[str, object]] = []
+
+    def sink(message: Message) -> None:
+        if message.record["message"] == _TOKEN_REJECTED_LOG_MESSAGE:
+            captured.append(dict(message.record["extra"]))
+
+    return captured, logger.add(sink, level="WARNING")
+
+
+@pytest.mark.anyio
+async def test_rejected_private_key_jwt_token_request_logs_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Operators can see why a token request failed without the secret inputs."""
+    auth = _build_test_auth(monkeypatch)
+    key = _generate_rsa_key()
+    _install_cimd_clients(monkeypatch, auth, jwks=_public_jwks(key))
+    assertion = _client_assertion(key, lifetime_seconds=600)
+
+    captured, sink_id = _capture_token_rejection_logs()
+    try:
+        response = await _post_private_key_jwt_token_request(auth, assertion=assertion)
+    finally:
+        logger.remove(sink_id)
+
+    assert response.status_code == 401
+    assert len(captured) == 1
+    [extra] = captured
+    assert extra["status_code"] == 401
+    assert extra["error"] == "invalid_client"
+    assert "lifetime too long" in str(extra["error_description"])
+    assert extra["client_id"] == _PRIVATE_KEY_JWT_CLIENT_ID
+    assert extra["grant_type"] == "authorization_code"
+    assert extra["client_assertion_type"] == _JWT_BEARER_ASSERTION_TYPE
+    assert extra["assertion_alg"] == "RS256"
+    assert extra["assertion_kid"] == _TEST_SIGNING_KID
+    assert extra["assertion_iss"] == _PRIVATE_KEY_JWT_CLIENT_ID
+    assert extra["assertion_sub_matches_iss"] is True
+    assert extra["assertion_aud"] == _MCP_TOKEN_ENDPOINT
+    assert extra["assertion_lifetime_seconds"] == 600
+    assert extra["assertion_has_jti"] is True
+    logged = repr(extra)
+    assert assertion not in logged
+    assert assertion.split(".")[2] not in logged
+    assert _PKCE_VERIFIER not in logged
+
+
+@pytest.mark.anyio
+async def test_successful_private_key_jwt_token_request_does_not_log_rejection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = _build_test_auth(monkeypatch)
+    key = _generate_rsa_key()
+    _install_cimd_clients(monkeypatch, auth, jwks=_public_jwks(key))
+
+    captured, sink_id = _capture_token_rejection_logs()
+    try:
+        response = await _post_private_key_jwt_token_request(
+            auth, assertion=_client_assertion(key)
+        )
+    finally:
+        logger.remove(sink_id)
+
+    assert response.status_code == 200, response.json()
+    assert captured == []
+
+
+def test_summarize_client_assertion_ignores_malformed_tokens() -> None:
+    assert mcp_auth.summarize_client_assertion("not-a-jwt") is None
+    assert mcp_auth.summarize_client_assertion("a.b.c") is None
+
+
+def test_summarize_client_assertion_reads_list_audience_and_clock_offset() -> None:
+    key = _generate_rsa_key()
+    now = 1_800_000_000
+    assertion = jwt.encode(
+        {
+            "iss": _PRIVATE_KEY_JWT_CLIENT_ID,
+            "sub": "someone-else",
+            "aud": [_MCP_TOKEN_ENDPOINT, "https://mcp.example.com/"],
+            "iat": now + 45,
+            "exp": now + 105,
+        },
+        key,
+        algorithm="RS256",
+        headers={"kid": _TEST_SIGNING_KID, "typ": "JWT"},
+    )
+
+    summary = mcp_auth.summarize_client_assertion(assertion, now=now)
+
+    assert summary == mcp_auth.ClientAssertionSummary(
+        alg="RS256",
+        kid=_TEST_SIGNING_KID,
+        typ="JWT",
+        iss=_PRIVATE_KEY_JWT_CLIENT_ID,
+        sub_matches_iss=False,
+        aud=[_MCP_TOKEN_ENDPOINT, "https://mcp.example.com/"],
+        lifetime_seconds=60,
+        iat_offset_seconds=45,
+        has_jti=False,
+    )
 
 
 @pytest.mark.anyio

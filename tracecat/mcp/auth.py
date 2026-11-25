@@ -9,6 +9,7 @@ import time
 import uuid
 from base64 import urlsafe_b64decode
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, cast
 from urllib.parse import parse_qs, parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
@@ -16,6 +17,7 @@ from urllib.parse import parse_qs, parse_qsl, urlencode, urlparse, urlsplit, url
 import httpx
 from cryptography.fernet import Fernet
 from fastmcp.server.auth import AccessToken, AuthProvider, MultiAuth, TokenVerifier
+from fastmcp.server.auth.auth import PrivateKeyJWTClientAuthenticator, TokenHandler
 from fastmcp.server.auth.cimd import CIMDDocument
 from fastmcp.server.auth.oauth_proxy.models import ProxyDCRClient
 from fastmcp.server.auth.oidc_proxy import OIDCProxy
@@ -26,15 +28,19 @@ from fastmcp.server.dependencies import get_access_token
 from key_value.aio.stores.redis import RedisStore
 from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
 from key_value.aio.wrappers.prefix_collections import PrefixCollectionsWrapper
+from mcp.server.auth.json_response import PydanticJSONResponse
+from mcp.server.auth.middleware.client_auth import ClientAuthenticator
 from mcp.server.auth.provider import (
     AuthorizationParams,
     TokenError,
 )
+from mcp.server.auth.routes import cors_middleware
 from mcp.shared.auth import InvalidRedirectUriError, OAuthClientInformationFull
 from pydantic import AnyUrl, BaseModel, Field
 from sqlalchemy import select
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, RedirectResponse
+from starlette.responses import HTMLResponse, RedirectResponse, Response
+from starlette.routing import Route
 
 from tracecat import config
 from tracecat.auth.credentials import compute_effective_scopes
@@ -261,6 +267,141 @@ def _decode_unverified_id_token_claims(id_token: str) -> dict[str, object]:
     if not isinstance(claims, dict):
         raise ValueError("id_token payload is not an object")
     return claims
+
+
+def _decode_jwt_segment(segment: str) -> dict[str, object]:
+    padded = segment + "=" * (-len(segment) % 4)
+    decoded = json.loads(urlsafe_b64decode(padded))
+    if not isinstance(decoded, dict):
+        raise ValueError("JWT segment is not an object")
+    return decoded
+
+
+def _optional_str(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _optional_int(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return int(value)
+
+
+@dataclass(frozen=True, slots=True)
+class ClientAssertionSummary:
+    """Non-secret fields of an unverified ``client_assertion`` for diagnostics."""
+
+    alg: str | None
+    kid: str | None
+    typ: str | None
+    iss: str | None
+    sub_matches_iss: bool
+    aud: str | list[str] | None
+    lifetime_seconds: int | None
+    iat_offset_seconds: int | None
+    has_jti: bool
+
+
+def summarize_client_assertion(
+    assertion: str, *, now: float | None = None
+) -> ClientAssertionSummary | None:
+    """Read the header and timing claims of a client assertion without verifying it.
+
+    Args:
+        assertion: The compact-serialized JWT from the ``client_assertion`` field.
+        now: Reference time for ``iat_offset_seconds``; defaults to the current time.
+
+    Returns:
+        The summary, or ``None`` if the assertion is not a decodable JWT.
+    """
+    try:
+        header_segment, payload_segment, _signature = assertion.split(".")
+        header = _decode_jwt_segment(header_segment)
+        claims = _decode_jwt_segment(payload_segment)
+    except ValueError:
+        return None
+
+    match claims.get("aud"):
+        case str() as audience:
+            aud: str | list[str] | None = audience
+        case list() as audiences:
+            aud = [audience for audience in audiences if isinstance(audience, str)]
+        case _:
+            aud = None
+
+    iss = _optional_str(claims.get("iss"))
+    iat = _optional_int(claims.get("iat"))
+    exp = _optional_int(claims.get("exp"))
+    reference_time = int(now if now is not None else time.time())
+    return ClientAssertionSummary(
+        alg=_optional_str(header.get("alg")),
+        kid=_optional_str(header.get("kid")),
+        typ=_optional_str(header.get("typ")),
+        iss=iss,
+        sub_matches_iss=iss is not None and claims.get("sub") == iss,
+        aud=aud,
+        lifetime_seconds=exp - iat if exp is not None and iat is not None else None,
+        iat_offset_seconds=iat - reference_time if iat is not None else None,
+        has_jti=bool(_optional_str(claims.get("jti"))),
+    )
+
+
+class DiagnosticTokenHandler(TokenHandler):
+    """Token handler that logs why a token request was rejected.
+
+    FastMCP reports client-assertion and grant failures only in the response body
+    or at debug level, which leaves operators unable to tell why a client such as
+    ChatGPT fails the code exchange. Codes, verifiers, secrets, and assertions are
+    never logged.
+    """
+
+    async def handle(self, request: Request) -> PydanticJSONResponse:
+        response = await super().handle(request)
+        if response.status_code >= 400:
+            await _log_rejected_token_request(request, response)
+        return response
+
+
+async def _log_rejected_token_request(request: Request, response: Response) -> None:
+    error: str | None = None
+    error_description: str | None = None
+    try:
+        body = json.loads(bytes(response.body))
+    except ValueError:
+        body = None
+    if isinstance(body, dict):
+        error = _optional_str(body.get("error"))
+        error_description = _optional_str(body.get("error_description"))
+
+    form = await request.form()
+    log = logger.bind(
+        status_code=response.status_code,
+        error=error,
+        error_description=error_description,
+        client_id=_optional_str(form.get("client_id")),
+        grant_type=_optional_str(form.get("grant_type")),
+        client_assertion_type=_optional_str(form.get("client_assertion_type")),
+        has_authorization_header="authorization" in request.headers,
+    )
+    if (assertion := _optional_str(form.get("client_assertion"))) and (
+        summary := summarize_client_assertion(assertion)
+    ):
+        log = log.bind(
+            assertion_alg=summary.alg,
+            assertion_kid=summary.kid,
+            assertion_typ=summary.typ,
+            assertion_iss=summary.iss,
+            assertion_sub_matches_iss=summary.sub_matches_iss,
+            assertion_aud=summary.aud,
+            assertion_lifetime_seconds=summary.lifetime_seconds,
+            assertion_iat_offset_seconds=summary.iat_offset_seconds,
+            assertion_has_jti=summary.has_jti,
+        )
+    log.warning("MCP token request rejected")
+
+
+def _is_token_route(route: Route) -> bool:
+    return isinstance(route, Route) and route.path == "/token"
 
 
 def _normalize_email_claim(value: object) -> str | None:
@@ -698,6 +839,29 @@ def _create_oidc_auth() -> OIDCProxy:
                 }
             )
             await super().register_client(stored_client)
+
+        def get_routes(self, mcp_path: str | None = None) -> list[Route]:
+            routes = super().get_routes(mcp_path)
+            client_authenticator = (
+                PrivateKeyJWTClientAuthenticator(
+                    provider=self,
+                    cimd_manager=self._cimd_manager,
+                    token_endpoint_url=self.token_endpoint_url,
+                )
+                if self._cimd_manager is not None
+                else ClientAuthenticator(self)
+            )
+            token_handler = DiagnosticTokenHandler(
+                provider=self, client_authenticator=client_authenticator
+            )
+            token_route = Route(
+                path="/token",
+                endpoint=cors_middleware(token_handler.handle, ["POST", "OPTIONS"]),
+                methods=["POST", "OPTIONS"],
+            )
+            return [
+                token_route if _is_token_route(route) else route for route in routes
+            ]
 
         async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
             client = await super().get_client(client_id)
