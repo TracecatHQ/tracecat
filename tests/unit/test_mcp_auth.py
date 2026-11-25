@@ -2408,3 +2408,75 @@ async def test_public_cimd_client_exchanges_code_without_client_auth(
 
     assert response.status_code == 200, response.json()
     assert response.json()["access_token"]
+
+
+_LOOPBACK_DCR_REDIRECT_URI = "http://127.0.0.1:43123/callback"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "auth_method",
+    [
+        pytest.param("none", id="public"),
+        pytest.param("client_secret_post", id="client-secret-post"),
+        pytest.param("client_secret_basic", id="client-secret-basic"),
+    ],
+)
+async def test_dcr_client_exchanges_code(
+    monkeypatch: pytest.MonkeyPatch,
+    auth_method: str,
+) -> None:
+    """Dynamically registered CLI clients keep working through the token route."""
+    auth = _build_test_auth(monkeypatch)
+    captured, sink_id = _capture_token_rejection_logs()
+    try:
+        async with _token_http_client(auth) as client:
+            registration = await client.post(
+                "/register",
+                json={
+                    "client_name": "CLI test client",
+                    "redirect_uris": [_LOOPBACK_DCR_REDIRECT_URI],
+                    "grant_types": ["authorization_code", "refresh_token"],
+                    "response_types": ["code"],
+                    "token_endpoint_auth_method": auth_method,
+                },
+            )
+            assert registration.status_code == 201, registration.json()
+            registered = registration.json()
+            client_id = registered["client_id"]
+            client_secret = registered.get("client_secret")
+
+            def authenticated(
+                form: dict[str, str],
+            ) -> tuple[dict[str, str], dict[str, str]]:
+                match auth_method:
+                    case "client_secret_post":
+                        return form | {"client_secret": client_secret}, {}
+                    case "client_secret_basic":
+                        credentials = base64.b64encode(
+                            f"{client_id}:{client_secret}".encode()
+                        ).decode()
+                        return form, {"Authorization": f"Basic {credentials}"}
+                    case _:
+                        return form, {}
+
+            code = await _seed_authorization_code(
+                auth, client_id=client_id, redirect_uri=_LOOPBACK_DCR_REDIRECT_URI
+            )
+            form, headers = authenticated(
+                {
+                    "grant_type": "authorization_code",
+                    "client_id": client_id,
+                    "code": code,
+                    "redirect_uri": _LOOPBACK_DCR_REDIRECT_URI,
+                    "code_verifier": _PKCE_VERIFIER,
+                }
+            )
+            exchange = await client.post("/token", data=form, headers=headers)
+            assert exchange.status_code == 200, exchange.json()
+            tokens = exchange.json()
+            assert tokens["access_token"]
+    finally:
+        logger.remove(sink_id)
+
+    assert captured == []
