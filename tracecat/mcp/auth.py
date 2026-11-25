@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import json
+import math
 import re
 import time
 import uuid
@@ -283,6 +284,8 @@ def _optional_str(value: object) -> str | None:
 
 def _optional_int(value: object) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    if isinstance(value, float) and not math.isfinite(value):
         return None
     return int(value)
 

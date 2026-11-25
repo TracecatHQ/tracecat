@@ -2299,6 +2299,25 @@ def test_summarize_client_assertion_ignores_malformed_tokens() -> None:
     assert mcp_auth.summarize_client_assertion("a.b.c") is None
 
 
+def test_summarize_client_assertion_ignores_non_finite_timestamps() -> None:
+    def segment(value: str) -> str:
+        return base64.urlsafe_b64encode(value.encode()).decode().rstrip("=")
+
+    assertion = ".".join(
+        [
+            segment('{"alg": "RS256"}'),
+            segment('{"iat": Infinity, "exp": NaN}'),
+            "signature",
+        ]
+    )
+
+    summary = mcp_auth.summarize_client_assertion(assertion)
+
+    assert summary is not None
+    assert summary.lifetime_seconds is None
+    assert summary.iat_offset_seconds is None
+
+
 def test_summarize_client_assertion_reads_list_audience_and_clock_offset() -> None:
     key = _generate_rsa_key()
     now = 1_800_000_000
