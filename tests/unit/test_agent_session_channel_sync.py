@@ -27,6 +27,7 @@ from tracecat.agent.channel_notifier import (
     ChannelDestinationNotRoutable,
     ChannelDestinationRef,
     ChannelRecipientNotLinked,
+    ChannelReplyError,
     ChannelsNotEntitled,
     MessageSent,
     NoChannelBot,
@@ -1078,6 +1079,24 @@ async def test_a_session_without_a_preset_has_no_bot_to_open_a_thread() -> None:
     )
 
     with pytest.raises(NoChannelBot):
+        await check_turn_destination(role, agent_session, PICKED)
+
+
+@pytest.mark.anyio
+async def test_a_slack_timeout_before_the_turn_is_a_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    role = _user_role()
+    assert role.workspace_id is not None
+    agent_session = _agent_session(
+        role.workspace_id, created_by=USER_ID, entity_type="copilot"
+    )
+    agent_session.agent_preset_id = uuid.uuid4()
+    monkeypatch.setattr(
+        channel_sync, "check_channel_reply_thread", AsyncMock(side_effect=TimeoutError)
+    )
+
+    with pytest.raises(ChannelReplyError, match="Slack didn't respond"):
         await check_turn_destination(role, agent_session, PICKED)
 
 

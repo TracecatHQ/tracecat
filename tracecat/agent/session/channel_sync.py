@@ -141,7 +141,12 @@ async def check_turn_destination(
     """
     if agent_session.agent_preset_id is None:
         raise NoChannelBot("The agent has no live channel bot that opens threads")
-    await check_channel_reply_thread(role, agent_session.agent_preset_id, destination)
+    try:
+        await check_channel_reply_thread(
+            role, agent_session.agent_preset_id, destination
+        )
+    except TimeoutError as e:
+        raise ChannelReplyError("Slack didn't respond. Try again.") from e
 
 
 async def has_channel_bot(role: Role) -> bool:
