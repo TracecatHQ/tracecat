@@ -613,6 +613,7 @@ async def test_linking_under_enforced_rls_authors_every_org_workspace(
         *(
             enable_workspace_table_rls(table)
             for table in (
+                "agent_session",
                 "agent_session_history",
                 "agent_session_thread",
                 "agent_channel_bot",
@@ -628,8 +629,8 @@ async def test_linking_under_enforced_rls_authors_every_org_workspace(
     await session.execute(text(f'GRANT USAGE ON SCHEMA public TO "{db_role}"'))
     await session.execute(
         text(
-            "GRANT SELECT ON workspace, agent_session_thread, agent_channel_bot"
-            f' TO "{db_role}"'
+            "GRANT SELECT ON workspace, agent_session, agent_session_thread,"
+            f' agent_channel_bot TO "{db_role}"'
         )
     )
     await session.execute(
