@@ -197,6 +197,25 @@ describe("ChannelMessageContext links", () => {
     ).toHaveAttribute("href", url)
   })
 
+  it("strips only marks that wrap the URL", () => {
+    const text = "*https://a.example/x* and https://b.example/t?k=abc_"
+    render(
+      <TooltipProvider>
+        <ChannelMessageContext
+          message={{ ...LINKED, quoted: [{ ...LINKED.quoted![0], text }] }}
+        />
+      </TooltipProvider>
+    )
+    expect(screen.getByRole("link", { name: "a.example ↗" })).toHaveAttribute(
+      "href",
+      "https://a.example/x"
+    )
+    expect(screen.getByRole("link", { name: "b.example ↗" })).toHaveAttribute(
+      "href",
+      "https://b.example/t?k=abc_"
+    )
+  })
+
   it("leaves URLs in a quoted body's code as typed", () => {
     const text = "run `curl https://a.example/x` then https://b.example/y"
     render(

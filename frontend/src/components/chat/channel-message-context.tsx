@@ -24,8 +24,9 @@ export const UNKNOWN_CHANNEL_PERSON = "Slack user"
 
 // A Slack user or enterprise user ID after `@`, as mist's plain text leaves it.
 const SLACK_MENTION = /@([UW][A-Z0-9]{6,})\b/g
-// An https URL; trailing punctuation and formatting marks stay text. Stored text is editable, so no other scheme.
-const URL_PATTERN = /https:\/\/[^\s<>`|]*[^\s<>`|.,;:!?)\]'"*_~]/g
+// An https URL; trailing punctuation stays text. Stored text is editable, so no other scheme.
+const URL_PATTERN = /https:\/\/[^\s<>`|]*[^\s<>`|.,;:!?)\]'"]/g
+const FORMATTING_MARKS = "*_~"
 const SLACK_PERMALINK_PATH = /^\/archives\/([A-Z0-9]+)\/p\d+/
 // Code in a quoted body (a fence runs to the end when unclosed) keeps its URLs as typed.
 const QUOTED_CODE = /```[\s\S]*?(?:```|$)|`[^`\n]*`/
@@ -186,8 +187,15 @@ function* textUrls(text: string): Generator<{ index: number; url: string }> {
     if (match[0].startsWith("`")) continue
     const index = match.index ?? 0
     let url = match[0]
-    const unclosed = url.split("(").length > url.split(")").length
-    if (unclosed && text[index + url.length] === ")") url += ")"
+    // A mark wrapping the URL (`*https://…*`) is formatting; one only at the end is part of it.
+    const mark = text[index - 1]
+    if (mark && FORMATTING_MARKS.includes(mark))
+      while (url.endsWith(mark)) url = url.slice(0, -1)
+    while (
+      url.split("(").length > url.split(")").length &&
+      text[index + url.length] === ")"
+    )
+      url += ")"
     yield { index, url }
   }
 }
