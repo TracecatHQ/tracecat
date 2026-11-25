@@ -33,14 +33,17 @@ from tracecat.agent.preset.schemas import (
 )
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
-from tracecat.authz.service import workspace_user_ids
 from tracecat.db.models import (
     AgentPreset,
     AgentPresetApprover,
     Group,
     GroupRoleAssignment,
+    Membership,
+    RoleScope,
+    Scope,
     User,
     UserRoleAssignment,
+    effective_group_members,
 )
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -134,7 +137,7 @@ class AgentPresetApproverService(BaseWorkspaceService):
         Raises:
             PaginationError: If the cursor is invalid.
         """
-        return await self._page(await self._options(), page, search=search)
+        return await self._page(self._options(), page, search=search)
 
     @require_scope("agent:update")
     @requires_entitlement(Entitlement.RBAC_ADDONS)
@@ -157,7 +160,7 @@ class AgentPresetApproverService(BaseWorkspaceService):
             await self.session.commit()
             return []
         valid = await self._named(
-            (await self._options()).union(self._listed(preset_id)), only=approvers
+            self._options().union(self._listed(preset_id)), only=approvers
         )
         if {(read.kind, read.id) for read in valid} != {
             (ref.kind, ref.id) for ref in approvers
@@ -303,8 +306,8 @@ class AgentPresetApproverService(BaseWorkspaceService):
             roles=select(AgentPresetApprover.role_id).where(listed),
         )
 
-    async def _options(self) -> _Principals:
-        """Users who can open this workspace; groups and roles granted in it."""
+    def _options(self) -> _Principals:
+        """Members and org admins; groups and roles granted in this workspace."""
         workspace_role = and_(
             DBRole.organization_id == self.organization_id,
             # Custom roles have no slug; NOT IN alone would drop them.
@@ -323,10 +326,34 @@ class AgentPresetApproverService(BaseWorkspaceService):
             UserRoleAssignment.organization_id == self.organization_id,
             UserRoleAssignment.workspace_id == self.workspace_id,
         )
-        return _Principals(
-            users=await workspace_user_ids(
-                self.session, self.organization_id, self.workspace_id
+        # Mirrors the org:member:invite check in _is_org_admin_via_rbac.
+        org_admin_roles = (
+            select(RoleScope.role_id)
+            .join(Scope, Scope.id == RoleScope.scope_id)
+            .where(Scope.name == "org:member:invite")
+        )
+        users = union(
+            select(Membership.user_id).where(
+                Membership.workspace_id == self.workspace_id
             ),
+            select(UserRoleAssignment.user_id).where(
+                UserRoleAssignment.organization_id == self.organization_id,
+                UserRoleAssignment.workspace_id.is_(None),
+                UserRoleAssignment.role_id.in_(org_admin_roles),
+            ),
+            select(effective_group_members.c.user_id)
+            .join(
+                GroupRoleAssignment,
+                GroupRoleAssignment.group_id == effective_group_members.c.group_id,
+            )
+            .where(
+                GroupRoleAssignment.organization_id == self.organization_id,
+                GroupRoleAssignment.workspace_id.is_(None),
+                GroupRoleAssignment.role_id.in_(org_admin_roles),
+            ),
+        )
+        return _Principals(
+            users=users,
             groups=group_grants.with_only_columns(GroupRoleAssignment.group_id),
             roles=select(DBRole.id).where(
                 workspace_role,

@@ -48,7 +48,7 @@ from tracecat.auth.users import (
     optional_current_active_user,
 )
 from tracecat.authz.controls import has_scope
-from tracecat.authz.scopes import ALL_WORKSPACES_SCOPE, SERVICE_PRINCIPAL_SCOPES
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.authz.service import workspace_membership_exists
 from tracecat.contexts import ctx_agent_session_id, ctx_role
 from tracecat.db.dependencies import AsyncDBSession
@@ -632,7 +632,7 @@ async def _is_org_admin_via_rbac(
     )
     return has_scope(
         await compute_effective_scopes(role),
-        ALL_WORKSPACES_SCOPE,
+        "org:member:invite",
     )
 
 

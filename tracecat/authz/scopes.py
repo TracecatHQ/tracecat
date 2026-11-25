@@ -383,9 +383,6 @@ ORG_MEMBER_SCOPES: frozenset[str] = frozenset(
 # assigned, so the floor and the role's scope set stay identical.
 ORG_MEMBER_FLOOR_SCOPES: frozenset[str] = ORG_MEMBER_SCOPES
 
-# Holders open every workspace in the org without a membership.
-ALL_WORKSPACES_SCOPE = "org:member:invite"
-
 # The role row outlives its grants because legacy assignments reference it, but
 # it is never listed, assigned or shown.
 ORG_MEMBER_ROLE_SLUG = "organization-member"
