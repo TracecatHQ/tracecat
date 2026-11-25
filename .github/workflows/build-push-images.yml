@@ -2,7 +2,7 @@ name: Publish images
 
 on:
   push:
-    branches: ["staging", "preview"]
+    branches: ["staging"]
     tags:
       - "*.*.*"
       - "nightly-*"
@@ -66,9 +66,19 @@ jobs:
             echo "release=$release"
           } >> "$GITHUB_OUTPUT"
 
+  approve-publish:
+    name: Approve GHCR publishing
+    needs: validate
+    environment: ghcr-publish
+    permissions: {}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: echo 'GHCR publishing approved.'
+
   build-and-push-api:
     timeout-minutes: 30
-    needs: validate
+    needs: [validate, approve-publish]
     permissions:
       contents: read
       packages: write
@@ -203,7 +213,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    needs: [validate, build-and-push-api]
+    needs: [validate, build-and-push-api, approve-publish]
     runs-on: blacksmith-8vcpu-ubuntu-2404
     steps:
       - name: Download digests
@@ -259,7 +269,7 @@ jobs:
 
   build-and-push-tunnel-gateway:
     timeout-minutes: 30
-    needs: validate
+    needs: [validate, approve-publish]
     permissions:
       contents: read
       packages: write
@@ -343,7 +353,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    needs: [validate, build-and-push-tunnel-gateway]
+    needs: [validate, build-and-push-tunnel-gateway, approve-publish]
     runs-on: blacksmith-8vcpu-ubuntu-2404
     steps:
       - name: Download digests
@@ -398,7 +408,7 @@ jobs:
           docker buildx imagetools inspect ghcr.io/tracecathq/tracecat-tunnel-gateway:${{ steps.meta.outputs.version }}
 
   build-and-push-ui:
-    needs: validate
+    needs: [validate, approve-publish]
     permissions:
       contents: read
       packages: write
@@ -475,7 +485,7 @@ jobs:
           push: true
 
   promote-latest:
-    needs: [validate, merge-api, build-and-push-ui, merge-tunnel-gateway]
+    needs: [validate, merge-api, build-and-push-ui, merge-tunnel-gateway, approve-publish]
     if: needs.validate.outputs.latest == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
