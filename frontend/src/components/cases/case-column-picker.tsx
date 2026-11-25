@@ -186,7 +186,7 @@ export function CaseColumnPicker({
                 {selectedCount}/{MAX_VISIBLE_COLUMNS}
               </span>
             </div>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="no-scrollbar flex max-h-[min(320px,calc(var(--radix-popover-content-available-height)-6rem))] flex-wrap gap-1.5 overflow-y-auto">
               {columnOptions.map((option) => {
                 const isSelected = visibleColumnIds.includes(option.columnId)
                 return (
