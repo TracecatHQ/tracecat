@@ -59,6 +59,7 @@ from tracecat.db.models import (
     User,
     Workspace,
 )
+from tracecat.db.rls import is_rls_mode_enforce, set_rls_context
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.pagination import CursorPaginatedResponse, PageParams, paginate
@@ -151,14 +152,14 @@ def _sender_of(content: object) -> ChannelIdentity | None:
     )
 
 
-async def _author_earlier_messages(
+async def _author_in_workspace(
     session: AsyncSession,
     *,
-    organization_id: OrganizationID,
+    workspace_id: WorkspaceID,
     identity: ChannelIdentity,
     user_id: uuid.UUID,
 ) -> None:
-    """Credit `user_id` with the sender's unauthored channel prompts in the org."""
+    """Credit `user_id` with the sender's unauthored channel prompts in one workspace."""
     # Reached through thread links so the scan uses the session_id index.
     candidates = await session.execute(
         select(AgentSessionHistory.id, AgentSessionHistory.content)
@@ -167,9 +168,9 @@ async def _author_earlier_messages(
             AgentSessionThread.session_id == AgentSessionHistory.session_id,
         )
         .join(AgentChannelBot, AgentChannelBot.id == AgentSessionThread.bot_id)
-        .join(Workspace, Workspace.id == AgentSessionThread.workspace_id)
         .where(
-            Workspace.organization_id == organization_id,
+            AgentSessionThread.workspace_id == workspace_id,
+            AgentSessionHistory.workspace_id == workspace_id,
             AgentChannelBot.provider == identity.provider,
             AgentSessionHistory.origin == UserMessageOrigin.CHANNEL,
             AgentSessionHistory.author_id.is_(None),
@@ -193,6 +194,38 @@ async def _author_earlier_messages(
             )
             .values(author_id=user_id)
         )
+
+
+async def _author_earlier_messages(
+    session: AsyncSession,
+    *,
+    organization_id: OrganizationID,
+    workspace_id: WorkspaceID,
+    identity: ChannelIdentity,
+    user_id: uuid.UUID,
+) -> None:
+    """Credit `user_id` with the sender's unauthored channel prompts in every org workspace.
+
+    `workspace_id` is the session's own tenant workspace, restored afterwards.
+    """
+    workspace_ids = (
+        await session.scalars(
+            select(Workspace.id).where(Workspace.organization_id == organization_id)
+        )
+    ).all()
+    # Workspace RLS hides sibling workspaces, so each is read under its own context.
+    enforce = is_rls_mode_enforce()
+    for each_workspace_id in workspace_ids:
+        if enforce:
+            await set_rls_context(session, organization_id, each_workspace_id)
+        await _author_in_workspace(
+            session,
+            workspace_id=each_workspace_id,
+            identity=identity,
+            user_id=user_id,
+        )
+    if enforce:
+        await set_rls_context(session, organization_id, workspace_id)
 
 
 def _actor(user: User) -> ChannelActor:
@@ -454,6 +487,7 @@ async def complete_channel_link(
         await _author_earlier_messages(
             session,
             organization_id=claims.organization_id,
+            workspace_id=claims.workspace_id,
             identity=signed_in.identity,
             user_id=user_id,
         )
