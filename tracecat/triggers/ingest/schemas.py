@@ -107,7 +107,8 @@ class _S3Object(BaseModel):
 
     # URL-encoded as sent. Encoding at most triples the 1024-byte key.
     key: str = Field(min_length=1, max_length=3072)
-    size: int | None = Field(default=None, ge=0)
+    # Bounded so a fabricated value cannot fail JSON encoding (a 500 retried).
+    size: int | None = Field(default=None, ge=0, le=2**63 - 1)
     etag: str | None = Field(default=None, alias="eTag", max_length=128)
     version_id: str | None = Field(default=None, alias="versionId", max_length=1024)
     sequencer: str | None = Field(default=None, max_length=128)

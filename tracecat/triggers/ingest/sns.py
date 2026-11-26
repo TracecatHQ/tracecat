@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import binascii
 import re
 from collections import OrderedDict
 from datetime import datetime, timedelta
@@ -189,7 +188,8 @@ async def verify_envelope(
     url = signing_cert_url(envelope.signing_cert_url, topic=topic)
     try:
         signature = base64.b64decode(envelope.signature, validate=True)
-    except binascii.Error:
+    except ValueError:
+        # binascii.Error for bad base64; plain ValueError for non-ASCII text.
         raise _invalid_signature("Signature is not base64") from None
 
     cert = await get_signing_cert(url, now=now)

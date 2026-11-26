@@ -12,6 +12,7 @@ import asyncio
 import math
 import time
 import uuid
+from typing import Literal
 
 from tracecat import config
 from tracecat.logger import logger
@@ -19,10 +20,9 @@ from tracecat.redis.client import get_redis_client
 
 WINDOW_SECONDS = 60
 _REDIS_TIMEOUT_SECONDS = 1.0
-
-
-def _window_key(source_id: uuid.UUID, window: int) -> str:
-    return f"triggers:ingest:rate:{source_id}:{window}"
+# A genuine source sees a confirmation once per subscribe. Confirmations get
+# their own small window so replayed ones never use the notification budget.
+CONFIRMATIONS_PER_MINUTE = 10
 
 
 async def check_source_rate(source_id: uuid.UUID) -> int | None:
@@ -31,9 +31,28 @@ async def check_source_rate(source_id: uuid.UUID) -> int | None:
     Returns:
         ``None`` if within the cap, else the seconds until the window resets.
     """
+    return await _count(
+        source_id,
+        counter="rate",
+        limit=config.TRACECAT__TRIGGERS_INGEST_RATE_LIMIT_PER_MINUTE,
+    )
+
+
+async def check_confirmation_rate(source_id: uuid.UUID) -> int | None:
+    """Count one subscription confirmation against the source's own small cap.
+
+    Returns:
+        ``None`` if within the cap, else the seconds until the window resets.
+    """
+    return await _count(source_id, counter="confirm", limit=CONFIRMATIONS_PER_MINUTE)
+
+
+async def _count(
+    source_id: uuid.UUID, *, counter: Literal["rate", "confirm"], limit: int
+) -> int | None:
     now = time.time()
     window = int(now // WINDOW_SECONDS)
-    key = _window_key(source_id, window)
+    key = f"triggers:ingest:{counter}:{source_id}:{window}"
     try:
         async with asyncio.timeout(_REDIS_TIMEOUT_SECONDS):
             redis_client = await get_redis_client()
@@ -49,6 +68,6 @@ async def check_source_rate(source_id: uuid.UUID) -> int | None:
             error_type=type(e).__name__,
         )
         return None
-    if int(count) <= config.TRACECAT__TRIGGERS_INGEST_RATE_LIMIT_PER_MINUTE:
+    if int(count) <= limit:
         return None
     return max(1, math.ceil((window + 1) * WINDOW_SECONDS - now))

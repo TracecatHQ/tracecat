@@ -32,7 +32,10 @@ from tracecat.triggers.enums import (
     TriggerKind,
     TriggerStatus,
 )
-from tracecat.triggers.ingest.rate_limit import check_source_rate
+from tracecat.triggers.ingest.rate_limit import (
+    check_confirmation_rate,
+    check_source_rate,
+)
 from tracecat.triggers.ingest.s3 import ParsedObjectEvent, parse_s3_message
 from tracecat.triggers.ingest.schemas import SnsEnvelope, SnsMessageType
 from tracecat.triggers.ingest.sns import confirm_subscription, verify_envelope
@@ -161,7 +164,11 @@ async def _already_queued(
 
 
 async def _charge_rate_cap(source: SnsIngestSource) -> None:
-    if (retry_after := await check_source_rate(source.id)) is not None:
+    await _refuse_if_over(await check_source_rate(source.id))
+
+
+async def _refuse_if_over(retry_after: int | None) -> None:
+    if retry_after is not None:
         raise IngestError(
             IngestErrorCode.RATE_LIMITED,
             "Event source is over its rate cap",
@@ -202,8 +209,9 @@ async def _handle_notification(
 async def _handle_subscription_confirmation(
     envelope: SnsEnvelope, *, source: SnsIngestSource, topic: SnsTopic
 ) -> IngestResult:
-    # Each confirmation calls the SNS API, so it counts against the cap.
-    await _charge_rate_cap(source)
+    # Each confirmation calls the SNS API, so it has a cap of its own, apart
+    # from notifications: replayed confirmations cannot crowd out events.
+    await _refuse_if_over(await check_confirmation_rate(source.id))
     # The model guarantees a token on confirmation messages.
     token = envelope.token or ""
     subscription_arn = await confirm_subscription(topic=topic, token=token)

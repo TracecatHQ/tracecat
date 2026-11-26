@@ -227,6 +227,7 @@ def ingest_env(
     )
     monkeypatch.setattr(ingest_service, "is_org_entitled", _entitled)
     monkeypatch.setattr(ingest_service, "check_source_rate", _within_cap)
+    monkeypatch.setattr(ingest_service, "check_confirmation_rate", _within_cap)
     sns._cert_cache.clear()
     yield
     sns._cert_cache.clear()
@@ -443,8 +444,16 @@ async def test_s3_test_event_is_ignored(
         orjson.dumps({"hello": "world"}).decode(),
         _s3_message({"eventName": "ObjectCreated:Put", "eventSource": "aws:s3"}),
         _s3_message(_s3_record("k" * 1025)),
+        # orjson cannot encode the value either, so splice it into the text.
+        _s3_message(_s3_record()).replace('"size":1024', f'"size":{10**30}'),
     ],
-    ids=["not-json", "no-records", "missing-object-fields", "key-too-long"],
+    ids=[
+        "not-json",
+        "no-records",
+        "missing-object-fields",
+        "key-too-long",
+        "huge-size",
+    ],
 )
 async def test_unusable_message_is_refused_without_rows(
     client: httpx.AsyncClient,
@@ -493,6 +502,25 @@ async def test_bad_signature_is_refused(
 ) -> None:
     envelope = sign("Notification", _s3_message(_s3_record("a.csv")))
     envelope["Message"] = _s3_message(_s3_record("tampered.csv"))
+
+    response = await _post(client, source, envelope)
+
+    assert response.status_code == 403
+    assert _code(response) == "signature_invalid"
+    assert await _outbox(session, source) == []
+
+
+@pytest.mark.parametrize("signature", ["é", "not base64!"])
+async def test_undecodable_signature_is_refused(
+    client: httpx.AsyncClient,
+    session: AsyncSession,
+    source: EventSource,
+    sign: SignFn,
+    aws: respx.MockRouter,
+    signature: str,
+) -> None:
+    envelope = sign("Notification", _s3_message(_s3_record()))
+    envelope["Signature"] = signature
 
     response = await _post(client, source, envelope)
 
@@ -929,7 +957,7 @@ async def test_replayed_queued_message_does_not_use_the_cap(
     assert len(await _outbox(session, source)) == 1
 
 
-async def test_confirmation_counts_against_the_cap(
+async def test_confirmations_have_their_own_cap(
     client: httpx.AsyncClient,
     source: EventSource,
     sign: SignFn,
@@ -937,15 +965,24 @@ async def test_confirmation_counts_against_the_cap(
     confirm_calls: list[tuple[str, str]],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    notifications_charged: list[uuid.UUID] = []
+
     async def _over_cap(_: uuid.UUID) -> int | None:
         return 5
 
-    monkeypatch.setattr(ingest_service, "check_source_rate", _over_cap)
+    async def _count_notification(source_id: uuid.UUID) -> int | None:
+        notifications_charged.append(source_id)
+        return None
+
+    monkeypatch.setattr(ingest_service, "check_confirmation_rate", _over_cap)
+    monkeypatch.setattr(ingest_service, "check_source_rate", _count_notification)
 
     response = await _post(client, source, sign("SubscriptionConfirmation", "confirm"))
 
     assert response.status_code == 503
     assert confirm_calls == []
+    # Confirmations never use the notification budget.
+    assert notifications_charged == []
 
 
 # ----- Subscription confirmation -----
@@ -1203,6 +1240,23 @@ async def test_rate_cap_counts_per_source(monkeypatch: pytest.MonkeyPatch) -> No
     retry_after = await rate_limit.check_source_rate(source_a)
     assert retry_after is not None and 1 <= retry_after <= rate_limit.WINDOW_SECONDS
     assert await rate_limit.check_source_rate(source_b) is None
+
+
+async def test_confirmation_cap_is_separate_from_notifications(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _FakeRedisClient(_FakeRedis())
+
+    async def _get() -> _FakeRedisClient:
+        return fake
+
+    monkeypatch.setattr(rate_limit, "get_redis_client", _get)
+    source_id = uuid.uuid4()
+
+    for _ in range(rate_limit.CONFIRMATIONS_PER_MINUTE):
+        assert await rate_limit.check_confirmation_rate(source_id) is None
+    assert await rate_limit.check_confirmation_rate(source_id) is not None
+    assert await rate_limit.check_source_rate(source_id) is None
 
 
 async def test_rate_cap_fails_open_without_redis(
