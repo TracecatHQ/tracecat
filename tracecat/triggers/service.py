@@ -20,6 +20,7 @@ from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import check_scopes, has_scope
 from tracecat.db.errors import is_unique_violation
+from tracecat.db.locks import derive_lock_key_from_parts, pg_advisory_xact_lock
 from tracecat.db.models import (
     AgentPreset,
     EventSource,
@@ -82,7 +83,9 @@ def _not_found(what: str) -> TriggerError:
 def _source_config(source: EventSource) -> EventSourceConfig:
     match EventSourceKind(source.kind):
         case EventSourceKind.AWS_SNS:
-            return AwsSnsSourceConfig.model_validate(source.config)
+            return AwsSnsSourceConfig.model_validate(
+                {**source.config, "kind": source.kind}
+            )
 
 
 def _source_identity(config: EventSourceConfig) -> tuple[str, ...]:
@@ -205,6 +208,7 @@ class TriggersService(BaseWorkspaceService):
             TriggerError: ``not_found``, ``invalid`` if the config changes
                 kind, or ``conflict`` as for create.
         """
+        await self._lock_config()
         source = await self.get_event_source(source_id)
         moves_feed = params.config is not None and _source_identity(
             params.config
@@ -360,6 +364,7 @@ class TriggersService(BaseWorkspaceService):
             TriggerError: ``not_found``, or ``invalid`` if the config is of
                 another kind or names a source that cannot feed it.
         """
+        await self._lock_config()
         trigger = await self._get_trigger_row(trigger_id)
         if params.config is not None and params.config.kind != trigger.kind:
             raise TriggerError(
@@ -452,6 +457,7 @@ class TriggersService(BaseWorkspaceService):
                     )
                     for trigger_id, source_id, key_prefix, source_name in rows.tuples():
                         configs[trigger_id] = ObjectStorageTriggerConfigRead(
+                            kind=TriggerKind.OBJECT_STORAGE,
                             source_id=source_id,
                             key_prefix=key_prefix,
                             source_name=source_name,
@@ -472,6 +478,7 @@ class TriggersService(BaseWorkspaceService):
                 workspace, ``conflict`` if the trigger already has that target.
         """
         _check_can_run(self.role, params.target.type)
+        await self._lock_config()
         trigger = await self._get_trigger_row(trigger_id)
         binding = TriggerBinding(
             workspace_id=self.workspace_id,
@@ -523,6 +530,7 @@ class TriggersService(BaseWorkspaceService):
             TriggerError: ``not_found``, or ``invalid`` for an instruction on a
                 workflow binding.
         """
+        await self._lock_config()
         binding = await self._get_binding_row(trigger_id, binding_id)
         if params.status == TriggerStatus.ONLINE or params.instruction is not None:
             _check_can_run(self.role, TriggerTargetType(binding.target_type))
@@ -565,11 +573,30 @@ class TriggersService(BaseWorkspaceService):
     async def read_binding(self, binding: TriggerBinding) -> TriggerBindingRead:
         """Build the API view of one binding."""
         (item,) = await self._read_bindings(
-            select_bindings().where(TriggerBinding.id == binding.id)
+            select_bindings().where(
+                TriggerBinding.workspace_id == self.workspace_id,
+                TriggerBinding.trigger_id == binding.trigger_id,
+                TriggerBinding.id == binding.id,
+            )
         )
         return item
 
     # ----- Helpers -----
+
+    async def _lock_config(self) -> None:
+        """Serialize this workspace's trigger config writes until commit.
+
+        Whether a write needs the execute scope depends on the state of the
+        source, trigger and bindings behind it. Every write that checks or
+        changes that state takes this lock before reading, so the check never
+        runs against a state another request is about to change.
+        """
+        await pg_advisory_xact_lock(
+            self.session,
+            derive_lock_key_from_parts(
+                "tracecat.triggers.config", str(self.workspace_id)
+            ),
+        )
 
     async def _check_can_run_bound(
         self, trigger_ids: Select[Any] | Sequence[uuid.UUID]

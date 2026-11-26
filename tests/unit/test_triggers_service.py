@@ -20,7 +20,9 @@ from tracecat.db.models import (
 from tracecat.exceptions import ScopeDeniedError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.pagination import PageParams
+from tracecat.triggers import service as trigger_service
 from tracecat.triggers.enums import (
+    EventSourceKind,
     SubscriptionStatus,
     TriggerErrorCode,
     TriggerKind,
@@ -50,7 +52,7 @@ TOPIC = "arn:aws:sns:us-east-1:123456789012:bucket-events"
 
 
 def _sns(topic: str = TOPIC) -> AwsSnsSourceConfig:
-    return AwsSnsSourceConfig(topic_arn=topic)
+    return AwsSnsSourceConfig(kind=EventSourceKind.AWS_SNS, topic_arn=topic)
 
 
 @pytest.fixture
@@ -108,7 +110,9 @@ async def _trigger(service: TriggersService, prefix: str = "") -> uuid.UUID:
     trigger = await service.create_trigger(
         TriggerCreate(
             name="uploads",
-            config=ObjectStorageTriggerConfig(source_id=source.id, key_prefix=prefix),
+            config=ObjectStorageTriggerConfig(
+                kind=TriggerKind.OBJECT_STORAGE, source_id=source.id, key_prefix=prefix
+            ),
         )
     )
     return trigger.id
@@ -209,7 +213,10 @@ async def test_trigger_header_and_settings_round_trip(
     read = await service.get_trigger(trigger_id)
     assert read.kind is TriggerKind.OBJECT_STORAGE
     assert read.config == ObjectStorageTriggerConfigRead(
-        source_id=settings.source_id, source_name="bucket", key_prefix="incoming/"
+        kind=TriggerKind.OBJECT_STORAGE,
+        source_id=settings.source_id,
+        source_name="bucket",
+        key_prefix="incoming/",
     )
     assert read.status is TriggerStatus.OFFLINE
     assert read.bindings == []
@@ -218,7 +225,9 @@ async def test_trigger_header_and_settings_round_trip(
         trigger_id,
         TriggerUpdate(
             config=ObjectStorageTriggerConfig(
-                source_id=settings.source_id, key_prefix="other/"
+                kind=TriggerKind.OBJECT_STORAGE,
+                source_id=settings.source_id,
+                key_prefix="other/",
             ),
             status=TriggerStatus.ONLINE,
         ),
@@ -242,7 +251,10 @@ async def test_a_refused_trigger_leaves_no_header(
     with pytest.raises(TriggerError) as exc:
         await service.create_trigger(
             TriggerCreate(
-                name="t", config=ObjectStorageTriggerConfig(source_id=foreign.id)
+                name="t",
+                config=ObjectStorageTriggerConfig(
+                    kind=TriggerKind.OBJECT_STORAGE, source_id=foreign.id
+                ),
             )
         )
     assert exc.value.code is TriggerErrorCode.NOT_FOUND
@@ -283,7 +295,10 @@ async def test_delete_trigger_removes_its_bindings(
     binding = await service.create_binding(
         trigger_id,
         TriggerBindingCreate(
-            target=WorkflowBindingTarget(workflow_id=WorkflowUUID.new(workflow.id))
+            target=WorkflowBindingTarget(
+                type=TriggerTargetType.WORKFLOW,
+                workflow_id=WorkflowUUID.new(workflow.id),
+            )
         ),
     )
 
@@ -309,7 +324,8 @@ async def test_bindings_for_both_target_types(
         trigger_id,
         TriggerBindingCreate(
             target=WorkflowBindingTarget(
-                workflow_id=WorkflowUUID.new(workflow.id).short()
+                type=TriggerTargetType.WORKFLOW,
+                workflow_id=WorkflowUUID.new(workflow.id).short(),
             )
         ),
     )
@@ -317,7 +333,9 @@ async def test_bindings_for_both_target_types(
         trigger_id,
         TriggerBindingCreate(
             target=AgentBindingTarget(
-                agent_preset_id=preset.id, instruction="Summarize the file"
+                type=TriggerTargetType.AGENT,
+                agent_preset_id=preset.id,
+                instruction="Summarize the file",
             )
         ),
     )
@@ -356,7 +374,9 @@ async def test_a_trigger_binds_a_target_once(
 ) -> None:
     trigger_id = await _trigger(service)
     params = TriggerBindingCreate(
-        target=WorkflowBindingTarget(workflow_id=WorkflowUUID.new(workflow.id))
+        target=WorkflowBindingTarget(
+            type=TriggerTargetType.WORKFLOW, workflow_id=WorkflowUUID.new(workflow.id)
+        )
     )
     await service.create_binding(trigger_id, params)
 
@@ -374,8 +394,12 @@ async def test_binding_targets_must_be_in_the_workspace(
 ) -> None:
     trigger_id = await _trigger(other_service)
     for target in (
-        WorkflowBindingTarget(workflow_id=WorkflowUUID.new(workflow.id)),
-        AgentBindingTarget(agent_preset_id=preset.id, instruction="i"),
+        WorkflowBindingTarget(
+            type=TriggerTargetType.WORKFLOW, workflow_id=WorkflowUUID.new(workflow.id)
+        ),
+        AgentBindingTarget(
+            type=TriggerTargetType.AGENT, agent_preset_id=preset.id, instruction="i"
+        ),
     ):
         with pytest.raises(TriggerError) as exc:
             await other_service.create_binding(
@@ -391,7 +415,11 @@ async def test_binding_targets_must_be_in_the_workspace(
         await service.create_binding(
             own_trigger,
             TriggerBindingCreate(
-                target=AgentBindingTarget(agent_preset_id=preset.id, instruction="i")
+                target=AgentBindingTarget(
+                    type=TriggerTargetType.AGENT,
+                    agent_preset_id=preset.id,
+                    instruction="i",
+                )
             ),
         )
     assert exc.value.code is TriggerErrorCode.NOT_FOUND
@@ -406,13 +434,18 @@ async def test_list_triggers_filters_and_returns_bindings_in_one_page(
     await service.create_binding(
         to_workflow,
         TriggerBindingCreate(
-            target=WorkflowBindingTarget(workflow_id=WorkflowUUID.new(workflow.id))
+            target=WorkflowBindingTarget(
+                type=TriggerTargetType.WORKFLOW,
+                workflow_id=WorkflowUUID.new(workflow.id),
+            )
         ),
     )
     await service.create_binding(
         to_agent,
         TriggerBindingCreate(
-            target=AgentBindingTarget(agent_preset_id=preset.id, instruction="i")
+            target=AgentBindingTarget(
+                type=TriggerTargetType.AGENT, agent_preset_id=preset.id, instruction="i"
+            )
         ),
     )
 
@@ -446,7 +479,9 @@ async def test_making_a_binding_live_needs_the_right_to_run_its_target(
     agent = await service.create_binding(
         trigger_id,
         TriggerBindingCreate(
-            target=AgentBindingTarget(agent_preset_id=preset.id, instruction="i"),
+            target=AgentBindingTarget(
+                type=TriggerTargetType.AGENT, agent_preset_id=preset.id, instruction="i"
+            ),
             status=TriggerStatus.OFFLINE,
         ),
     )
@@ -463,8 +498,12 @@ async def test_making_a_binding_live_needs_the_right_to_run_its_target(
     )
 
     for target in (
-        WorkflowBindingTarget(workflow_id=WorkflowUUID.new(workflow.id)),
-        AgentBindingTarget(agent_preset_id=preset.id, instruction="i"),
+        WorkflowBindingTarget(
+            type=TriggerTargetType.WORKFLOW, workflow_id=WorkflowUUID.new(workflow.id)
+        ),
+        AgentBindingTarget(
+            type=TriggerTargetType.AGENT, agent_preset_id=preset.id, instruction="i"
+        ),
     ):
         with pytest.raises(ScopeDeniedError):
             await configurer.create_binding(
@@ -494,12 +533,16 @@ async def test_turning_on_or_repointing_what_runs_a_target_needs_its_scope(
     source = await service.create_event_source(
         EventSourceCreate(name="bucket", config=_sns(), status=TriggerStatus.ONLINE)
     )
-    config = ObjectStorageTriggerConfig(source_id=source.id)
+    config = ObjectStorageTriggerConfig(
+        kind=TriggerKind.OBJECT_STORAGE, source_id=source.id
+    )
     trigger = await service.create_trigger(TriggerCreate(name="t", config=config))
     await service.create_binding(
         trigger.id,
         TriggerBindingCreate(
-            target=AgentBindingTarget(agent_preset_id=preset.id, instruction="i")
+            target=AgentBindingTarget(
+                type=TriggerTargetType.AGENT, agent_preset_id=preset.id, instruction="i"
+            )
         ),
     )
     configurer = TriggersService(
@@ -557,9 +600,11 @@ async def test_turning_on_or_repointing_what_runs_a_target_needs_its_scope(
 def test_long_topic_names_are_accepted() -> None:
     # AWS allows topic names up to 256 characters.
     prefix = "arn:aws-us-gov:sns:us-gov-west-1:123456789012:"
-    assert AwsSnsSourceConfig(topic_arn=prefix + "a" * 256)
+    assert AwsSnsSourceConfig(
+        kind=EventSourceKind.AWS_SNS, topic_arn=prefix + "a" * 256
+    )
     with pytest.raises(ValueError):
-        AwsSnsSourceConfig(topic_arn=prefix + "a" * 257)
+        AwsSnsSourceConfig(kind=EventSourceKind.AWS_SNS, topic_arn=prefix + "a" * 257)
 
 
 # ----- Helpers -----
@@ -579,3 +624,41 @@ def test_occurrence_key_is_stable_and_distinguishes_versions() -> None:
     assert build_occurrence_key(
         bucket="ab", key="c", version_id=None, sequencer=None
     ) != build_occurrence_key(bucket="a", key="bc", version_id=None, sequencer=None)
+
+
+async def test_gated_writes_take_the_workspace_config_lock(
+    service: TriggersService,
+    workflow: Workflow,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Writes whose scope check reads other rows serialize on one lock."""
+    trigger_id = await _trigger(service)
+    source_id = (await service.get_trigger(trigger_id)).config.source_id
+    keys: list[int] = []
+    real_lock = trigger_service.pg_advisory_xact_lock
+
+    async def recording_lock(session: AsyncSession, key: int) -> None:
+        keys.append(key)
+        await real_lock(session, key)
+
+    monkeypatch.setattr(trigger_service, "pg_advisory_xact_lock", recording_lock)
+
+    binding = await service.create_binding(
+        trigger_id,
+        TriggerBindingCreate(
+            target=WorkflowBindingTarget(
+                type=TriggerTargetType.WORKFLOW,
+                workflow_id=WorkflowUUID.new(workflow.id),
+            )
+        ),
+    )
+    await service.update_binding(
+        trigger_id, binding.id, TriggerBindingUpdate(status=TriggerStatus.ONLINE)
+    )
+    await service.update_trigger(trigger_id, TriggerUpdate(status=TriggerStatus.ONLINE))
+    await service.update_event_source(
+        source_id, EventSourceUpdate(status=TriggerStatus.ONLINE)
+    )
+
+    assert len(keys) == 4
+    assert len(set(keys)) == 1

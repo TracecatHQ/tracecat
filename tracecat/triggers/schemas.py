@@ -69,7 +69,7 @@ Instruction = Annotated[
 class AwsSnsSourceConfig(Schema):
     """Events pushed by a customer-owned SNS topic, pinned by its ARN."""
 
-    kind: Literal[EventSourceKind.AWS_SNS] = EventSourceKind.AWS_SNS
+    kind: Literal[EventSourceKind.AWS_SNS]
     topic_arn: TopicArn
 
 
@@ -116,7 +116,7 @@ class EventSourceRead(Schema):
 class ObjectStorageTriggerConfig(Schema):
     """Fire once for each object created in a source whose key matches."""
 
-    kind: Literal[TriggerKind.OBJECT_STORAGE] = TriggerKind.OBJECT_STORAGE
+    kind: Literal[TriggerKind.OBJECT_STORAGE]
     source_id: uuid.UUID = Field(
         description="The event source to read object events from"
     )
@@ -182,14 +182,14 @@ class TriggerRead(Schema):
 class WorkflowBindingTarget(Schema):
     """Start the workflow's published definition with the event as its input."""
 
-    type: Literal[TriggerTargetType.WORKFLOW] = TriggerTargetType.WORKFLOW
+    type: Literal[TriggerTargetType.WORKFLOW]
     workflow_id: AnyWorkflowID
 
 
 class AgentBindingTarget(Schema):
     """Start a new session of the agent preset's current version."""
 
-    type: Literal[TriggerTargetType.AGENT] = TriggerTargetType.AGENT
+    type: Literal[TriggerTargetType.AGENT]
     agent_preset_id: uuid.UUID
     instruction: Instruction
 

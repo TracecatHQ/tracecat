@@ -1395,7 +1395,6 @@ export const $AgentBindingTarget = {
       type: "string",
       const: "agent",
       title: "Type",
-      default: "agent",
     },
     agent_preset_id: {
       type: "string",
@@ -1412,7 +1411,7 @@ export const $AgentBindingTarget = {
     },
   },
   type: "object",
-  required: ["agent_preset_id", "instruction"],
+  required: ["type", "agent_preset_id", "instruction"],
   title: "AgentBindingTarget",
   description: "Start a new session of the agent preset's current version.",
 } as const
@@ -8001,7 +8000,6 @@ export const $AwsSnsSourceConfig = {
       type: "string",
       const: "aws_sns",
       title: "Kind",
-      default: "aws_sns",
     },
     topic_arn: {
       type: "string",
@@ -8014,7 +8012,7 @@ export const $AwsSnsSourceConfig = {
     },
   },
   type: "object",
-  required: ["topic_arn"],
+  required: ["kind", "topic_arn"],
   title: "AwsSnsSourceConfig",
   description:
     "Events pushed by a customer-owned SNS topic, pinned by its ARN.",
@@ -29816,7 +29814,6 @@ export const $ObjectStorageTriggerConfig = {
       type: "string",
       const: "object_storage",
       title: "Kind",
-      default: "object_storage",
     },
     source_id: {
       type: "string",
@@ -29834,7 +29831,7 @@ export const $ObjectStorageTriggerConfig = {
     },
   },
   type: "object",
-  required: ["source_id"],
+  required: ["kind", "source_id"],
   title: "ObjectStorageTriggerConfig",
   description:
     "Fire once for each object created in a source whose key matches.",
@@ -29846,7 +29843,6 @@ export const $ObjectStorageTriggerConfigRead = {
       type: "string",
       const: "object_storage",
       title: "Kind",
-      default: "object_storage",
     },
     source_id: {
       type: "string",
@@ -29869,7 +29865,7 @@ export const $ObjectStorageTriggerConfigRead = {
     },
   },
   type: "object",
-  required: ["source_id", "source_name"],
+  required: ["kind", "source_id", "source_name"],
   title: "ObjectStorageTriggerConfigRead",
 } as const
 
@@ -48441,7 +48437,6 @@ export const $WorkflowBindingTarget = {
       type: "string",
       const: "workflow",
       title: "Type",
-      default: "workflow",
     },
     workflow_id: {
       anyOf: [
@@ -48458,7 +48453,7 @@ export const $WorkflowBindingTarget = {
     },
   },
   type: "object",
-  required: ["workflow_id"],
+  required: ["type", "workflow_id"],
   title: "WorkflowBindingTarget",
   description:
     "Start the workflow's published definition with the event as its input.",

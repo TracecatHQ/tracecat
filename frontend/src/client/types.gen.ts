@@ -428,7 +428,7 @@ export type AgentBackendRead = {
  * Start a new session of the agent preset's current version.
  */
 export type AgentBindingTarget = {
-  type?: "agent"
+  type: "agent"
   agent_preset_id: string
   /**
    * What the agent should do with each event. The event itself is added to the first message as data, never as instructions.
@@ -2216,7 +2216,7 @@ export type AwsSecretsManagerStoreUpdate = {
  * Events pushed by a customer-owned SNS topic, pinned by its ARN.
  */
 export type AwsSnsSourceConfig = {
-  kind?: "aws_sns"
+  kind: "aws_sns"
   /**
    * ARN of the customer's SNS topic. The source accepts no other.
    */
@@ -9255,7 +9255,7 @@ export type encoding2 = "json" | "json+zstd" | "json+gzip"
  * Fire once for each object created in a source whose key matches.
  */
 export type ObjectStorageTriggerConfig = {
-  kind?: "object_storage"
+  kind: "object_storage"
   /**
    * The event source to read object events from
    */
@@ -9267,7 +9267,7 @@ export type ObjectStorageTriggerConfig = {
 }
 
 export type ObjectStorageTriggerConfigRead = {
-  kind?: "object_storage"
+  kind: "object_storage"
   /**
    * The event source to read object events from
    */
@@ -14691,7 +14691,7 @@ export type WorkflowArtifact = {
  * Start the workflow's published definition with the event as its input.
  */
 export type WorkflowBindingTarget = {
-  type?: "workflow"
+  type: "workflow"
   workflow_id: string
 }
 
