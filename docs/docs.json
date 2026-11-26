@@ -55,7 +55,8 @@
                   "automations/triggers/task-triggers",
                   "automations/triggers/case-triggers",
                   "automations/triggers/comment-triggers",
-                  "automations/triggers/forms"
+                  "automations/triggers/forms",
+                  "automations/triggers/object-storage"
                 ]
               },
               {
