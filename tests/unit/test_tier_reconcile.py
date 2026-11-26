@@ -66,12 +66,14 @@ async def test_applies_only_declared_fields(session: AsyncSession) -> None:
 
     assert changes == [
         TierLimitChange(
+            tier_id=tier.id,
             tier_name=tier.display_name,
             field=ConcurrencyLimitName.MAX_CONCURRENT_ACTIONS,
             old=5,
             new=40,
         ),
         TierLimitChange(
+            tier_id=tier.id,
             tier_name=tier.display_name,
             field=ConcurrencyLimitName.MAX_CONCURRENT_TOOL_CALLS,
             old=None,

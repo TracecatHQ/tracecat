@@ -101,7 +101,11 @@ async def reconcile_tier_limits(
                 continue
             changes.append(
                 TierLimitChange(
-                    tier_name=tier.display_name, field=field, old=old, new=new
+                    tier_id=tier.id,
+                    tier_name=tier.display_name,
+                    field=field,
+                    old=old,
+                    new=new,
                 )
             )
             if not dry_run:
@@ -138,7 +142,9 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 
 
 async def _run(declared: DeclaredTierLimitsFile, *, dry_run: bool) -> int:
-    # A normal session: tier is a global table with no RLS policy.
+    # The app's normal session, so the deployment's RLS mode applies as it
+    # does to the API (off and shadow bypass; enforce denies by default).
+    # tier is a global table with no policy, so it loads in every mode.
     async with get_async_session_context_manager() as session:
         changes = await reconcile_tier_limits(session, declared, dry_run=dry_run)
 

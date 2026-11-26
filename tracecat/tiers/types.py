@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Annotated, TypedDict
@@ -150,6 +151,7 @@ class ConcurrencyUsage:
 class TierLimitChange:
     """One tier field that declared limits change."""
 
+    tier_id: uuid.UUID
     tier_name: str
     field: ConcurrencyLimitName
     old: int | None
