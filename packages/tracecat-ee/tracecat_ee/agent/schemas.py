@@ -9,6 +9,7 @@ from tracecat.agent.common.types import (
 )
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import OutputType
+from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
 # ``extra="ignore"`` keeps Temporal activity replay working after the legacy
 # ``use_workspace_credentials`` field was dropped — in-flight workflow history
@@ -70,6 +71,13 @@ class AgentActionArgs(BaseModel):
     tool_approvals: dict[str, bool] | None = None
     tool_tunnels: dict[str, str] | None = None
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
+    environment: str = Field(
+        default=DEFAULT_SECRETS_ENVIRONMENT,
+        description=(
+            "Environment resolved from the action's environment override, which "
+            "the agent's registry tool calls inherit."
+        ),
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -105,6 +113,13 @@ class PresetAgentActionArgs(BaseModel):
     )
     # A Slack channel ID, or a linked user's email for a DM; see `ai.preset_agent`.
     channel: str | None = Field(default=None, min_length=1)
+    environment: str = Field(
+        default=DEFAULT_SECRETS_ENVIRONMENT,
+        description=(
+            "Environment resolved from the action's environment override, which "
+            "the agent's registry tool calls inherit."
+        ),
+    )
 
     @model_validator(mode="after")
     def channel_starts_a_session(self) -> "PresetAgentActionArgs":

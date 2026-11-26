@@ -11,6 +11,7 @@ from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import DeferredToolApprovalResult
 from tracecat.auth.types import Role
+from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
 
 class AgentWorkflowArgs(BaseModel):
@@ -53,6 +54,13 @@ class AgentWorkflowArgs(BaseModel):
     prompt_run_id: uuid.UUID | None = Field(
         default=None,
         description="The run that first sent a retried prompt; None for a new message.",
+    )
+    environment: str = Field(
+        default=DEFAULT_SECRETS_ENVIRONMENT,
+        description=(
+            "Environment whose secrets the agent's registry tool calls resolve "
+            "against, inherited from the calling action's environment override."
+        ),
     )
 
 

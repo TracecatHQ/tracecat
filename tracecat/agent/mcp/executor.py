@@ -47,6 +47,7 @@ from tracecat.identifiers import WorkflowUUID
 from tracecat.identifiers.workflow import ExecutionUUID
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.storage.object import (
     StoredObject,
     StoredObjectValidator,
@@ -135,6 +136,7 @@ async def execute_action(
         action_name,
         args,
         registry_lock,
+        environment=claims.environment,
         agent_session_id=claims.session_id,
         tunnel=claims.tool_tunnels.get(action_name),
     )
@@ -201,7 +203,7 @@ def build_run_input(
     run_id: UUID | None = None,
     execution_id: UUID | None = None,
     logical_time: datetime | None = None,
-    environment: str = "default",
+    environment: str = DEFAULT_SECRETS_ENVIRONMENT,
     agent_session_id: UUID | None = None,
     tunnel: str | None = None,
 ) -> RunActionInput:
@@ -211,6 +213,7 @@ def build_run_input(
         action_name: The action to execute
         args: Arguments for the action
         registry_lock: Registry lock with origin→version mappings for action resolution
+        environment: Environment-scoped secret environment for the action
         agent_session_id: Verified agent session provenance, when available.
         tunnel: Workspace tunnel to route the action through, if any.
     """

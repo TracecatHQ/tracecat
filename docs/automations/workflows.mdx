@@ -162,6 +162,8 @@ email: ${{ ACTIONS.contact.result.email }}
 You can specify a default environment to use for the workflow.
 Actions without an environment override will use the default environment to pull secrets and variables from.
 
+Agent actions pass their resolved environment to the integration actions they call as tools, so those tools use the same environment's credentials.
+
 ## Export / import workflows
 
 <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge> users should use Tracecat's [Git sync](/gitops/workspace-git-sync) feature to push and pull their workflow definitions directly from a remote Git repository.

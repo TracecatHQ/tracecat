@@ -4,6 +4,7 @@ import asyncio
 import uuid
 from dataclasses import dataclass
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, Mock, call
 
 import anyio
@@ -439,6 +440,39 @@ def test_build_run_input_sets_tool_tunnel() -> None:
     direct = executor.build_run_input("core.http_request", {}, lock)
     assert tunneled.task.tunnel == "onprem"
     assert direct.task.tunnel is None
+
+
+def test_build_run_input_defaults_to_the_default_environment() -> None:
+    lock = RegistryLock(origins={"tracecat_registry": "1.0.0"}, actions={})
+    run_input = executor.build_run_input("core.http_request", {}, lock)
+    assert run_input.run_context.environment == "default"
+
+
+@pytest.mark.anyio
+async def test_execute_action_runs_in_the_claim_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    claims = _build_claims().model_copy(update={"environment": "environment_a"})
+    started: list[Any] = []
+
+    async def start(workflow_input: Any, **_kwargs: Any) -> dict[str, bool]:
+        started.append(workflow_input)
+        return {"ok": True}
+
+    async def capacity_wait(run: Any, **_kwargs: Any) -> Any:
+        return await run()
+
+    monkeypatch.setattr(executor, "_execute_action_workflow", start)
+    monkeypatch.setattr(executor, "run_with_capacity_wait", capacity_wait)
+    monkeypatch.setattr(
+        executor, "retrieve_stored_object", AsyncMock(return_value={"ok": True})
+    )
+
+    await executor.execute_action(
+        "core.http_request", {}, claims, _build_registry_lock()
+    )
+
+    assert started[0].run_input.run_context.environment == "environment_a"
 
 
 @pytest.mark.anyio

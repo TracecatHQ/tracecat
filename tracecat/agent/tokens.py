@@ -28,6 +28,7 @@ from tracecat.agent.mcp.utils import canonical_mcp_tool_name
 from tracecat.auth.secrets import get_service_key
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
 # -----------------------------------------------------------------------------
 # MCP Token (for tool execution)
@@ -136,6 +137,10 @@ class MCPTokenClaims(BaseModel):
     tool_tunnels: dict[str, str] = Field(default_factory=dict)
     """Workspace tunnel name by registry action. Calls to these actions run
     through the tunnel and fail if it cannot be used."""
+    environment: str = DEFAULT_SECRETS_ENVIRONMENT
+    """Environment-scoped secret environment the tool calls resolve against.
+
+    Defaults to ``default`` for tokens minted before the claim existed."""
     registry_lock: RegistryLock | None = None
     """Registry lock resolved for this token's registry actions.
 
@@ -166,6 +171,7 @@ def mint_mcp_token(
     allowed_internal_tools: list[str] | None = None,
     internal_tool_context: InternalToolContext | None = None,
     tool_tunnels: dict[str, str] | None = None,
+    environment: str = DEFAULT_SECRETS_ENVIRONMENT,
     ttl_seconds: int | None = None,
 ) -> str:
     """Create a signed MCP JWT containing workspace identity and allowed actions.
@@ -191,6 +197,8 @@ def mint_mcp_token(
         allowed_internal_tools: Set of allowed internal tool names
         internal_tool_context: Context for internal tools (preset_id, entity_type)
         tool_tunnels: Workspace tunnel name by registry action
+        environment: Environment-scoped secret environment the token's tool
+            calls resolve against
         ttl_seconds: Token TTL in seconds (defaults to the agent sandbox timeout
             plus a small buffer so the token outlives one full turn)
 
@@ -234,6 +242,7 @@ def mint_mcp_token(
             allowed_internal_tools=allowed_internal_tools or [],
             internal_tool_context=internal_tool_context,
             tool_tunnels=tool_tunnels or {},
+            environment=environment,
             registry_lock=registry_lock,
         ).model_dump(mode="json", exclude_none=True)
     )

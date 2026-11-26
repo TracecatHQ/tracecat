@@ -148,6 +148,37 @@ def test_mcp_token_without_deferred_actions_claim_still_verifies(monkeypatch) ->
     assert claims.deferred_actions == []
 
 
+def test_mcp_token_round_trips_environment(monkeypatch) -> None:
+    workspace_id, organization_id, session_id = _setup_service_key(monkeypatch)
+    token = mint_mcp_token(
+        workspace_id=workspace_id,
+        organization_id=organization_id,
+        allowed_actions=["core.http_request"],
+        session_id=session_id,
+        registry_lock=_registry_lock(),
+        environment="environment_a",
+    )
+
+    assert verify_mcp_token(token).environment == "environment_a"
+
+
+def test_mcp_token_without_environment_claim_defaults_to_default(monkeypatch) -> None:
+    """Tokens signed before the environment claim existed resolve in default."""
+    workspace_id, organization_id, session_id = _setup_service_key(monkeypatch)
+    token = mint_mcp_token(
+        workspace_id=workspace_id,
+        organization_id=organization_id,
+        allowed_actions=["core.http_request"],
+        session_id=session_id,
+        registry_lock=_registry_lock(),
+    )
+    payload = jwt.decode(token, options={"verify_signature": False})
+    del payload["environment"]
+    legacy = jwt.encode(payload, get_service_key(), algorithm="HS256")
+
+    assert verify_mcp_token(legacy).environment == "default"
+
+
 def test_mcp_token_rejects_action_both_allowed_and_deferred(monkeypatch) -> None:
     workspace_id, organization_id, session_id = _setup_service_key(monkeypatch)
 

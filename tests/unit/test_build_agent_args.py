@@ -581,6 +581,46 @@ class TestBuildPresetAgentArgsActivity:
         assert result.output_type == schema
 
 
+@pytest.mark.anyio
+@pytest.mark.parametrize("preset", [False, True], ids=["agent", "preset-agent"])
+@pytest.mark.parametrize(
+    ("task_environment", "expected"),
+    [(None, "workflow-env"), ("action-env", "action-env")],
+    ids=["workflow-default", "action-override"],
+)
+async def test_resolved_environment_is_carried_for_agent_tool_calls(
+    role: Role,
+    preset: bool,
+    task_environment: str | None,
+    expected: str,
+) -> None:
+    """Agent tool calls inherit the calling action's resolved environment."""
+    input = BuildAgentArgsActivityInput(
+        args=(
+            {"preset": "my-preset", "user_prompt": "Hello"}
+            if preset
+            else {
+                "user_prompt": "Hello",
+                "model_name": "test-model",
+                "model_provider": "test-provider",
+            }
+        ),
+        operand=_make_context(),
+        role=role,
+        task_environment=task_environment,
+        default_environment="workflow-env",
+    )
+    build_activity = (
+        DSLActivities.build_preset_agent_args_activity
+        if preset
+        else DSLActivities.build_agent_args_activity
+    )
+
+    result = await build_activity(input)
+
+    assert result.environment == expected
+
+
 def test_agent_action_args_limits_default_to_unlimited() -> None:
     args = AgentActionArgs(
         user_prompt="hi", model_name="claude-sonnet-4-6", model_provider="anthropic"

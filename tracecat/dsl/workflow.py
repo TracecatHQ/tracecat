@@ -1094,6 +1094,7 @@ class DSLWorkflow:
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
                         entity_id=self.run_context.wf_id,
+                        environment=action_args.environment,
                     )
                     action_result = await self._run_agent_turn(task, arg, stream_id)
                 case PlatformAction.AI_PRESET_AGENT:
@@ -1187,6 +1188,7 @@ class DSLWorkflow:
                         agent_preset_version_id=preset_ref.preset_version_id,
                         continue_existing_session=preset_action_args.session_id
                         is not None,
+                        environment=preset_action_args.environment,
                     )
                     action_result = await self._run_agent_turn(task, arg, stream_id)
                     if reply_thread is not None:
@@ -1853,6 +1855,7 @@ class DSLWorkflow:
             entity_type=AgentSessionEntity.WORKFLOW,
             entity_id=self.run_context.wf_id,
             continue_existing_session=action_args.session_id is not None,
+            environment=action_args.environment,
         )
         return await self._run_agent_turn(task, arg, stream_id)
 

@@ -140,6 +140,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.logger import logger
     from tracecat.registry.lock.types import RegistryLock
     from tracecat.runtime.errors import RuntimeErrorClassification
+    from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
     from tracecat.temporal.error_chain import iter_error_chain
     from tracecat.temporal.errors import (
         build_error_transport_detail,
@@ -251,6 +252,7 @@ def _build_approved_tool_run_input(
     logical_time: datetime,
     agent_session_id: uuid.UUID,
     tool_tunnels: dict[str, str] | None = None,
+    environment: str = DEFAULT_SECRETS_ENVIRONMENT,
 ):
     action_name = normalize_mcp_tool_name(tool_call.tool_name)
     return build_run_input(
@@ -261,6 +263,7 @@ def _build_approved_tool_run_input(
         run_id=run_id,
         execution_id=execution_id,
         logical_time=logical_time,
+        environment=environment,
         agent_session_id=agent_session_id,
         tunnel=(tool_tunnels or {}).get(action_name),
     )
@@ -341,6 +344,7 @@ def _start_registry_tool_call(
     logical_time: datetime,
     agent_session_id: uuid.UUID,
     tool_tunnels: dict[str, str] | None = None,
+    environment: str = DEFAULT_SECRETS_ENVIRONMENT,
 ) -> workflow.ActivityHandle[Any]:
     """Execute an approved registry action on the executor task queue."""
     return workflow.start_activity(
@@ -355,6 +359,7 @@ def _start_registry_tool_call(
                 logical_time=logical_time,
                 agent_session_id=agent_session_id,
                 tool_tunnels=tool_tunnels,
+                environment=environment,
             ),
             service_role,
         ],
@@ -587,6 +592,7 @@ class DurableAgentWorkflow:
         self._status: Literal["running", "waiting_for_results", "done"] = "running"
         self._turn: int = 0
         self.session_id = args.agent_args.session_id
+        self.environment = args.environment
         self.active_stream_id = args.agent_args.active_stream_id
         self.harness_type = args.harness_type or "claude_code"
         self.agent_preset_id = args.agent_preset_id
@@ -788,6 +794,7 @@ class DurableAgentWorkflow:
             internal_tool_context=internal_tool_context,
             registry_lock=build_result.registry_lock,
             tool_tunnels=build_result.tool_tunnels,
+            environment=self.environment,
             ttl_seconds=ttl_seconds,
         )
 
@@ -2112,6 +2119,7 @@ class DurableAgentWorkflow:
         service_role: Role,
         logical_time: datetime,
         tool_tunnels: dict[str, str] | None,
+        environment: str,
     ) -> Any:
         """Run one approved registry tool activity, raced against a user cancel.
 
@@ -2129,6 +2137,7 @@ class DurableAgentWorkflow:
                 logical_time=logical_time,
                 agent_session_id=self.session_id,
                 tool_tunnels=tool_tunnels,
+                environment=environment,
             )
         )
 
@@ -2208,6 +2217,7 @@ class DurableAgentWorkflow:
                             service_role=service_role,
                             logical_time=logical_time,
                             tool_tunnels=mcp_build_result.tool_tunnels,
+                            environment=self.environment,
                         ),
                         max_attempts=1,
                         interrupt=lambda: self._cancel_requested,

@@ -1145,7 +1145,11 @@ async def _evaluate_agent_args(input: BuildAgentArgsActivityInput) -> dict[str, 
             operand["VARS"] = workspace_variables
             materialized = await materialize_context(operand)
     args = _strip_string_values(input.args)
-    return await asyncio.to_thread(eval_templated_object, args, operand=materialized)
+    evaled = await asyncio.to_thread(eval_templated_object, args, operand=materialized)
+    # The agent's tool calls inherit the calling action's environment so
+    # environment-scoped secrets resolve against the same environment.
+    evaled["environment"] = environment
+    return evaled
 
 
 def _subflow_error_classification(error: Exception) -> RuntimeErrorClassification:

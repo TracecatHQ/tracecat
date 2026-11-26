@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from temporalio.common import TypedSearchAttributes
@@ -1069,7 +1069,63 @@ def test_build_approved_tool_run_input_is_deterministic() -> None:
         == f"{WorkflowUUID.from_uuid(workflow_id).short()}/{ExecutionUUID.from_uuid(execution_id).short()}"
     )
     assert result.run_context.logical_time == logical_time
+    assert result.run_context.environment == "default"
     assert result.agent_session_id == agent_session_id
+
+
+def test_build_approved_tool_run_input_carries_the_run_environment() -> None:
+    """An approved registry tool call resolves secrets in the run's environment."""
+    result = _build_approved_tool_run_input(
+        tool_call=ApprovedToolCall(
+            tool_call_id="toolu_123",
+            tool_name="mcp__tracecat__core_http_request",
+            args={"url": "https://example.com"},
+        ),
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test-version"},
+            actions={"core.http_request": "tracecat_registry"},
+        ),
+        workflow_id=uuid.uuid4(),
+        run_id=uuid.uuid4(),
+        execution_id=uuid.uuid4(),
+        logical_time=datetime(2026, 3, 17, tzinfo=UTC),
+        agent_session_id=uuid.uuid4(),
+        environment="environment_a",
+    )
+
+    assert result.run_context.environment == "environment_a"
+
+
+def test_minted_scope_tokens_carry_the_run_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    role = _user_role()
+    workflow_args = _build_workflow_args(role).model_copy(
+        update={"environment": "environment_a"}
+    )
+    workflow_instance = DurableAgentWorkflow(workflow_args)
+    workflow_instance._initialize_run()
+    build_result = BuildToolDefsResult(
+        tool_definitions={},
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test-version"}, actions={}
+        ),
+    )
+    mint_mock = Mock(return_value="mcp-token")
+
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.info",
+            return_value=SimpleNamespace(workflow_id="wf-123", run_id="run-123"),
+        ),
+        patch("tracecat_ee.agent.workflows.durable.mint_mcp_token", mint_mock),
+    ):
+        assert (
+            workflow_instance._mint_scope_mcp_token(build_result=build_result)
+            == "mcp-token"
+        )
+
+    assert mint_mock.call_args.kwargs["environment"] == "environment_a"
 
 
 def test_approved_registry_tool_failures_are_not_retried() -> None:
