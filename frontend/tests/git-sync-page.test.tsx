@@ -741,10 +741,10 @@ describe("GitSyncView connected", () => {
     await user.click(screen.getByRole("menuitemradio", { name: /Push only/ }))
 
     expect(
-      screen.getByText(
+      screen.queryByText(
         /Workspace Push can export new workflows from their current edits without publishing them/
       )
-    ).toBeInTheDocument()
+    ).not.toBeInTheDocument()
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     const bar = screen.getByRole("group", { name: "Push actions" })
     await user.click(screen.getByRole("button", { name: "Preview" }))
