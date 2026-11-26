@@ -21033,10 +21033,17 @@ export const $EventSourceRead = {
         "The provider's subscription ID, e.g. the SNS subscription ARN",
     },
     endpoint_url: {
-      type: "string",
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Endpoint Url",
       description:
-        "Point the feed (e.g. the SNS subscription) at this HTTPS URL. It does not change.",
+        "Point the feed (e.g. the SNS subscription) at this HTTPS URL. It does not change. Null for callers without trigger:update.",
     },
     created_at: {
       type: "string",

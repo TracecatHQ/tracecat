@@ -18,7 +18,7 @@ from sqlalchemy.exc import IntegrityError
 
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
-from tracecat.authz.controls import check_scopes
+from tracecat.authz.controls import check_scopes, has_scope
 from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     AgentPreset,
@@ -92,9 +92,14 @@ def _source_identity(config: EventSourceConfig) -> tuple[str, ...]:
             return (topic_arn,)
 
 
-def read_event_source(source: EventSource) -> EventSourceRead:
-    """Build the API view of a source, with its endpoint URL."""
+def read_event_source(source: EventSource, role: Role) -> EventSourceRead:
+    """Build the API view of a source.
+
+    The endpoint URL goes only to callers who may change the source: anyone
+    holding it can reach the ingest endpoint, and it is never rotated.
+    """
     kind = EventSourceKind(source.kind)
+    can_manage = has_scope(role.scopes or frozenset(), "trigger:update")
     return EventSourceRead(
         id=source.id,
         kind=kind,
@@ -103,7 +108,11 @@ def read_event_source(source: EventSource) -> EventSourceRead:
         status=TriggerStatus(source.status),
         subscription_status=SubscriptionStatus(source.subscription_status),
         subscription_ref=source.subscription_ref,
-        endpoint_url=event_source_endpoint_url(kind, source.endpoint_token),
+        endpoint_url=(
+            event_source_endpoint_url(kind, source.endpoint_token)
+            if can_manage
+            else None
+        ),
         created_at=source.created_at,
         updated_at=source.updated_at,
     )
@@ -130,7 +139,7 @@ class TriggersService(BaseWorkspaceService):
             order_by=(EventSource.created_at.desc(), EventSource.surrogate_id.desc()),
         )
         return CursorPaginatedResponse(
-            items=[read_event_source(source) for source in result.items],
+            items=[read_event_source(source, self.role) for source in result.items],
             next_cursor=result.next_cursor,
             prev_cursor=result.prev_cursor,
             has_more=result.has_more,
@@ -186,13 +195,34 @@ class TriggersService(BaseWorkspaceService):
         """Rename a source, change its feed, or take it online or offline.
 
         Changing where events come from resets the subscription: the new feed
-        has to confirm again.
+        has to confirm again. Turning an online source's feed on or pointing it
+        elsewhere changes what the online triggers on it run, so it needs the
+        right to run their online bindings' targets.
 
         Raises:
+            ScopeDeniedError: If the change needs the right to run a bound
+                target and the caller lacks it.
             TriggerError: ``not_found``, ``invalid`` if the config changes
                 kind, or ``conflict`` as for create.
         """
         source = await self.get_event_source(source_id)
+        moves_feed = params.config is not None and _source_identity(
+            params.config
+        ) != _source_identity(_source_config(source))
+        if _makes_live(source.status, params.status, changed=moves_feed):
+            await self._check_can_run_bound(
+                select(ObjectStorageTrigger.trigger_id)
+                .join(
+                    Trigger,
+                    (Trigger.id == ObjectStorageTrigger.trigger_id)
+                    & (Trigger.workspace_id == ObjectStorageTrigger.workspace_id),
+                )
+                .where(
+                    ObjectStorageTrigger.workspace_id == self.workspace_id,
+                    ObjectStorageTrigger.source_id == source.id,
+                    Trigger.status == TriggerStatus.ONLINE.value,
+                )
+            )
         if params.name is not None:
             source.name = params.name
         if params.status is not None:
@@ -202,9 +232,7 @@ class TriggersService(BaseWorkspaceService):
                 raise TriggerError(
                     TriggerErrorCode.INVALID, "A source's kind cannot change"
                 )
-            if _source_identity(params.config) != _source_identity(
-                _source_config(source)
-            ):
+            if moves_feed:
                 source.subscription_status = SubscriptionStatus.PENDING.value
                 source.subscription_ref = None
             source.config = params.config.model_dump(mode="json", exclude={"kind"})
@@ -322,7 +350,13 @@ class TriggersService(BaseWorkspaceService):
     ) -> Trigger:
         """Rename a trigger, replace its config, or take it online or offline.
 
+        Turning a trigger online, or changing which events an online trigger
+        matches, needs the right to run its online bindings' targets, as
+        making a binding live does.
+
         Raises:
+            ScopeDeniedError: If the change needs the right to run a bound
+                target and the caller lacks it.
             TriggerError: ``not_found``, or ``invalid`` if the config is of
                 another kind or names a source that cannot feed it.
         """
@@ -331,6 +365,10 @@ class TriggersService(BaseWorkspaceService):
             raise TriggerError(
                 TriggerErrorCode.INVALID, "A trigger's kind cannot change"
             )
+        if _makes_live(
+            trigger.status, params.status, changed=params.config is not None
+        ):
+            await self._check_can_run_bound([trigger.id])
         if params.name is not None:
             trigger.name = params.name
         if params.status is not None:
@@ -486,7 +524,7 @@ class TriggersService(BaseWorkspaceService):
                 workflow binding.
         """
         binding = await self._get_binding_row(trigger_id, binding_id)
-        if params.status is TriggerStatus.ONLINE or params.instruction is not None:
+        if params.status == TriggerStatus.ONLINE or params.instruction is not None:
             _check_can_run(self.role, TriggerTargetType(binding.target_type))
         if params.status is not None:
             binding.status = params.status.value
@@ -532,6 +570,22 @@ class TriggersService(BaseWorkspaceService):
         return item
 
     # ----- Helpers -----
+
+    async def _check_can_run_bound(
+        self, trigger_ids: Select[Any] | Sequence[uuid.UUID]
+    ) -> None:
+        """Require the right to run every target online-bound to these triggers."""
+        target_types = await self.session.scalars(
+            select(TriggerBinding.target_type)
+            .where(
+                TriggerBinding.workspace_id == self.workspace_id,
+                TriggerBinding.trigger_id.in_(trigger_ids),
+                TriggerBinding.status == TriggerStatus.ONLINE.value,
+            )
+            .distinct()
+        )
+        for target_type in target_types:
+            _check_can_run(self.role, TriggerTargetType(target_type))
 
     async def _read_triggers(self, triggers: Sequence[Trigger]) -> list[TriggerRead]:
         if not triggers:
@@ -660,6 +714,15 @@ class TriggersService(BaseWorkspaceService):
         if found is None:
             raise _not_found("Agent preset")
         return found
+
+
+def _makes_live(
+    current: str, requested: TriggerStatus | None, *, changed: bool
+) -> bool:
+    """Whether an update turns a row on, or changes what an online row matches."""
+    will_be_online = (requested or TriggerStatus(current)) == TriggerStatus.ONLINE
+    turned_on = requested == TriggerStatus.ONLINE and current != TriggerStatus.ONLINE
+    return will_be_online and (turned_on or changed)
 
 
 def _check_can_run(role: Role, target_type: TriggerTargetType) -> None:

@@ -6960,14 +6960,15 @@ async def get_event_source(
         workspace_id: The workspace ID.
         source_id: The source ID, from `list_event_sources`.
 
-    Returns the source as JSON. `endpoint_url` is the HTTPS URL the feed must
+    Returns the source as JSON. `endpoint_url` (null without `trigger:update`)
+    is the HTTPS URL the feed must
     deliver to (for `aws_sns`, the SNS subscription endpoint). It never changes.
     """
     async with _triggers_service(
         workspace_id, "get event source", "trigger:read"
     ) as svc:
         source = await svc.get_event_source(_coerce_uuid_arg(source_id, "source_id"))
-        return read_event_source(source)
+        return read_event_source(source, svc.role)
 
 
 @mcp.tool()
@@ -6998,7 +6999,7 @@ async def create_event_source(
         params = EventSourceCreate(
             name=name, config=config, status=TriggerStatus(status)
         )
-        return read_event_source(await svc.create_event_source(params))
+        return read_event_source(await svc.create_event_source(params), svc.role)
 
 
 @mcp.tool()
@@ -7013,6 +7014,8 @@ async def update_event_source(
 
     There is no delete: take a source offline instead. Changing where events
     come from (for `aws_sns`, the topic ARN) resets the subscription to pending.
+    Turning a source online or changing its feed also needs `workflow:execute`
+    or `agent:execute` for the targets its online triggers run.
     The kind cannot change. The endpoint URL never changes.
 
     Args:
@@ -7035,7 +7038,7 @@ async def update_event_source(
         source = await svc.update_event_source(
             _coerce_uuid_arg(source_id, "source_id"), params
         )
-        return read_event_source(source)
+        return read_event_source(source, svc.role)
 
 
 @mcp.tool()
@@ -7141,7 +7144,9 @@ async def update_trigger(
 ) -> TriggerRead:
     """Rename a trigger, replace its config, or take it online or offline.
 
-    There is no delete tool: take a trigger offline instead.
+    There is no delete tool: take a trigger offline instead. Turning a trigger
+    online or changing an online trigger's config also needs `workflow:execute`
+    or `agent:execute` for the targets of its online bindings.
 
     Args:
         workspace_id: The workspace ID.

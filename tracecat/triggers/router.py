@@ -75,7 +75,7 @@ async def create_event_source(
 ) -> EventSourceRead:
     """Create an event source. Its endpoint URL is fixed from now on."""
     source = await TriggersService(session, role).create_event_source(params)
-    return read_event_source(source)
+    return read_event_source(source, role)
 
 
 @event_sources_router.get("/{source_id}", responses=_errors(404))
@@ -85,7 +85,7 @@ async def get_event_source(
 ) -> EventSourceRead:
     """Get an event source with its endpoint URL and subscription state."""
     source = await TriggersService(session, role).get_event_source(source_id)
-    return read_event_source(source)
+    return read_event_source(source, role)
 
 
 @event_sources_router.patch("/{source_id}", responses=_errors(400, 404, 409))
@@ -100,7 +100,7 @@ async def update_event_source(
     """Rename a source, change its feed, or take it online or offline."""
     service = TriggersService(session, role)
     source = await service.update_event_source(source_id, params)
-    return read_event_source(source)
+    return read_event_source(source, role)
 
 
 # ----- Triggers -----

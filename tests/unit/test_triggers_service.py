@@ -123,18 +123,23 @@ async def test_create_event_source_gives_a_stable_unguessable_url(
     source = await service.create_event_source(
         EventSourceCreate(name="bucket", config=_sns())
     )
-    read = read_event_source(source)
+    read = read_event_source(source, service.role)
 
     assert read.status is TriggerStatus.OFFLINE
     assert read.subscription_status is SubscriptionStatus.PENDING
     assert read.config == _sns()
     assert len(source.endpoint_token) >= 43
+    assert read.endpoint_url is not None
     assert read.endpoint_url.endswith(f"/ingest/sns/{source.endpoint_token}")
 
     renamed = await service.update_event_source(
         source.id, EventSourceUpdate(name="renamed", status=TriggerStatus.ONLINE)
     )
-    assert read_event_source(renamed).endpoint_url == read.endpoint_url
+    assert read_event_source(renamed, service.role).endpoint_url == read.endpoint_url
+
+    # A viewer sees the source but not the URL that reaches its ingest endpoint.
+    viewer = service.role.model_copy(update={"scopes": frozenset({"trigger:read"})})
+    assert read_event_source(source, viewer).endpoint_url is None
 
 
 async def test_one_source_per_topic_per_workspace(
@@ -478,6 +483,75 @@ async def test_making_a_binding_live_needs_the_right_to_run_its_target(
     )
     assert off.status == TriggerStatus.OFFLINE
     assert off.instruction == "i"
+
+
+async def test_turning_on_or_repointing_what_runs_a_target_needs_its_scope(
+    service: TriggersService,
+    session: AsyncSession,
+    svc_role: Role,
+    preset: AgentPreset,
+) -> None:
+    source = await service.create_event_source(
+        EventSourceCreate(name="bucket", config=_sns(), status=TriggerStatus.ONLINE)
+    )
+    config = ObjectStorageTriggerConfig(source_id=source.id)
+    trigger = await service.create_trigger(TriggerCreate(name="t", config=config))
+    await service.create_binding(
+        trigger.id,
+        TriggerBindingCreate(
+            target=AgentBindingTarget(agent_preset_id=preset.id, instruction="i")
+        ),
+    )
+    configurer = TriggersService(
+        session,
+        svc_role.model_copy(
+            update={
+                "scopes": frozenset(
+                    {"trigger:read", "trigger:create", "trigger:update"}
+                )
+            }
+        ),
+    )
+
+    # The trigger is offline with a live agent binding: turning it on runs the agent.
+    with pytest.raises(ScopeDeniedError):
+        await configurer.update_trigger(
+            trigger.id, TriggerUpdate(status=TriggerStatus.ONLINE)
+        )
+    # Renaming needs nothing more.
+    await configurer.update_trigger(trigger.id, TriggerUpdate(name="renamed"))
+
+    await service.update_trigger(trigger.id, TriggerUpdate(status=TriggerStatus.ONLINE))
+    # Changing which events an online trigger matches, or pointing its source at
+    # another topic, decides what the agent runs on.
+    with pytest.raises(ScopeDeniedError):
+        await configurer.update_trigger(
+            trigger.id,
+            TriggerUpdate(config=config.model_copy(update={"key_prefix": "x/"})),
+        )
+    with pytest.raises(ScopeDeniedError):
+        await configurer.update_event_source(
+            source.id, EventSourceUpdate(config=_sns(f"{TOPIC}-attacker"))
+        )
+    await service.update_event_source(
+        source.id, EventSourceUpdate(status=TriggerStatus.OFFLINE)
+    )
+    with pytest.raises(ScopeDeniedError):
+        await configurer.update_event_source(
+            source.id, EventSourceUpdate(status=TriggerStatus.ONLINE)
+        )
+
+    # Switching things off stays open to trigger:update alone.
+    off = await configurer.update_trigger(
+        trigger.id, TriggerUpdate(status=TriggerStatus.OFFLINE)
+    )
+    assert off.status == TriggerStatus.OFFLINE
+    # With no online trigger on it, the source can be turned on and moved.
+    moved = await configurer.update_event_source(
+        source.id,
+        EventSourceUpdate(config=_sns(f"{TOPIC}-2"), status=TriggerStatus.ONLINE),
+    )
+    assert moved.status == TriggerStatus.ONLINE
 
 
 def test_long_topic_names_are_accepted() -> None:

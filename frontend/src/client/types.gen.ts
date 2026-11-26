@@ -6393,9 +6393,9 @@ export type EventSourceRead = {
    */
   subscription_ref: string | null
   /**
-   * Point the feed (e.g. the SNS subscription) at this HTTPS URL. It does not change.
+   * Point the feed (e.g. the SNS subscription) at this HTTPS URL. It does not change. Null for callers without trigger:update.
    */
-  endpoint_url: string
+  endpoint_url: string | null
   created_at: string
   updated_at: string
 }

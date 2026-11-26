@@ -102,9 +102,9 @@ class EventSourceRead(Schema):
     subscription_ref: str | None = Field(
         description="The provider's subscription ID, e.g. the SNS subscription ARN"
     )
-    endpoint_url: str = Field(
+    endpoint_url: str | None = Field(
         description="Point the feed (e.g. the SNS subscription) at this HTTPS URL."
-        " It does not change."
+        " It does not change. Null for callers without trigger:update."
     )
     created_at: datetime
     updated_at: datetime
