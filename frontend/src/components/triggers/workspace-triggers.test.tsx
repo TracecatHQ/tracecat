@@ -6,12 +6,14 @@ import {
   type TriggerRead,
   triggersCreateEventSource,
   triggersCreateTrigger,
+  triggersCreateTriggerBinding,
   triggersGetEventSource,
   triggersGetTrigger,
   triggersListEventSources,
   triggersListTriggers,
   triggersUpdateTriggerBinding,
 } from "@/client"
+import { AddTargetDialog } from "@/components/triggers/add-target-dialog"
 import { CreateTriggerDialog } from "@/components/triggers/create-trigger-dialog"
 import { shellQuote } from "@/components/triggers/object-storage/event-source-panel"
 import { TriggerDetail } from "@/components/triggers/trigger-detail"
@@ -23,6 +25,7 @@ import { QueryClient, QueryClientProvider } from "@/lib/query"
 jest.mock("@/client", () => ({
   triggersCreateEventSource: jest.fn(),
   triggersCreateTrigger: jest.fn(),
+  triggersCreateTriggerBinding: jest.fn(),
   triggersGetEventSource: jest.fn(),
   triggersGetTrigger: jest.fn(),
   triggersListEventSources: jest.fn(),
@@ -51,12 +54,13 @@ jest.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
 }))
 jest.mock("@/components/ui/use-toast", () => ({ toast: jest.fn() }))
-// The add-target dialog's pickers; not opened here.
+// The add-target dialog's pickers.
 jest.mock("@/lib/hooks", () => ({
   useWorkflowManager: () => ({ workflows: [], workflowsLoading: false }),
 }))
+let presets: { id: string; name: string; description: string | null }[] = []
 jest.mock("@/hooks/use-agent-presets", () => ({
-  useAgentPresets: () => ({ presets: [], presetsIsLoading: false }),
+  useAgentPresets: () => ({ presets, presetsIsLoading: false }),
 }))
 jest.mock("@/components/loading/spinner", () => ({
   CenteredSpinner: () => <div>Loading</div>,
@@ -133,6 +137,7 @@ function renderWithClient(ui: ReactNode) {
 beforeEach(() => {
   jest.clearAllMocks()
   entitled = true
+  presets = []
   scopes = {
     "trigger:read": true,
     "trigger:create": true,
@@ -436,5 +441,47 @@ describe("TriggerDetail", () => {
 describe("shellQuote", () => {
   it("keeps a value with shell metacharacters as one literal word", () => {
     expect(shellQuote("a b;$(x)'y")).toBe(`'a b;$(x)'"'"'y'`)
+  })
+})
+
+describe("AddTargetDialog", () => {
+  it("locks every control while the target is being added", async () => {
+    const user = userEvent.setup()
+    scopes = { ...scopes, "agent:read": true, "agent:execute": true }
+    presets = [{ id: "preset-9", name: "Report agent", description: null }]
+    jest
+      .mocked(triggersCreateTriggerBinding)
+      .mockReturnValue(new Promise(() => {}) as never)
+
+    renderWithClient(
+      <AddTargetDialog
+        workspaceId="workspace-1"
+        trigger={TRIGGER}
+        open
+        onOpenChange={jest.fn()}
+      />
+    )
+
+    await user.click(screen.getByRole("button", { name: /Agent/ }))
+    await user.click(screen.getByText("Report agent"))
+    await user.type(screen.getByLabelText("Instruction"), "Summarize it")
+    await user.click(screen.getByRole("button", { name: "Add target" }))
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Instruction")).toBeDisabled()
+    )
+    expect(screen.getByRole("button", { name: /Workflow/ })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Add target" })).toBeDisabled()
+    expect(triggersCreateTriggerBinding).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      triggerId: "trigger-1",
+      requestBody: {
+        target: {
+          type: "agent",
+          agent_preset_id: "preset-9",
+          instruction: "Summarize it",
+        },
+      },
+    })
   })
 })

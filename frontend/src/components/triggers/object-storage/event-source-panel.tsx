@@ -125,8 +125,8 @@ export function EventSourcePanel({
             reads confirmed.
           </li>
           <li>
-            Leave raw message delivery off. Tracecat checks the SNS signature on
-            every message.
+            Leave raw message delivery off, so SNS sends its signed message
+            envelope rather than the bare S3 event.
           </li>
           <li>
             Set a delivery retry policy that keeps retrying for 1 hour, so a

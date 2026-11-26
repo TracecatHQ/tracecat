@@ -63,6 +63,8 @@ export function AddTargetDialog({
   const canRunWorkflows = useScopeCheck("workflow:execute")
   const canRunAgents = useScopeCheck("agent:execute")
   const { createBinding } = useTriggerMutations(workspaceId)
+  // Every control locks while the request runs, so what is sent is what shows.
+  const pending = createBinding.isPending
   const [targetType, setTargetType] = useState<TargetType>("workflow")
   const [targetId, setTargetId] = useState<string | null>(null)
   const [instruction, setInstruction] = useState("")
@@ -179,6 +181,7 @@ export function AddTargetDialog({
           >
             <ToggleTabs<TargetType>
               size="sm"
+              disabled={pending}
               value={targetType}
               onValueChange={(next) => {
                 setTargetType(next)
@@ -224,6 +227,7 @@ export function AddTargetDialog({
                 options={options}
                 loading={loading}
                 boundIds={boundIds}
+                disabled={pending}
                 value={targetId}
                 onSelect={(id) => {
                   setTargetId(id)
@@ -242,6 +246,7 @@ export function AddTargetDialog({
                   placeholder="Scan each new file for malware indicators and open a case if anything looks suspicious."
                   value={instruction}
                   maxLength={INSTRUCTION_MAX_LENGTH}
+                  disabled={pending}
                   onChange={(event) => setInstruction(event.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
@@ -262,7 +267,7 @@ export function AddTargetDialog({
             size="sm"
             type="submit"
             form={ADD_TARGET_FORM_ID}
-            disabled={createBinding.isPending || canRun === false}
+            disabled={pending || canRun === false}
           >
             Add target
           </Button>
@@ -277,6 +282,7 @@ function TargetPicker({
   options,
   loading,
   boundIds,
+  disabled,
   value,
   onSelect,
 }: {
@@ -284,6 +290,7 @@ function TargetPicker({
   options: PickerOption[]
   loading: boolean
   boundIds: Set<string>
+  disabled: boolean
   value: string | null
   onSelect: (id: string) => void
 }) {
@@ -311,7 +318,7 @@ function TargetPicker({
               value={[option.label, option.detail, option.id]
                 .filter(Boolean)
                 .join(" ")}
-              disabled={bound}
+              disabled={bound || disabled}
               onSelect={() => onSelect(option.id)}
               className="gap-2 text-xs"
             >
