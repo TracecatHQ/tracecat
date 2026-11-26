@@ -27,9 +27,9 @@ import time
 import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import timedelta
 from html import escape
-from typing import Any, Literal
+from typing import Any
 
 import orjson
 from opentelemetry import metrics
@@ -40,7 +40,11 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.schemas import AgentSessionCreate
-from tracecat.agent.session.service import AgentSessionService, refuse_channel_envelope
+from tracecat.agent.session.service import (
+    AgentSessionService,
+    SessionAwaitingApprovalsError,
+    refuse_channel_envelope,
+)
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -76,6 +80,17 @@ from tracecat.registry.lock.types import RegistryLock
 from tracecat.sanitization import redact_sensitive_text
 from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
+from tracecat.triggers.dispatch_types import (
+    AgentTarget,
+    Backlog,
+    BatchResult,
+    ClaimedRow,
+    PublishedWorkflow,
+    RowOutcome,
+    StartOutcome,
+    Target,
+    WorkflowTarget,
+)
 from tracecat.triggers.enums import TriggerKind, TriggerStatus, TriggerTargetType
 from tracecat.workflow.executions.enums import TriggerType
 from tracecat.workflow.executions.service import WorkflowExecutionsService
@@ -117,6 +132,9 @@ PERMANENT_START_ERRORS: tuple[type[Exception], ...] = (
 # the agent's provider credentials. They fail the row so it retries.
 RETRYABLE_START_ERRORS: tuple[type[Exception], ...] = (
     AgentProviderCredentialsNotFoundError,
+    # The session is paused on approvals someone else's message raised; it
+    # can take the event once they are decided.
+    SessionAwaitingApprovalsError,
 )
 
 TRIGGER_EVENT_TAG = "tracecat-trigger-event"
@@ -153,8 +171,6 @@ _STOPPED_ROWS = _METER.create_gauge(
     description="Outbox rows that hit the attempt cap and no longer retry.",
 )
 
-type StartOutcome = Literal["started", "already_started", "dropped"]
-
 
 class StartDeferred(Exception):
     """The batch's start deadline passed before this start began."""
@@ -166,14 +182,6 @@ class TriggerSessionConflictError(Exception):
     Not a permanent error on purpose: the row keeps retrying and then stops
     with this error, so a squatted ID is visible instead of a silent drop.
     """
-
-
-@dataclass(frozen=True, slots=True)
-class RowOutcome:
-    """How one row's starts went: all landed, some failed, or none began."""
-
-    error: str | None = None
-    deferred: bool = False
 
 
 # Every workspace that has outbox rows, by a skip scan of the dispatch index:
@@ -249,57 +257,6 @@ _COUNT_STOPPED = text(
 )
 
 
-@dataclass(frozen=True, slots=True)
-class ClaimedRow:
-    """An outbox row this batch holds the lease on."""
-
-    id: int
-    workspace_id: uuid.UUID
-    source_id: uuid.UUID
-    occurrence_key: str
-    # The normalized event exactly as ingest stored it (JSONB). It is handed to
-    # workflows as their trigger input unchanged, so it stays a plain mapping.
-    payload: dict[str, Any]
-    attempts: int
-    lease_until: datetime
-    """The ``next_attempt_at`` this claim set. It fences the finish: no later
-    claim, release or retry can set the same value again, unlike ``attempts``,
-    which a release gives back."""
-
-
-@dataclass(frozen=True, slots=True)
-class WorkflowTarget:
-    binding_id: uuid.UUID
-    workflow_id: uuid.UUID
-
-
-@dataclass(frozen=True, slots=True)
-class AgentTarget:
-    binding_id: uuid.UUID
-    agent_preset_id: uuid.UUID
-    instruction: str
-    trigger_name: str
-
-
-type Target = WorkflowTarget | AgentTarget
-
-
-@dataclass(frozen=True, slots=True)
-class PublishedWorkflow:
-    dsl: DSLInput
-    registry_lock: RegistryLock | None
-
-
-@dataclass(frozen=True, slots=True)
-class Backlog:
-    """Alert inputs: the oldest ready row's wait and the stopped rows."""
-
-    has_ready_rows: bool
-    oldest_ready_age_seconds: float
-    stopped_rows: int | None
-    """None when this read did not count them."""
-
-
 @dataclass(slots=True)
 class BatchContext:
     """Everything a batch looked up once, read by every start."""
@@ -310,16 +267,6 @@ class BatchContext:
     workflows: dict[uuid.UUID, PublishedWorkflow] = field(default_factory=dict)
     executions: dict[uuid.UUID, WorkflowExecutionsService] = field(default_factory=dict)
     live_presets: set[uuid.UUID] = field(default_factory=set)
-
-
-@dataclass(frozen=True, slots=True)
-class BatchResult:
-    picked: int
-    claimed: int
-    delivered: int
-    retrying: int
-    stopped: int
-    deferred: int = 0
 
 
 def trigger_run_uuid(binding_id: uuid.UUID, occurrence_key: str) -> uuid.UUID:

@@ -25,6 +25,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.testing import ActivityEnvironment
 
 from tracecat.agent.session.enums import UserMessageOrigin
+from tracecat.agent.session.service import SessionAwaitingApprovalsError
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
@@ -57,6 +58,7 @@ from tracecat.triggers.dispatch import (
     trigger_exec_id,
     trigger_run_uuid,
 )
+from tracecat.triggers.dispatch_types import Backlog
 from tracecat.triggers.dispatcher import wait_for_trigger_events
 from tracecat.triggers.types import build_occurrence_key
 from tracecat.workflow.executions.enums import TriggerType
@@ -725,15 +727,23 @@ async def test_unpublished_workflows_and_deleted_presets_are_dropped(
     starts.agent.assert_not_awaited()
 
 
-async def test_missing_agent_credentials_keep_the_row_for_a_retry(
-    outbox: AsyncSession, svc_workspace: Workspace, starts: Starts
+@pytest.mark.parametrize(
+    "error",
+    [
+        AgentProviderCredentialsNotFoundError("no openai key"),
+        SessionAwaitingApprovalsError("waiting for approvals"),
+    ],
+    ids=["missing_credentials", "awaiting_approvals"],
+)
+async def test_fixable_agent_start_errors_keep_the_row_for_a_retry(
+    outbox: AsyncSession, svc_workspace: Workspace, starts: Starts, error: Exception
 ) -> None:
-    """The workspace can add credentials, so the event is not thrown away."""
+    """These subclass permanent errors but the workspace can clear them."""
     fx = await _source_and_trigger(outbox, svc_workspace.id)
     await _bind_agent(outbox, fx)
     row = await _enqueue(outbox, fx)
     await outbox.commit()
-    starts.agent.side_effect = AgentProviderCredentialsNotFoundError("no openai key")
+    starts.agent.side_effect = error
 
     result = await TriggerOutboxDispatcher().dispatch_batch()
 
@@ -741,7 +751,7 @@ async def test_missing_agent_credentials_keep_the_row_for_a_retry(
     kept = await _row(outbox, row.id)
     assert kept is not None
     assert kept.last_error is not None
-    assert "AgentProviderCredentialsNotFoundError" in kept.last_error
+    assert type(error).__name__ in kept.last_error
 
 
 async def test_a_session_someone_else_created_under_the_id_is_not_used(
@@ -794,9 +804,9 @@ async def test_stopped_rows_are_counted_at_most_once_a_minute_across_polls(
     """The wait activity runs before every batch; the count must not."""
     counted: list[bool] = []
 
-    async def read(_session: object, *, count_stopped: bool) -> dispatch.Backlog:
+    async def read(_session: object, *, count_stopped: bool) -> Backlog:
         counted.append(count_stopped)
-        return dispatch.Backlog(
+        return Backlog(
             has_ready_rows=True, oldest_ready_age_seconds=1.0, stopped_rows=None
         )
 
