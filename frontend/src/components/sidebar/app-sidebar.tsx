@@ -23,6 +23,7 @@ import {
   UsersIcon,
   VariableIcon,
   WorkflowIcon,
+  ZapIcon,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
@@ -234,6 +235,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const formsAccess = useFormsAccess()
   const formsVisible = formsAccess !== "loading"
   const canViewTunnels = useScopeCheck("tunnel:read")
+  const canViewTriggers = useScopeCheck("trigger:read")
   // Sync users push/pull; workspace admins manage the repository connection.
   const canOpenGitSync = useScopeCheck(undefined, [
     "workspace_sync:push",
@@ -248,7 +250,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     canViewServiceAccounts === true ||
     canViewInbox === true ||
     canOpenGitSync === true ||
-    canViewCases === true
+    canViewCases === true ||
+    canViewTriggers === true
   const {
     hasEntitlement,
     hasEntitlementData,
@@ -260,6 +263,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const workspaceChatEnabled = hasEntitlement("workspace_chat")
   const serviceAccountsEnabled = hasEntitlement("service_accounts")
   const gitSyncEnabled = hasEntitlement("git_sync")
+  // Hidden without the entitlement: every trigger route refuses the request.
+  const triggersVisible =
+    canViewTriggers === true &&
+    entitlementsKnown &&
+    hasEntitlement("object_triggers")
   // Case views are an enterprise feature (case add-ons).
   const caseViews = useCaseViews(
     workspaceId,
@@ -341,6 +349,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         visible:
           formsVisible && canReadForms === true && canBuildForms === true,
       },
+      {
+        title: "Triggers",
+        url: `${basePath}/triggers`,
+        icon: ZapIcon,
+        isActive: pathname?.startsWith(`${basePath}/triggers`),
+        visible: triggersVisible,
+      },
     ],
     [
       basePath,
@@ -349,6 +364,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       formsVisible,
       canReadForms,
       canBuildForms,
+      triggersVisible,
       canViewCases,
       caseViewItems,
       activeCaseViewId,
