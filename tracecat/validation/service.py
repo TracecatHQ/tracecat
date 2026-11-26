@@ -76,8 +76,14 @@ async def validate_single_secret(
     environment: str,
     registry_secret: RegistrySecret,
 ) -> list[SecretValidationResult]:
-    """Validate a single secret against the secrets manager."""
-    if registry_secret.name in checked_keys:
+    """Validate a single secret against the secrets manager.
+
+    A requirement is checked once per environment. Two actions that need the
+    same secret in different environments, or with different keys, are both
+    checked.
+    """
+    checked_key = f"{environment}::{registry_secret.model_dump_json()}"
+    if checked_key in checked_keys:
         return []
 
     results: list[SecretValidationResult] = []
@@ -108,7 +114,7 @@ async def validate_single_secret(
             ]
         # If the secret is optional, we just log and move on
     finally:
-        checked_keys.add(registry_secret.name)
+        checked_keys.add(checked_key)
 
     # At this point we either have an optional secret, or the secret is defined
     # Validate secret keys

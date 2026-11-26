@@ -10,17 +10,23 @@ Tests cover:
 """
 
 import uuid
+from types import SimpleNamespace
+from typing import Any, cast
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from tracecat_registry import RegistrySecret
 
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement, DSLConfig
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.expressions.common import ExprType
 from tracecat.validation.service import (
     get_effective_environment,
     validate_dsl_expressions,
+    validate_single_secret,
 )
 
 
@@ -337,3 +343,43 @@ class TestSecretValidationWithEnvironmentOverride:
             # Check that all expected pairs are present (order doesn't matter)
             for expected_env, expected_action in expected_pairs:
                 assert (expected_env, expected_action) in env_action_pairs
+
+
+@pytest.mark.anyio
+async def test_same_secret_is_checked_in_each_environment() -> None:
+    """A secret defined in one environment still fails where it is missing."""
+    secret = SimpleNamespace(name="api")
+
+    async def get_secret_by_name(name: str, *, environment: str) -> SimpleNamespace:
+        if environment == "present":
+            return secret
+        raise TracecatNotFoundError(f"{name} not found")
+
+    secrets_service = cast(
+        Any,
+        SimpleNamespace(get_secret_by_name=AsyncMock(side_effect=get_secret_by_name)),
+    )
+    checked_keys: set[str] = set()
+    requirement = RegistrySecret(name="api", keys=["TOKEN"])
+
+    with patch("tracecat.validation.service.secret_key_names", return_value=["TOKEN"]):
+        present = await validate_single_secret(
+            secrets_service, checked_keys, "present", requirement
+        )
+        missing = await validate_single_secret(
+            secrets_service, checked_keys, "missing", requirement
+        )
+        repeated = await validate_single_secret(
+            secrets_service, checked_keys, "missing", requirement
+        )
+        other_keys = await validate_single_secret(
+            secrets_service,
+            checked_keys,
+            "present",
+            RegistrySecret(name="api", keys=["OTHER"]),
+        )
+
+    assert present == []
+    assert [r.status for r in missing] == ["error"]
+    assert repeated == []
+    assert [r.status for r in other_keys] == ["error"]

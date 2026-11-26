@@ -301,7 +301,8 @@ class WorkflowExecutionsService:
         self.role = role or ctx_role.get()
         self._client = client
         self.session = session
-        """The caller's session, reused for database reads and audit events.
+        """The caller's session, reused for the workspace-settings read and by
+        ``@audit_log`` for attempt and success events.
 
         The caller keeps it open across every awaited call on this service.
         ``None`` opens a short session per read, as before.
