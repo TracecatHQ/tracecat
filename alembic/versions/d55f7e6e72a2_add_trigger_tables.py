@@ -29,6 +29,12 @@ down_revision: str | None = "e573b3acd133"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
+_WORKFLOW_KEY = "uq_workflow_id_workspace_id"
+_WORKFLOW_KEY_DEF = (
+    f"CREATE UNIQUE INDEX {_WORKFLOW_KEY} ON public.workflow"
+    " USING btree (id, workspace_id)"
+)
+
 # Parents first, so downgrade can walk the tuple in reverse.
 _TABLES = (
     "event_source",
@@ -93,7 +99,51 @@ def _create_config_table(table: str, *items: SchemaItem) -> None:
     op.execute(enable_workspace_table_rls(table))
 
 
+def _workflow_key_ready() -> bool | None:
+    """None when absent; False when invalid or not this revision's index."""
+    return (
+        op.get_bind()
+        .execute(
+            sa.text("""
+        SELECT i.indisvalid AND i.indisready AND pg_get_indexdef(i.indexrelid) = :def
+        FROM pg_index i
+        WHERE i.indexrelid = to_regclass(:name)
+    """),
+            {"name": f"public.{_WORKFLOW_KEY}", "def": _WORKFLOW_KEY_DEF},
+        )
+        .scalar_one_or_none()
+    )
+
+
+def _add_workflow_key() -> None:
+    """Add the unique ``(id, workspace_id)`` key the bindings' foreign key needs.
+
+    ``workflow`` is a live table, so the index is built concurrently and then
+    attached. ``workflow.id`` is already unique, so no row can violate it.
+    """
+    with op.get_context().autocommit_block():
+        ready = _workflow_key_ready()
+        # A retry keeps a built index; it rebuilds one a failed build left invalid.
+        if ready is False:
+            op.execute(f'DROP INDEX CONCURRENTLY "{_WORKFLOW_KEY}"')
+        if not ready:
+            op.execute(
+                f'CREATE UNIQUE INDEX CONCURRENTLY "{_WORKFLOW_KEY}"'
+                " ON workflow (id, workspace_id)"
+            )
+    # Attaching the index, and the foreign keys below that reference live
+    # tables, need short locks on them; fail fast rather than queue reads
+    # behind a long transaction.
+    op.execute("SET LOCAL lock_timeout = '10s'")
+    op.execute(
+        f'ALTER TABLE workflow ADD CONSTRAINT "{_WORKFLOW_KEY}"'
+        f' UNIQUE USING INDEX "{_WORKFLOW_KEY}"'
+    )
+
+
 def upgrade() -> None:
+    # First: the concurrent build runs outside the migration's transaction.
+    _add_workflow_key()
     _create_config_table(
         "event_source",
         sa.Column("kind", sa.String(length=32), nullable=False),
@@ -152,11 +202,6 @@ def upgrade() -> None:
     )
     op.execute(enable_workspace_table_rls("object_storage_trigger"))
 
-    # Target of the bindings' same-workspace key. ``workflow.id`` is already
-    # unique, so every existing row satisfies it.
-    op.create_unique_constraint(
-        op.f("uq_workflow_id_workspace_id"), "workflow", ["id", "workspace_id"]
-    )
     _create_config_table(
         "trigger_binding",
         sa.Column("trigger_id", sa.UUID(), nullable=False),
@@ -229,8 +274,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute("SET LOCAL lock_timeout = '10s'")
     # Dropping a table drops its indexes, constraints and policies with it.
     for table in reversed(_TABLES):
         op.execute(disable_workspace_table_rls(table))
         op.drop_table(table)
-    op.drop_constraint(op.f("uq_workflow_id_workspace_id"), "workflow", type_="unique")
+    op.execute(f'ALTER TABLE workflow DROP CONSTRAINT IF EXISTS "{_WORKFLOW_KEY}"')
