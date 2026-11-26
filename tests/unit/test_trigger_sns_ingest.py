@@ -687,6 +687,29 @@ async def test_delayed_message_is_accepted(
     assert len(await _outbox(session, source)) == 1
 
 
+@pytest.mark.parametrize(
+    "offset",
+    [timedelta(hours=-25), timedelta(hours=1)],
+    ids=["older-than-a-day", "future"],
+)
+async def test_message_outside_the_dedupe_horizon_is_refused(
+    client: httpx.AsyncClient,
+    session: AsyncSession,
+    source: EventSource,
+    sign: SignFn,
+    aws: respx.MockRouter,
+    offset: timedelta,
+) -> None:
+    sent = (datetime.now(UTC) + offset).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    envelope = sign("Notification", _s3_message(_s3_record()), timestamp=sent)
+
+    response = await _post(client, source, envelope)
+
+    assert response.status_code == 400
+    assert _code(response) == "stale_message"
+    assert await _outbox(session, source) == []
+
+
 async def test_nul_in_object_key_is_refused_not_retried(
     client: httpx.AsyncClient,
     session: AsyncSession,
@@ -873,6 +896,58 @@ async def test_rate_cap_answers_503_with_retry_after(
     assert await _outbox(session, source) == []
 
 
+async def test_replayed_queued_message_does_not_use_the_cap(
+    client: httpx.AsyncClient,
+    session: AsyncSession,
+    source: EventSource,
+    sign: SignFn,
+    aws: respx.MockRouter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    charged: list[uuid.UUID] = []
+
+    async def _count(source_id: uuid.UUID) -> int | None:
+        charged.append(source_id)
+        # Over the cap from the second charge on.
+        return 30 if len(charged) > 1 else None
+
+    monkeypatch.setattr(ingest_service, "check_source_rate", _count)
+    envelope = sign("Notification", _s3_message(_s3_record()))
+
+    first = await _post(client, source, envelope)
+    replays = [await _post(client, source, envelope) for _ in range(3)]
+
+    assert first.status_code == 200
+    assert [r.status_code for r in replays] == [200, 200, 200]
+    assert all(r.json()["duplicates"] == 1 for r in replays)
+    assert charged == [source.id]
+    # A new event is still charged, and refused once over the cap.
+    other = await _post(
+        client, source, sign("Notification", _s3_message(_s3_record("new.csv")))
+    )
+    assert other.status_code == 503
+    assert len(await _outbox(session, source)) == 1
+
+
+async def test_confirmation_counts_against_the_cap(
+    client: httpx.AsyncClient,
+    source: EventSource,
+    sign: SignFn,
+    aws: respx.MockRouter,
+    confirm_calls: list[tuple[str, str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _over_cap(_: uuid.UUID) -> int | None:
+        return 5
+
+    monkeypatch.setattr(ingest_service, "check_source_rate", _over_cap)
+
+    response = await _post(client, source, sign("SubscriptionConfirmation", "confirm"))
+
+    assert response.status_code == 503
+    assert confirm_calls == []
+
+
 # ----- Subscription confirmation -----
 
 
@@ -951,13 +1026,48 @@ async def test_unsubscribe_confirmation_resets_the_subscription(
     source.subscription_ref = SUBSCRIPTION_ARN
     await session.commit()
 
-    response = await _post(client, source, sign("UnsubscribeConfirmation", "bye"))
+    response = await _post(
+        client,
+        source,
+        sign("UnsubscribeConfirmation", _unsubscribe_text(SUBSCRIPTION_ARN)),
+    )
 
     assert response.status_code == 200
     assert confirm_calls == []
     await session.refresh(source)
     assert source.subscription_status == SubscriptionStatus.PENDING.value
     assert source.subscription_ref is None
+
+
+def _unsubscribe_text(subscription_arn: str) -> str:
+    # The shape of the Message SNS sends with an UnsubscribeConfirmation.
+    return (
+        f"You have chosen to deactivate subscription {subscription_arn}."
+        "\nTo cancel this operation and restore the subscription, visit the"
+        " SubscribeURL included in this message."
+    )
+
+
+async def test_late_unsubscribe_for_an_older_subscription_changes_nothing(
+    client: httpx.AsyncClient,
+    session: AsyncSession,
+    source: EventSource,
+    sign: SignFn,
+    aws: respx.MockRouter,
+) -> None:
+    source.subscription_status = SubscriptionStatus.CONFIRMED.value
+    source.subscription_ref = SUBSCRIPTION_ARN
+    await session.commit()
+    older = f"{TOPIC}:00000000-0000-0000-0000-000000000000"
+
+    response = await _post(
+        client, source, sign("UnsubscribeConfirmation", _unsubscribe_text(older))
+    )
+
+    assert response.status_code == 200
+    await session.refresh(source)
+    assert source.subscription_status == SubscriptionStatus.CONFIRMED.value
+    assert source.subscription_ref == SUBSCRIPTION_ARN
 
 
 # ----- ConfirmSubscription client -----
@@ -1009,13 +1119,8 @@ async def test_confirm_subscription_calls_the_topic_region_unsigned(
     arn = await sns.confirm_subscription(topic=topic, token="synthetic-token")
 
     assert arn == SUBSCRIPTION_ARN
-    assert fake.calls == [
-        {
-            "TopicArn": topic.arn,
-            "Token": "synthetic-token",
-            "AuthenticateOnUnsubscribe": "true",
-        }
-    ]
+    # AuthenticateOnUnsubscribe would need a signed request.
+    assert fake.calls == [{"TopicArn": topic.arn, "Token": "synthetic-token"}]
     assert fake_session.client_kwargs["region_name"] == "eu-west-2"
     assert fake_session.client_kwargs["config"].signature_version is UNSIGNED
 

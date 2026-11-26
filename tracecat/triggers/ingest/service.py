@@ -18,7 +18,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from pydantic import ValidationError
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
@@ -148,6 +148,27 @@ async def _queue_events(
     return len(inserted)
 
 
+async def _already_queued(
+    source: SnsIngestSource, events: list[ParsedObjectEvent]
+) -> set[str]:
+    """Occurrence keys of these events that the source still has queued."""
+    stmt = select(EventOutbox.occurrence_key).where(
+        EventOutbox.source_id == source.id,
+        EventOutbox.occurrence_key.in_([event.occurrence_key for event in events]),
+    )
+    async with get_async_session_bypass_rls_context_manager() as session:
+        return set((await session.execute(stmt)).scalars().all())
+
+
+async def _charge_rate_cap(source: SnsIngestSource) -> None:
+    if (retry_after := await check_source_rate(source.id)) is not None:
+        raise IngestError(
+            IngestErrorCode.RATE_LIMITED,
+            "Event source is over its rate cap",
+            retry_after_seconds=retry_after,
+        )
+
+
 async def _handle_notification(
     envelope: SnsEnvelope,
     *,
@@ -159,16 +180,17 @@ async def _handle_notification(
         # Refused with a 4xx, so SNS moves the message to the subscription's
         # dead-letter queue instead of retrying it for an hour.
         raise IngestError(IngestErrorCode.SOURCE_OFFLINE, "Event source is offline")
-    if (retry_after := await check_source_rate(source.id)) is not None:
-        raise IngestError(
-            IngestErrorCode.RATE_LIMITED,
-            "Event source is over its rate cap",
-            retry_after_seconds=retry_after,
-        )
     parsed = parse_s3_message(envelope.message, topic=topic, received_at=received_at)
     if not parsed.events:
         return IngestResult(ignored=parsed.ignored)
-    queued = await _queue_events(source, parsed.events)
+    # Redeliveries of queued events cost nothing, so replaying one message
+    # cannot use up the source's cap.
+    queued_keys = await _already_queued(source, parsed.events)
+    new_events = [e for e in parsed.events if e.occurrence_key not in queued_keys]
+    if not new_events:
+        return IngestResult(duplicates=len(parsed.events), ignored=parsed.ignored)
+    await _charge_rate_cap(source)
+    queued = await _queue_events(source, new_events)
     return IngestResult(
         queued=queued,
         duplicates=len(parsed.events) - queued,
@@ -179,6 +201,8 @@ async def _handle_notification(
 async def _handle_subscription_confirmation(
     envelope: SnsEnvelope, *, source: SnsIngestSource, topic: SnsTopic
 ) -> IngestResult:
+    # Each confirmation calls the SNS API, so it counts against the cap.
+    await _charge_rate_cap(source)
     # The model guarantees a token on confirmation messages.
     token = envelope.token or ""
     subscription_arn = await confirm_subscription(topic=topic, token=token)
@@ -209,17 +233,19 @@ async def _handle_subscription_confirmation(
 
 
 async def _handle_unsubscribe_confirmation(
-    *, source: SnsIngestSource, topic: SnsTopic
+    envelope: SnsEnvelope, *, source: SnsIngestSource, topic: SnsTopic
 ) -> IngestResult:
-    # SNS keeps one subscription per topic and endpoint, so this notice means
-    # the source's subscription is gone. A later SubscriptionConfirmation
-    # confirms it again.
+    # The signed message names the subscription that was removed. Reset the
+    # source only if that is its current subscription, so a late notice for
+    # an older one leaves a newer subscription's state alone.
     stmt = (
         update(EventSource)
         .where(
             EventSource.id == source.id,
             EventSource.workspace_id == source.workspace_id,
             EventSource.config["topic_arn"].astext == topic.arn,
+            EventSource.subscription_ref.is_not(None),
+            func.strpos(envelope.message, EventSource.subscription_ref) > 0,
         )
         .values(
             subscription_status=SubscriptionStatus.PENDING.value,
@@ -266,7 +292,9 @@ async def handle_sns_message(
                 envelope, source=source, topic=topic
             )
         case SnsMessageType.UNSUBSCRIBE_CONFIRMATION:
-            result = await _handle_unsubscribe_confirmation(source=source, topic=topic)
+            result = await _handle_unsubscribe_confirmation(
+                envelope, source=source, topic=topic
+            )
 
     logger.info(
         "SNS message ingested",

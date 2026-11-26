@@ -46,6 +46,7 @@ Tracecat checks every message before it stores anything:
 
 - The message must be signed by SNS. Tracecat verifies the signature against the SNS signing certificate for your topic's region.
 - The message must come from the source's topic.
+- The message must be less than 24 hours old.
 - Raw message delivery is refused, because raw messages carry no signature.
 
 Only `ObjectCreated:*` records become events. Tracecat acknowledges the S3 test event and other event types without storing them. A redelivered message for an object already queued is stored once.
@@ -53,12 +54,12 @@ Only `ObjectCreated:*` records become events. Tracecat acknowledges the S3 test 
 | Response | When | What SNS does |
 | -- | -- | -- |
 | `200` | Every event is stored | Marks the message delivered |
-| `400`, `403`, `404`, `409` | The message is malformed, unsigned, from another topic, for an unknown source, or the source is offline | Stops retrying and moves the message to your dead-letter queue |
+| `400`, `403`, `404`, `409` | The message is malformed, unsigned, from another topic, older than 24 hours, for an unknown source, or the source is offline | Stops retrying and moves the message to your dead-letter queue |
 | `503` | The source is over its rate cap, or a dependency is briefly unavailable | Retries under your retry policy |
 
 An offline source refuses notifications with `409`, so events sent while it is offline go to your dead-letter queue instead of being dropped. Subscription confirmations work while the source is offline, so you can confirm the subscription before you turn the source online.
 
-Each source accepts up to 6,000 notifications per minute by default. Past that, Tracecat answers `503` and SNS retries later. Messages that are still refused when your retry policy runs out go to your dead-letter queue.
+Each source accepts up to 6,000 new notifications per minute by default; redeliveries of events still queued do not count. Past that, Tracecat answers `503` and SNS retries later. Messages that are still refused when your retry policy runs out go to your dead-letter queue.
 
 <Warning>
 A workflow or agent that writes objects under the prefix it watches triggers itself in a loop. Write outputs under a different prefix or to a different bucket. The per-source rate cap slows a loop but does not stop it.

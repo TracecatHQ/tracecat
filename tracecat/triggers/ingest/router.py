@@ -64,6 +64,10 @@ _RESPONSE_BY_CODE: dict[IngestErrorCode, tuple[int, str]] = {
         status.HTTP_403_FORBIDDEN,
         "SNS signature could not be verified",
     ),
+    IngestErrorCode.STALE_MESSAGE: (
+        status.HTTP_400_BAD_REQUEST,
+        "Message is older than Tracecat accepts",
+    ),
     IngestErrorCode.SOURCE_OFFLINE: (
         status.HTTP_409_CONFLICT,
         "Event source is offline",

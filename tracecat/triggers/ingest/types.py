@@ -25,6 +25,7 @@ class IngestErrorCode(StrEnum):
     NOT_ENTITLED = "not_entitled"
     TOPIC_MISMATCH = "topic_mismatch"
     SIGNATURE_INVALID = "signature_invalid"
+    STALE_MESSAGE = "stale_message"
     SOURCE_OFFLINE = "source_offline"
     CONFIRMATION_REJECTED = "confirmation_rejected"
     RATE_LIMITED = "rate_limited"
