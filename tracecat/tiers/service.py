@@ -207,6 +207,7 @@ class TierService(BaseService):
             agent_runtime_preview=resolve_entitlement("agent_runtime_preview"),
             agent_runtime_workflows=resolve_entitlement("agent_runtime_workflows"),
             agent_channels_preview=resolve_entitlement("agent_channels_preview"),
+            object_triggers=resolve_entitlement("object_triggers"),
         )
 
 

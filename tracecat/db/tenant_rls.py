@@ -111,6 +111,11 @@ POST_RLS_WORKSPACE_SCOPED_TABLES = (
     "case_view",
     "case_view_pin",
     "agent_preset_approver",
+    "event_source",
+    "trigger",
+    "object_storage_trigger",
+    "trigger_binding",
+    "event_outbox",
 )
 
 POST_RLS_ORG_SCOPED_TABLES = (

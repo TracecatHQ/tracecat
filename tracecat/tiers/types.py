@@ -128,6 +128,14 @@ class EntitlementsDict(TypedDict, total=False):
             " of legacy agent channels",
         ),
     ]
+    object_triggers: Annotated[
+        bool,
+        Field(
+            title="Object triggers",
+            description="Whether object storage events (S3 object created, over"
+            " SNS) may start workflows and agents",
+        ),
+    ]
 
 
 @dataclass(frozen=True, slots=True)

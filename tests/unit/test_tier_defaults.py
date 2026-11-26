@@ -26,6 +26,7 @@ _FALSE_BY_DEFAULT = {
     "agent_runtime_preview": False,
     "agent_runtime_workflows": False,
     "agent_channels_preview": False,
+    "object_triggers": False,
 }
 
 

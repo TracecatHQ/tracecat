@@ -245,6 +245,62 @@
   The workflow's input schema (`entrypoint.expects`) supplies each field's name, type, default and whether it is required. `config` only controls presentation. Inputs left out of `layout` are appended in schema order with their default widget. A required input with no default widget, such as `dict` or `list[dict]`, needs a `user` or `file` widget or an autofill. Read the "Form Trigger" section of `tracecat://platform/dsl-reference` for the layout entries, widgets and rules.
 </ResponseField>
 
+<ResponseField name="list_event_sources" type="tool">
+  List the event sources of a workspace, newest first.
+
+  An event source is a configured inbound feed of events. Kind `aws_sns` is a customer-owned SNS topic, pinned by its ARN, that S3 publishes to. Triggers read a source; one source can feed many triggers.
+</ResponseField>
+
+<ResponseField name="get_event_source" type="tool">
+  Get an event source with its endpoint URL and subscription state.
+</ResponseField>
+
+<ResponseField name="create_event_source" type="tool">
+  Create an event source and get the endpoint URL to subscribe.
+
+  For `{"kind": "aws_sns", "topic_arn": "arn:aws:sns:..."}`, subscribe the topic to the returned `endpoint_url` (null unless the caller also holds `trigger:update`) over HTTPS with raw message delivery off. The source accepts messages from that topic only. A workspace has at most one source per topic.
+</ResponseField>
+
+<ResponseField name="update_event_source" type="tool">
+  Rename an event source, change its feed, or take it online or offline.
+
+  There is no delete: take a source offline instead. Changing where events come from (for `aws_sns`, the topic ARN) resets the subscription to pending. Turning a source online, or changing the feed of a source that stays or becomes online, also needs `workflow:execute` or `agent:execute` for the targets its online triggers run. The kind cannot change. The endpoint URL never changes.
+</ResponseField>
+
+<ResponseField name="list_triggers" type="tool">
+  List triggers newest first, each with its config and bindings.
+
+  A trigger is a rule over events; its bindings start a Workflow or an Agent for each matching event. Kind `object_storage` fires once per object created in its source whose key starts with `config.key_prefix`.
+</ResponseField>
+
+<ResponseField name="get_trigger" type="tool">
+  Get a trigger with its config and bindings.
+</ResponseField>
+
+<ResponseField name="create_trigger" type="tool">
+  Create a trigger. Add targets with `create_trigger_binding`.
+
+  For `{"kind": "object_storage", "source_id": ..., "key_prefix": "..."}`, the source must be an event source of this workspace that delivers object events (kind `aws_sns`). An empty `key_prefix` matches every key. A workflow that writes under the prefix it watches triggers itself.
+</ResponseField>
+
+<ResponseField name="update_trigger" type="tool">
+  Rename a trigger, replace its config, or take it online or offline.
+
+  There is no delete tool: take a trigger offline instead. Turning a trigger online or changing an online trigger's config also needs `workflow:execute` or `agent:execute` for the targets of its online bindings.
+</ResponseField>
+
+<ResponseField name="create_trigger_binding" type="tool">
+  Bind a trigger to a Workflow or an Agent, so each event starts it.
+
+  `{"type": "workflow", "workflow_id": ...}` runs the workflow's published definition with the event as its trigger input. Needs `workflow:execute`. `{"type": "agent", "agent_preset_id": ..., "instruction": "..."}` starts a new session of the preset's current version with the instruction; the event is added to the first message as data. Needs `agent:execute`. A trigger can be bound to the same target only once.
+</ResponseField>
+
+<ResponseField name="update_trigger_binding" type="tool">
+  Take a binding online or offline, or change an agent binding's instruction.
+
+  There is no delete tool: take a binding offline instead. Turning a binding online or changing its instruction needs `workflow:execute` or `agent:execute` for its target, as creating it does. The target cannot change; add a new binding for another target.
+</ResponseField>
+
 <ResponseField name="list_workflow_tags" type="tool">
   List workflow tag definitions in a workspace.
 

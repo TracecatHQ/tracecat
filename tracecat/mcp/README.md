@@ -141,6 +141,35 @@ when it creates the form.
 `update_form` creates the form if the workflow has none. `config` replaces the
 stored config whole. Submissions are not exposed over MCP.
 
+## Trigger tools
+
+These need the `object_triggers` entitlement, plus scopes: list and get tools
+need `trigger:read`; `create_event_source` and `create_trigger` need
+`trigger:create`; the update tools and `create_trigger_binding` need
+`trigger:update`. Anything that can make a target run also needs
+`workflow:execute` or `agent:execute` for that target: creating a binding,
+turning a binding, trigger or source online, changing an agent binding's
+instruction, or changing what an online trigger or source matches. Switching
+things off and renaming need only `trigger:update`. `endpoint_url` is null
+for callers without `trigger:update`.
+
+- `list_event_sources(workspace_id, limit=..., cursor=None)`
+- `get_event_source(workspace_id, source_id)`
+- `create_event_source(workspace_id, name, config, status="offline")`
+- `update_event_source(workspace_id, source_id, name=None, config=None, status=None)`
+- `list_triggers(workspace_id, kind=None, source_id=None, workflow_id=None, agent_preset_id=None, limit=..., cursor=None)`
+- `get_trigger(workspace_id, trigger_id)`
+- `create_trigger(workspace_id, name, config, status="offline")`
+- `update_trigger(workspace_id, trigger_id, name=None, config=None, status=None)`
+- `create_trigger_binding(workspace_id, trigger_id, target, status="online")`
+- `update_trigger_binding(workspace_id, trigger_id, binding_id, status=None, instruction=None)`
+
+An event source is an inbound feed (kind `aws_sns`: a customer SNS topic). A
+trigger is a rule over a source's events (kind `object_storage`). A binding
+starts a workflow or an agent preset for each matching event. Each `config` is
+discriminated by `kind`. There are no delete tools: take a source, trigger or
+binding offline instead. The API deletes triggers and bindings.
+
 ## Workflow tag tools
 
 - `list_workflow_tags(workspace_id, limit=20, cursor=None)`

@@ -425,6 +425,18 @@ export type AgentBackendRead = {
 }
 
 /**
+ * Start a new session of the agent preset's current version.
+ */
+export type AgentBindingTarget = {
+  type: "agent"
+  agent_preset_id: string
+  /**
+   * What the agent should do with each event. The event itself is added to the first message as data, never as instructions.
+   */
+  instruction: string
+}
+
+/**
  * Cancel the running turn.
  */
 export type AgentCancelControl = {
@@ -2198,6 +2210,17 @@ export type AwsSecretsManagerStoreUpdate = {
   provider?: "aws_secrets_manager"
   role_arn?: string | null
   region?: string | null
+}
+
+/**
+ * Events pushed by a customer-owned SNS topic, pinned by its ARN.
+ */
+export type AwsSnsSourceConfig = {
+  kind: "aws_sns"
+  /**
+   * ARN of the customer's SNS topic. The source accepts no other.
+   */
+  topic_arn: string
 }
 
 /**
@@ -5192,6 +5215,30 @@ export type CursorPaginatedResponse_ChannelBotChannel_ = {
   total_estimate?: number | null
 }
 
+export type CursorPaginatedResponse_EventSourceRead_ = {
+  items: Array<EventSourceRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 export type CursorPaginatedResponse_FormIntakeRead_ = {
   items: Array<FormIntakeRead>
   /**
@@ -5554,6 +5601,30 @@ export type CursorPaginatedResponse_TableFolderRead_ = {
 
 export type CursorPaginatedResponse_TableRowRead_ = {
   items: Array<TableRowRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_TriggerRead_ = {
+  items: Array<TriggerRead>
   /**
    * Cursor for next page
    */
@@ -6106,6 +6177,10 @@ export type EffectiveEntitlements = {
    * Whether the organization uses the channel bot API in place of legacy agent channels
    */
   agent_channels_preview?: boolean
+  /**
+   * Whether object storage events (S3 object created, over SNS) may start workflows and agents
+   */
+  object_triggers?: boolean
 }
 
 /**
@@ -6251,6 +6326,10 @@ export type EntitlementsDict = {
    * Whether the organization uses the channel bot API in place of legacy agent channels
    */
   agent_channels_preview?: boolean
+  /**
+   * Whether object storage events (S3 object created, over SNS) may start workflows and agents
+   */
+  object_triggers?: boolean
 }
 
 export type ErrorModel = {
@@ -6289,6 +6368,45 @@ export type EventGroup_TypeVar_ = {
   start_delay?: number
   join_strategy?: JoinStrategy
   related_wf_exec_id?: string | null
+}
+
+export type EventSourceCreate = {
+  name: string
+  config: AwsSnsSourceConfig
+  status?: TriggerStatus
+}
+
+/**
+ * How a source's events arrive and are verified.
+ */
+export type EventSourceKind = "aws_sns"
+
+export type EventSourceRead = {
+  id: string
+  kind: EventSourceKind
+  name: string
+  config: AwsSnsSourceConfig
+  status: TriggerStatus
+  subscription_status: SubscriptionStatus
+  /**
+   * The provider's subscription ID, e.g. the SNS subscription ARN
+   */
+  subscription_ref: string | null
+  /**
+   * Point the feed (e.g. the SNS subscription) at this HTTPS URL. It does not change. Null for callers without trigger:update.
+   */
+  endpoint_url: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type EventSourceUpdate = {
+  name?: string | null
+  /**
+   * Replaces the whole config. The kind cannot change. Changing where events come from resets the subscription to pending.
+   */
+  config?: AwsSnsSourceConfig | null
+  status?: TriggerStatus | null
 }
 
 /**
@@ -9132,6 +9250,37 @@ export type ObjectRef = {
 }
 
 export type encoding2 = "json" | "json+zstd" | "json+gzip"
+
+/**
+ * Fire once for each object created in a source whose key matches.
+ */
+export type ObjectStorageTriggerConfig = {
+  kind: "object_storage"
+  /**
+   * The event source to read object events from
+   */
+  source_id: string
+  /**
+   * Only keys starting with this fire. Empty matches every key.
+   */
+  key_prefix?: string
+}
+
+export type ObjectStorageTriggerConfigRead = {
+  kind: "object_storage"
+  /**
+   * The event source to read object events from
+   */
+  source_id: string
+  /**
+   * Only keys starting with this fire. Empty matches every key.
+   */
+  key_prefix?: string
+  /**
+   * The event source's display name
+   */
+  source_name: string
+}
 
 /**
  * A disjunction of one or more filters.
@@ -12544,6 +12693,11 @@ export type SubCasesRemovedEventRead = {
 }
 
 /**
+ * State of the provider subscription that feeds an event source.
+ */
+export type SubscriptionStatus = "pending" | "confirmed"
+
+/**
  * A stable page of diff metadata; file text is fetched separately.
  */
 export type SyncDiffPage = {
@@ -13626,10 +13780,82 @@ export type Trigger = {
 
 export type type6 = "schedule" | "webhook"
 
+export type TriggerBindingCreate = {
+  target: WorkflowBindingTarget | AgentBindingTarget
+  status?: TriggerStatus
+}
+
+export type TriggerBindingRead = {
+  id: string
+  trigger_id: string
+  target_type: TriggerTargetType
+  /**
+   * The workflow or agent preset ID
+   */
+  target_id: string
+  /**
+   * The workflow title or agent preset name
+   */
+  target_name: string
+  instruction: string | null
+  status: TriggerStatus
+  created_at: string
+  updated_at: string
+}
+
+export type TriggerBindingUpdate = {
+  status?: TriggerStatus | null
+  /**
+   * Agent bindings only.
+   */
+  instruction?: string | null
+}
+
+export type TriggerCreate = {
+  name: string
+  config: ObjectStorageTriggerConfig
+  status?: TriggerStatus
+}
+
+/**
+ * What a trigger listens to. Each kind has its own source and config.
+ */
+export type TriggerKind = "object_storage"
+
+export type TriggerRead = {
+  id: string
+  kind: TriggerKind
+  name: string
+  status: TriggerStatus
+  config: ObjectStorageTriggerConfigRead
+  bindings: Array<TriggerBindingRead>
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Whether a source, trigger or binding takes part in dispatch.
+ */
+export type TriggerStatus = "online" | "offline"
+
+/**
+ * What a trigger binding starts.
+ */
+export type TriggerTargetType = "workflow" | "agent"
+
 /**
  * Trigger type for a workflow execution.
  */
 export type TriggerType = "manual" | "scheduled" | "webhook" | "case" | "form"
+
+export type TriggerUpdate = {
+  name?: string | null
+  /**
+   * Replaces the whole config. Its kind must be the trigger's kind, which never changes after create.
+   */
+  config?: ObjectStorageTriggerConfig | null
+  status?: TriggerStatus | null
+}
 
 /**
  * Whether this deployment can run tunnel gateways.
@@ -14459,6 +14685,14 @@ export type WorkflowArtifact = {
   type?: "workflow"
   color: string
   isPublished?: boolean | null
+}
+
+/**
+ * Start the workflow's published definition with the event as its input.
+ */
+export type WorkflowBindingTarget = {
+  type: "workflow"
+  workflow_id: string
 }
 
 export type WorkflowCommitResponse = {
@@ -19812,6 +20046,103 @@ export type FormsDeleteFormSubmissionData = {
 }
 
 export type FormsDeleteFormSubmissionResponse = void
+
+export type TriggersListEventSourcesData = {
+  cursor?: string | null
+  limit?: number
+  workspaceId: string
+}
+
+export type TriggersListEventSourcesResponse =
+  CursorPaginatedResponse_EventSourceRead_
+
+export type TriggersCreateEventSourceData = {
+  requestBody: EventSourceCreate
+  workspaceId: string
+}
+
+export type TriggersCreateEventSourceResponse = EventSourceRead
+
+export type TriggersGetEventSourceData = {
+  sourceId: string
+  workspaceId: string
+}
+
+export type TriggersGetEventSourceResponse = EventSourceRead
+
+export type TriggersUpdateEventSourceData = {
+  requestBody: EventSourceUpdate
+  sourceId: string
+  workspaceId: string
+}
+
+export type TriggersUpdateEventSourceResponse = EventSourceRead
+
+export type TriggersListTriggersData = {
+  agentPresetId?: string | null
+  cursor?: string | null
+  kind?: TriggerKind | null
+  limit?: number
+  sourceId?: string | null
+  workflowId?: string | null
+  workspaceId: string
+}
+
+export type TriggersListTriggersResponse = CursorPaginatedResponse_TriggerRead_
+
+export type TriggersCreateTriggerData = {
+  requestBody: TriggerCreate
+  workspaceId: string
+}
+
+export type TriggersCreateTriggerResponse = TriggerRead
+
+export type TriggersGetTriggerData = {
+  triggerId: string
+  workspaceId: string
+}
+
+export type TriggersGetTriggerResponse = TriggerRead
+
+export type TriggersUpdateTriggerData = {
+  requestBody: TriggerUpdate
+  triggerId: string
+  workspaceId: string
+}
+
+export type TriggersUpdateTriggerResponse = TriggerRead
+
+export type TriggersDeleteTriggerData = {
+  triggerId: string
+  workspaceId: string
+}
+
+export type TriggersDeleteTriggerResponse = void
+
+export type TriggersCreateTriggerBindingData = {
+  requestBody: TriggerBindingCreate
+  triggerId: string
+  workspaceId: string
+}
+
+export type TriggersCreateTriggerBindingResponse = TriggerBindingRead
+
+export type TriggersUpdateTriggerBindingData = {
+  bindingId: string
+  requestBody: TriggerBindingUpdate
+  triggerId: string
+  workspaceId: string
+}
+
+export type TriggersUpdateTriggerBindingResponse = TriggerBindingRead
+
+export type TriggersDeleteTriggerBindingData = {
+  bindingId: string
+  triggerId: string
+  workspaceId: string
+}
+
+export type TriggersDeleteTriggerBindingResponse = void
 
 export type FormsListIntakeFormsData = {
   cursor?: string | null
@@ -29016,6 +29347,238 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/event-sources": {
+    get: {
+      req: TriggersListEventSourcesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_EventSourceRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: TriggersCreateEventSourceData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: EventSourceRead
+        /**
+         * See detail.code
+         */
+        409: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/event-sources/{source_id}": {
+    get: {
+      req: TriggersGetEventSourceData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: EventSourceRead
+        /**
+         * See detail.code
+         */
+        404: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: TriggersUpdateEventSourceData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: EventSourceRead
+        /**
+         * See detail.code
+         */
+        400: unknown
+        /**
+         * See detail.code
+         */
+        404: unknown
+        /**
+         * See detail.code
+         */
+        409: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/triggers": {
+    get: {
+      req: TriggersListTriggersData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_TriggerRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: TriggersCreateTriggerData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: TriggerRead
+        /**
+         * See detail.code
+         */
+        400: unknown
+        /**
+         * See detail.code
+         */
+        404: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/triggers/{trigger_id}": {
+    get: {
+      req: TriggersGetTriggerData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TriggerRead
+        /**
+         * See detail.code
+         */
+        404: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: TriggersUpdateTriggerData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TriggerRead
+        /**
+         * See detail.code
+         */
+        400: unknown
+        /**
+         * See detail.code
+         */
+        404: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: TriggersDeleteTriggerData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * See detail.code
+         */
+        404: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/triggers/{trigger_id}/bindings": {
+    post: {
+      req: TriggersCreateTriggerBindingData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: TriggerBindingRead
+        /**
+         * See detail.code
+         */
+        404: unknown
+        /**
+         * See detail.code
+         */
+        409: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/triggers/{trigger_id}/bindings/{binding_id}": {
+    patch: {
+      req: TriggersUpdateTriggerBindingData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TriggerBindingRead
+        /**
+         * See detail.code
+         */
+        400: unknown
+        /**
+         * See detail.code
+         */
+        404: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: TriggersDeleteTriggerBindingData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * See detail.code
+         */
+        404: unknown
         /**
          * Validation Error
          */
