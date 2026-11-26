@@ -1,5 +1,6 @@
 """Bounded reads in tools.amazon_s3.get_object, against the test MinIO server."""
 
+import asyncio
 import gzip
 import tracemalloc
 import uuid
@@ -232,6 +233,44 @@ async def test_non_utf8_bytes_raise(bucket: Bucket) -> None:
 
     with pytest.raises(ValueError, match="not UTF-8 text .*offset 2"):
         await bucket.get("image.bin")
+
+
+@pytest.mark.anyio
+async def test_notice_at_the_ceiling_has_no_raise_advice(bucket: Bucket) -> None:
+    # 21 MiB of zeros gzips to about 20 KB, so the default cap cuts it.
+    await bucket.put("big.gz", _gzip_of_zeros(21 * 1024 * 1024))
+
+    result = await bucket.get("big.gz")
+
+    assert result.endswith(
+        f"\n\n[Truncated by Tracecat: returned at most the first {CEILING} bytes "
+        "of the decompressed object.]"
+    )
+
+
+@pytest.mark.anyio
+async def test_get_objects_does_not_retry_after_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+    started = asyncio.Event()
+
+    async def blocking_get_object(*_args: object, **_kwargs: object) -> str:
+        nonlocal calls
+        calls += 1
+        started.set()
+        await asyncio.Event().wait()
+        return ""
+
+    monkeypatch.setattr(amazon_s3, "get_object", blocking_get_object)
+    task = asyncio.create_task(amazon_s3.get_objects("bucket", ["a"]))
+    await started.wait()
+    task.cancel()
+
+    # A retried cancellation would sleep 4 s and then block again.
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=2)
+    assert calls == 1
 
 
 @pytest.mark.anyio

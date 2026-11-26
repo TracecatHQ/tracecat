@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 from pydantic import Field
 from tenacity import (
     retry,
+    retry_if_exception_type,
     retry_if_not_exception_type,
     stop_after_attempt,
     wait_exponential,
@@ -316,10 +317,14 @@ async def get_object(
         whole = "the decompressed object"
     else:
         whole = f"the {obj.get('ContentLength')}-byte object"
+    advice = (
+        f" Raise max_bytes (at most {_MAX_BYTES_LIMIT}) to read more."
+        if max_bytes < _MAX_BYTES_LIMIT
+        else ""
+    )
     return (
         f"{text}\n\n[Truncated by Tracecat: returned at most the first {max_bytes} "
-        f"bytes of {whole}. Raise max_bytes (at most "
-        f"{_MAX_BYTES_LIMIT}) to read more.]"
+        f"bytes of {whole}.{advice}]"
     )
 
 
@@ -482,9 +487,11 @@ async def get_objects(
 
     # To prevent Amazon S3 rate limits and resource exhaustion
     # ValueError means the object itself is unreadable (bad gzip, not UTF-8), so a
-    # retry would only download it again.
+    # retry would only download it again. Keep tenacity's default of retrying only
+    # Exception, so cancellation (a BaseException) is never retried.
     @retry(
-        retry=retry_if_not_exception_type(ValueError),
+        retry=retry_if_exception_type(Exception)
+        & retry_if_not_exception_type(ValueError),
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=4, max=10),
     )
