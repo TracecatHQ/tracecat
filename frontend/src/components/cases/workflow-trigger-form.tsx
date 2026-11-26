@@ -1,7 +1,7 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { PlayIcon, Plus, RotateCcw } from "lucide-react"
+import { Plus, RotateCcw } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
@@ -558,8 +558,7 @@ export function WorkflowTriggerForm({
           </div>
           <AlertDialogCancel className="text-xs">Cancel</AlertDialogCancel>
           <Button type="submit" className="text-xs" disabled={isSubmitting}>
-            <PlayIcon className="mr-1.5 h-3 w-3" />
-            Trigger
+            Submit
           </Button>
         </AlertDialogFooter>
       </form>
