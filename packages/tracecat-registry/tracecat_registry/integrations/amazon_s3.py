@@ -9,7 +9,12 @@ import zlib
 from typing import TYPE_CHECKING, Annotated, Any
 
 from pydantic import Field
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import (
+    retry,
+    retry_if_not_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 from typing_extensions import Doc
 
 if TYPE_CHECKING:
@@ -74,6 +79,10 @@ _AWS_SERVICE_REGION_DOC = (
 _READ_CHUNK_BYTES = 1024 * 1024
 _GZIP_MAGIC = b"\x1f\x8b"
 _GZIP_WBITS = 16 + zlib.MAX_WBITS
+# Feed the inflater small slices: each finished gzip member copies the rest of its
+# input into ``unused_data``, so whole 1 MiB chunks would make a run of tiny members
+# quadratic in CPU.
+_INFLATE_FEED_BYTES = 4096
 # A fixed constant, not TRACECAT__MAX_FILE_SIZE_BYTES: that env var is not passed into
 # the action sandbox, so the indexed schema and the runtime check could disagree.
 _MAX_BYTES_LIMIT = 20 * 1024 * 1024
@@ -96,9 +105,14 @@ MaxBytes = Annotated[
 
 def _check_max_bytes(max_bytes: int) -> None:
     # The executor does not re-validate action inputs, so enforce the bounds here.
-    if not 1 <= max_bytes <= _MAX_BYTES_LIMIT:
+    if (
+        isinstance(max_bytes, bool)
+        or not isinstance(max_bytes, int)
+        or not 1 <= max_bytes <= _MAX_BYTES_LIMIT
+    ):
         raise ValueError(
-            f"max_bytes must be between 1 and {_MAX_BYTES_LIMIT}, got {max_bytes}."
+            f"max_bytes must be an integer between 1 and {_MAX_BYTES_LIMIT}, "
+            f"got {max_bytes!r}."
         )
 
 
@@ -136,20 +150,25 @@ async def _gunzip_bounded(body: Any, data: bytes, max_bytes: int) -> tuple[bytes
     inflater = zlib.decompressobj(wbits=_GZIP_WBITS)
     try:
         while data:
-            while data and len(out) <= max_bytes:
-                if inflater.eof:
-                    # Between members: skip zero padding, as gzip.decompress does,
-                    # then start the next member (log shippers concatenate them).
-                    if not (data := data.lstrip(b"\0")):
-                        break
-                    inflater = zlib.decompressobj(wbits=_GZIP_WBITS)
-                out += inflater.decompress(data, max_bytes + 1 - len(out))
-                data = (
-                    inflater.unused_data if inflater.eof else inflater.unconsumed_tail
-                )
-            if len(out) > max_bytes:
-                del out[max_bytes:]
-                return bytes(out), True
+            for start in range(0, len(data), _INFLATE_FEED_BYTES):
+                piece = data[start : start + _INFLATE_FEED_BYTES]
+                while piece and len(out) <= max_bytes:
+                    if inflater.eof:
+                        # Between members: skip zero padding, as gzip.decompress
+                        # does, then start the next member (log shippers concatenate
+                        # them).
+                        if not (piece := piece.lstrip(b"\0")):
+                            break
+                        inflater = zlib.decompressobj(wbits=_GZIP_WBITS)
+                    out += inflater.decompress(piece, max_bytes + 1 - len(out))
+                    piece = (
+                        inflater.unused_data
+                        if inflater.eof
+                        else inflater.unconsumed_tail
+                    )
+                if len(out) > max_bytes:
+                    del out[max_bytes:]
+                    return bytes(out), True
             data = await _read_chunk(body)
             consumed += len(data)
             if data and consumed > max_bytes + _READ_CHUNK_BYTES:
@@ -462,8 +481,12 @@ async def get_objects(
     _check_max_bytes(max_bytes)
 
     # To prevent Amazon S3 rate limits and resource exhaustion
+    # ValueError means the object itself is unreadable (bad gzip, not UTF-8), so a
+    # retry would only download it again.
     @retry(
-        stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10)
+        retry=retry_if_not_exception_type(ValueError),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10),
     )
     async def get_object_fn(key: str) -> str:
         # Use semaphore to limit concurrent S3 operations

@@ -177,13 +177,36 @@ async def test_gzip_that_expands_past_the_cap_stays_bounded(bucket: Bucket) -> N
 
 
 @pytest.mark.anyio
-async def test_gzip_that_inflates_to_little_stops_downloading(bucket: Bucket) -> None:
+async def test_gzip_that_inflates_to_little_stops_downloading(
+    bucket: Bucket, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # 8 MiB of padding after a 1-byte member: the output never reaches the cap, so
     # only the input bound stops the read.
     await bucket.put("padding.gz", gzip.compress(b"x") + b"\0" * (8 * 1024 * 1024))
+    downloaded = 0
+    read_chunk = amazon_s3._read_chunk  # pyright: ignore[reportPrivateUsage]
+
+    async def counting_read_chunk(body: object) -> bytes:
+        nonlocal downloaded
+        chunk = await read_chunk(body)
+        downloaded += len(chunk)
+        return chunk
+
+    monkeypatch.setattr(amazon_s3, "_read_chunk", counting_read_chunk)
 
     with pytest.raises(ValueError, match="decompressed to only 1 bytes"):
         await bucket.get("padding.gz", max_bytes=1024)
+    # At most max_bytes plus two 1 MiB chunks, not the 8 MiB object.
+    assert downloaded <= 1024 + 2 * 1024 * 1024
+
+
+@pytest.mark.anyio
+async def test_many_tiny_gzip_members_are_read(bucket: Bucket) -> None:
+    # 200,000 empty members (about 4 MB) span many read chunks and inflater slices.
+    body = gzip.compress(b"", mtime=0) * 200_000 + gzip.compress(b"done\n")
+    await bucket.put("members.gz", body)
+
+    assert await bucket.get("members.gz") == "done\n"
 
 
 @pytest.mark.anyio
@@ -212,6 +235,17 @@ async def test_non_utf8_bytes_raise(bucket: Bucket) -> None:
 
 
 @pytest.mark.anyio
+async def test_get_objects_does_not_retry_unreadable_objects(bucket: Bucket) -> None:
+    # A retry would sleep 4 s or more and then raise tenacity.RetryError.
+    await bucket.put("image.bin", b"ok\xff\xfe")
+
+    with pytest.raises(ValueError, match="not UTF-8 text"):
+        await amazon_s3.get_objects(
+            bucket.name, ["image.bin"], endpoint_url=ENDPOINT_URL
+        )
+
+
+@pytest.mark.anyio
 async def test_get_objects_passes_the_cap_through(bucket: Bucket) -> None:
     await bucket.put("a.txt", b"a" * 100)
     await bucket.put("b.txt", b"b")
@@ -225,11 +259,11 @@ async def test_get_objects_passes_the_cap_through(bucket: Bucket) -> None:
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("max_bytes", [0, CEILING + 1])
+@pytest.mark.parametrize("max_bytes", [0, CEILING + 1, 1.5, True])
 async def test_max_bytes_outside_its_bounds_is_rejected(
     bucket: Bucket, max_bytes: int
 ) -> None:
     await bucket.put("notes.txt", b"hello")
 
-    with pytest.raises(ValueError, match="max_bytes must be between 1 and"):
+    with pytest.raises(ValueError, match="max_bytes must be an integer between 1"):
         await bucket.get("notes.txt", max_bytes=max_bytes)
