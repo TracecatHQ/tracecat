@@ -15,6 +15,7 @@ from tracecat_registry.integrations import amazon_s3
 from tests.conftest import MINIO_PORT, _minio_credentials
 
 ENDPOINT_URL = f"http://localhost:{MINIO_PORT}"
+CEILING = amazon_s3.TRACECAT__MAX_FILE_SIZE_BYTES
 
 
 @dataclass(frozen=True)
@@ -103,7 +104,7 @@ async def test_object_over_the_cap_is_cut_with_a_notice(bucket: Bucket) -> None:
     assert text == "a" * 1000
     assert notice == (
         "[Truncated by Tracecat: returned at most the first 1000 bytes of the "
-        "5000-byte object. Raise max_bytes to read more.]"
+        f"5000-byte object. Raise max_bytes (at most {CEILING}) to read more.]"
     )
 
 
@@ -134,6 +135,16 @@ async def test_concatenated_gzip_members_are_all_read(bucket: Bucket) -> None:
 
 
 @pytest.mark.anyio
+async def test_zero_padding_between_gzip_members_is_skipped(bucket: Bucket) -> None:
+    # 1.5 MiB of padding spans a read-chunk boundary.
+    padding = b"\0" * (3 * 1024 * 1024 // 2)
+    body = gzip.compress(b"first\n") + padding + gzip.compress(b"second\n") + b"\0"
+    await bucket.put("padded.gz", body)
+
+    assert await bucket.get("padded.gz") == "first\nsecond\n"
+
+
+@pytest.mark.anyio
 async def test_gzip_cap_applies_to_decompressed_bytes(bucket: Bucket) -> None:
     payload = b"0123456789" * 1000
     await bucket.put("logs.json.gz", gzip.compress(payload))
@@ -142,7 +153,8 @@ async def test_gzip_cap_applies_to_decompressed_bytes(bucket: Bucket) -> None:
 
     assert result == (
         "0123456789012345678901234\n\n[Truncated by Tracecat: returned at most the "
-        "first 25 bytes of the decompressed object. Raise max_bytes to read more.]"
+        "first 25 bytes of the decompressed object. Raise max_bytes (at most "
+        f"{CEILING}) to read more.]"
     )
 
 
@@ -200,3 +212,14 @@ async def test_get_objects_passes_the_cap_through(bucket: Bucket) -> None:
 
     assert results[0].startswith("a" * 10 + "\n\n[Truncated by Tracecat:")
     assert results[1] == "b"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("max_bytes", [0, CEILING + 1])
+async def test_max_bytes_outside_its_bounds_is_rejected(
+    bucket: Bucket, max_bytes: int
+) -> None:
+    await bucket.put("notes.txt", b"hello")
+
+    with pytest.raises(ValueError, match="max_bytes must be between 1 and"):
+        await bucket.get("notes.txt", max_bytes=max_bytes)

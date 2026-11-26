@@ -80,13 +80,24 @@ MaxBytes = Annotated[
     Field(
         ...,
         ge=1,
+        le=TRACECAT__MAX_FILE_SIZE_BYTES,
         description=(
             "Maximum number of bytes to return, counted after gzip decompression. "
             "A larger object is cut at this size and the result ends with a "
-            "truncation notice."
+            "truncation notice. The default is also the ceiling "
+            "(TRACECAT__MAX_FILE_SIZE_BYTES, 20 MiB unless the operator changes it)."
         ),
     ),
 ]
+
+
+def _check_max_bytes(max_bytes: int) -> None:
+    # The executor does not re-validate action inputs, so enforce the bounds here.
+    if not 1 <= max_bytes <= TRACECAT__MAX_FILE_SIZE_BYTES:
+        raise ValueError(
+            f"max_bytes must be between 1 and {TRACECAT__MAX_FILE_SIZE_BYTES}, "
+            f"got {max_bytes}."
+        )
 
 
 async def _read_bounded(body: Any, max_bytes: int) -> tuple[bytes, bool, bool]:
@@ -124,7 +135,10 @@ async def _gunzip_bounded(body: Any, data: bytes, max_bytes: int) -> tuple[bytes
         while data:
             while data and len(out) <= max_bytes:
                 if inflater.eof:
-                    # Concatenated gzip members, as log shippers often write.
+                    # Between members: skip zero padding, as gzip.decompress does,
+                    # then start the next member (log shippers concatenate them).
+                    if not (data := data.lstrip(b"\0")):
+                        break
                     inflater = zlib.decompressobj(wbits=_GZIP_WBITS)
                 out += inflater.decompress(data, max_bytes + 1 - len(out))
                 data = (
@@ -156,7 +170,7 @@ def _decode_utf8(data: bytes, *, key: str, truncated: bool) -> str:
         return decoder.decode(data, final=not truncated)
     except UnicodeDecodeError as e:
         raise ValueError(
-            f"S3 object '{key}' is not UTF-8 text (invalid byte at offset "
+            f"S3 object {key!r} is not UTF-8 text (invalid byte at offset "
             f"{e.start}). get_object only returns text objects."
         ) from e
 
@@ -231,11 +245,6 @@ async def call_method(
 async def get_object(
     bucket: Annotated[str, Doc("S3 bucket name.")],
     key: Annotated[str, Doc("S3 object key.")],
-    version_id: Annotated[
-        str | None,
-        Doc("Version ID used to reference a specific version of the object."),
-    ] = None,
-    max_bytes: MaxBytes = TRACECAT__MAX_FILE_SIZE_BYTES,
     endpoint_url: Annotated[
         str | None,
         Doc("Endpoint URL for the AWS S3 service."),
@@ -248,7 +257,13 @@ async def get_object(
     role_session_name: aws_boto3.RoleSessionName = None,
     external_id: aws_boto3.ExternalId = None,
     duration_seconds: aws_boto3.DurationSeconds = None,
+    version_id: Annotated[
+        str | None,
+        Doc("Version ID used to reference a specific version of the object."),
+    ] = None,
+    max_bytes: MaxBytes = TRACECAT__MAX_FILE_SIZE_BYTES,
 ) -> str:
+    _check_max_bytes(max_bytes)
     session = await aws_boto3.get_session(
         region_name=region_name,
         role_arn=role_arn,
@@ -272,7 +287,8 @@ async def get_object(
         whole = f"the {obj.get('ContentLength')}-byte object"
     return (
         f"{text}\n\n[Truncated by Tracecat: returned at most the first {max_bytes} "
-        f"bytes of {whole}. Raise max_bytes to read more.]"
+        f"bytes of {whole}. Raise max_bytes (at most "
+        f"{TRACECAT__MAX_FILE_SIZE_BYTES}) to read more.]"
     )
 
 
@@ -417,7 +433,6 @@ async def copy_objects(
 async def get_objects(
     bucket: Annotated[str, Doc("S3 bucket name.")],
     keys: Annotated[list[str], Doc("S3 object keys.")],
-    max_bytes: MaxBytes = TRACECAT__MAX_FILE_SIZE_BYTES,
     endpoint_url: Annotated[
         str | None,
         Doc("Endpoint URL for the AWS S3 service."),
@@ -430,7 +445,10 @@ async def get_objects(
     role_session_name: aws_boto3.RoleSessionName = None,
     external_id: aws_boto3.ExternalId = None,
     duration_seconds: aws_boto3.DurationSeconds = None,
+    max_bytes: MaxBytes = TRACECAT__MAX_FILE_SIZE_BYTES,
 ) -> list[str]:
+    _check_max_bytes(max_bytes)
+
     # To prevent Amazon S3 rate limits and resource exhaustion
     @retry(
         stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10)
