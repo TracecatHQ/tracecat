@@ -185,7 +185,7 @@ export function WorkflowTriggerDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent className="flex max-h-[85vh] max-w-md flex-col overflow-hidden [overflow-wrap:anywhere]">
+      <AlertDialogContent className="flex max-h-[85vh] max-w-2xl flex-col overflow-hidden [overflow-wrap:anywhere]">
         <AlertDialogHeader>
           <AlertDialogTitle className="text-sm">
             {triggerSchema
