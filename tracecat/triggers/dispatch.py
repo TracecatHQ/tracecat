@@ -34,7 +34,7 @@ from typing import Any, Literal
 import orjson
 from opentelemetry import metrics
 from pydantic import ValidationError
-from sqlalchemy import and_, delete, func, select, text, update
+from sqlalchemy import and_, delete, func, select, text, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -873,18 +873,22 @@ class TriggerOutboxDispatcher:
     ) -> int:
         """Delete delivered rows, release deferred ones, schedule or stop the rest.
 
-        A row is updated only while it still carries this batch's attempt, so
-        a slow batch whose lease ran out never overwrites a newer attempt's
-        state. Returns how many rows were stopped.
+        A row is deleted or updated only while it still carries this batch's
+        attempt, so a slow batch whose lease ran out never overrides a newer
+        attempt, which may have matched a binding added since. The newer
+        attempt finds this batch's runs already started and finishes the row.
+        Returns how many rows were stopped.
         """
         delivered = [
-            row.id
+            (row.id, row.attempts)
             for row in rows
             if outcomes[row.id].error is None and not outcomes[row.id].deferred
         ]
         if delivered:
             await session.execute(
-                delete(EventOutbox).where(EventOutbox.id.in_(delivered))
+                delete(EventOutbox).where(
+                    tuple_(EventOutbox.id, EventOutbox.attempts).in_(delivered)
+                )
             )
         stopped = 0
         for row in rows:

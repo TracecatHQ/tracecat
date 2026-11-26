@@ -844,6 +844,28 @@ async def test_rows_not_reached_by_the_deadline_keep_their_attempt(
     assert await pick_ready_rows(outbox) == [late.id]
 
 
+async def test_a_late_success_leaves_a_reclaimed_row_to_the_newer_attempt(
+    outbox: AsyncSession, svc_workspace: Workspace, starts: Starts
+) -> None:
+    """The newer attempt may have matched a binding added since; it finishes."""
+    fx = await _source_and_trigger(outbox, svc_workspace.id)
+    await _bind_workflow(outbox, fx)
+    row = await _enqueue(outbox, fx)
+    await outbox.commit()
+
+    async def reclaimed_meanwhile(**_: Any) -> None:
+        await _expire_lease(outbox, row.id)
+        await claim_rows(outbox, [row.id])
+
+    starts.workflow.side_effect = reclaimed_meanwhile
+    result = await TriggerOutboxDispatcher().dispatch_batch()
+
+    assert result.delivered == 1
+    kept = await _row(outbox, row.id)
+    assert kept is not None
+    assert kept.attempts == 2
+
+
 # ----- Two dispatchers -----
 
 
