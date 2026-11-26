@@ -240,7 +240,7 @@ describe("WorkspaceTriggers", () => {
     await user.click(await screen.findByRole("button", { name: "Load more" }))
 
     expect(
-      await screen.findByText(/Couldn't load more triggers/)
+      await screen.findByText(/Couldn't load all triggers/)
     ).toBeInTheDocument()
     expect(
       screen.getByRole("link", { name: /New uploads/ })
@@ -357,6 +357,7 @@ describe("CreateTriggerDialog while submitting", () => {
     await user.click(screen.getByRole("button", { name: "Create trigger" }))
 
     await waitFor(() => expect(screen.getByLabelText("Name")).toBeDisabled())
+    expect(screen.getByRole("button", { name: "Existing" })).toBeDisabled()
     expect(
       screen.getByRole("button", { name: "Create trigger" })
     ).toBeDisabled()

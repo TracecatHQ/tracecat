@@ -5,6 +5,10 @@ import { useState } from "react"
 import type { TriggerBindingCreate, TriggerRead } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { describeTriggerError } from "@/components/triggers/trigger-errors"
+import {
+  RUN_ACTION_BY_TARGET,
+  useCanRunTarget,
+} from "@/components/triggers/trigger-target-scopes"
 import { Button } from "@/components/ui/button"
 import {
   Command,
@@ -60,8 +64,7 @@ export function AddTargetDialog({
 }) {
   const canReadWorkflows = useScopeCheck("workflow:read")
   const canReadAgents = useScopeCheck("agent:read")
-  const canRunWorkflows = useScopeCheck("workflow:execute")
-  const canRunAgents = useScopeCheck("agent:execute")
+  const canRunTarget = useCanRunTarget()
   const { createBinding } = useTriggerMutations(workspaceId)
   // Every control locks while the request runs, so what is sent is what shows.
   const pending = createBinding.isPending
@@ -98,7 +101,7 @@ export function AddTargetDialog({
     }))
     loading = workflowsLoading
     canRead = canReadWorkflows
-    canRun = canRunWorkflows
+    canRun = canRunTarget("workflow")
   } else {
     options = (presets ?? []).map((preset) => ({
       id: preset.id,
@@ -107,7 +110,7 @@ export function AddTargetDialog({
     }))
     loading = presetsIsLoading
     canRead = canReadAgents
-    canRun = canRunAgents
+    canRun = canRunTarget("agent")
   }
 
   function reset() {
@@ -154,14 +157,12 @@ export function AddTargetDialog({
     }
   }
 
-  const runLabel = targetType === "workflow" ? "run workflows" : "run agents"
-  const runScope =
-    targetType === "workflow" ? "workflow:execute" : "agent:execute"
-
   return (
     <Dialog
       open={open}
       onOpenChange={(next) => {
+        // A request in flight would close a reopened draft when it lands.
+        if (!next && pending) return
         if (!next) reset()
         onOpenChange(next)
       }}
@@ -211,8 +212,9 @@ export function AddTargetDialog({
             />
             {canRun === false ? (
               <p className="text-xs text-destructive">
-                You don't have permission to {runLabel} ({runScope}), so you
-                can't add one as a target. Ask a workspace admin for access.
+                You don't have permission to {RUN_ACTION_BY_TARGET[targetType]},
+                so you can't add one as a target. Ask a workspace admin for
+                access.
               </p>
             ) : null}
             {canRead === false ? (

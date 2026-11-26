@@ -46,6 +46,12 @@ export function ObjectStorageTriggerForm({
     mode = "new"
   }
   const busy = pending
+  let sourcePlaceholder = "Select an event source"
+  if (sourcesLoading) {
+    sourcePlaceholder = "Loading event sources…"
+  } else if (sources.length === 0) {
+    sourcePlaceholder = "No event sources yet"
+  }
 
   async function resolveSourceId(): Promise<string> {
     if (mode === "existing") {
@@ -91,6 +97,7 @@ export function ObjectStorageTriggerForm({
           <Label className="text-xs">Event source</Label>
           <ToggleTabs<SourceMode>
             size="sm"
+            disabled={busy}
             value={mode}
             onValueChange={(next) => {
               setChosenMode(next)
@@ -109,13 +116,7 @@ export function ObjectStorageTriggerForm({
             disabled={busy || sourcesLoading}
           >
             <SelectTrigger className="text-xs" aria-label="Event source">
-              <SelectValue
-                placeholder={
-                  sources.length > 0
-                    ? "Select an event source"
-                    : "No event sources yet"
-                }
-              />
+              <SelectValue placeholder={sourcePlaceholder} />
             </SelectTrigger>
             <SelectContent>
               {sources.map((source) => (

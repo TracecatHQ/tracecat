@@ -144,7 +144,7 @@ export function WorkspaceTriggers() {
         ))}
         {error ? (
           <p className="px-4 py-2 text-xs text-destructive">
-            Couldn't load more triggers. {describeTriggerError(error)}
+            Couldn't load all triggers. {describeTriggerError(error)}
           </p>
         ) : null}
         {hasNextPage ? (

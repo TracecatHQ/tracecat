@@ -11,17 +11,17 @@ import {
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
-import type {
-  TriggerBindingRead,
-  TriggerRead,
-  TriggerTargetType,
-} from "@/client"
+import type { TriggerBindingRead, TriggerRead } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AddTargetDialog } from "@/components/triggers/add-target-dialog"
 import { describeTriggerError } from "@/components/triggers/trigger-errors"
 import { getTriggerKind } from "@/components/triggers/trigger-kinds"
 import { TriggerStatusLabel } from "@/components/triggers/trigger-status"
+import {
+  RUN_ACTION_BY_TARGET,
+  useCanRunTarget,
+} from "@/components/triggers/trigger-target-scopes"
 import { TriggersLockedState } from "@/components/triggers/workspace-triggers"
 import {
   AlertDialog,
@@ -90,22 +90,6 @@ export function TriggerDetail({ triggerId }: { triggerId: string }) {
   )
 }
 
-const RUN_ACTION_BY_TARGET: Record<TriggerTargetType, string> = {
-  workflow: "run workflows (workflow:execute)",
-  agent: "run agents (agent:execute)",
-}
-
-/**
- * Whether the caller may make a target live. The API needs the target's
- * execute scope on top of `trigger:update`.
- */
-function useCanRunTarget(): (type: TriggerTargetType) => boolean {
-  const canRunWorkflows = useScopeCheck("workflow:execute")
-  const canRunAgents = useScopeCheck("agent:execute")
-  return (type) =>
-    type === "agent" ? canRunAgents === true : canRunWorkflows === true
-}
-
 function TriggerDetailBody({
   workspaceId,
   trigger,
@@ -128,7 +112,8 @@ function TriggerDetailBody({
     trigger.status === "offline"
       ? trigger.bindings.find(
           (binding) =>
-            binding.status === "online" && !canRunTarget(binding.target_type)
+            binding.status === "online" &&
+            canRunTarget(binding.target_type) !== true
         )
       : undefined
   const onlineBlockedReason = blockedTarget
@@ -316,7 +301,7 @@ function TargetRow({
   const canRunTarget = useCanRunTarget()
   const isAgent = binding.target_type === "agent"
   const onlineBlockedReason =
-    binding.status === "offline" && !canRunTarget(binding.target_type)
+    binding.status === "offline" && canRunTarget(binding.target_type) !== true
       ? `You need permission to ${RUN_ACTION_BY_TARGET[binding.target_type]} to put this target online.`
       : undefined
   const Icon = isAgent ? MousePointerClickIcon : WorkflowIcon
