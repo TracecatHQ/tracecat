@@ -182,9 +182,8 @@ async def test_gzip_that_inflates_to_little_stops_downloading(bucket: Bucket) ->
     # only the input bound stops the read.
     await bucket.put("padding.gz", gzip.compress(b"x") + b"\0" * (8 * 1024 * 1024))
 
-    result = await bucket.get("padding.gz", max_bytes=1024)
-
-    assert result.startswith("x\n\n[Truncated by Tracecat:")
+    with pytest.raises(ValueError, match="decompressed to only 1 bytes"):
+        await bucket.get("padding.gz", max_bytes=1024)
 
 
 @pytest.mark.anyio

@@ -87,7 +87,8 @@ MaxBytes = Annotated[
         description=(
             "Maximum number of bytes to return, counted after gzip decompression. "
             "A larger object is cut at this size and the result ends with a "
-            "truncation notice. The default, 20 MiB, is also the maximum."
+            "truncation notice, so checks on the result can miss content past the "
+            "cut. The default, 20 MiB, is also the maximum."
         ),
     ),
 ]
@@ -154,7 +155,11 @@ async def _gunzip_bounded(body: Any, data: bytes, max_bytes: int) -> tuple[bytes
             if data and consumed > max_bytes + _READ_CHUNK_BYTES:
                 # Input that inflates to little (padding, tiny members) must not pull
                 # the whole object down: download no more than the plain path does.
-                return bytes(out), True
+                # The output was not cut, so fail instead of reporting truncation.
+                raise ValueError(
+                    f"Invalid gzip data: more than {max_bytes + _READ_CHUNK_BYTES} "
+                    f"compressed bytes decompressed to only {len(out)} bytes."
+                )
     except zlib.error as e:
         raise ValueError(f"Invalid gzip data: {e}") from e
     if not inflater.eof:
