@@ -802,10 +802,11 @@ async def get_authoring_context(
         role=context_role,
         action_names=params.action_names,
         query=params.query,
+        session=session,
     )
-    variable_hints = await build_variable_hints(role=context_role)
-    secret_hints = await build_secret_hints(role=context_role)
-    enabled_models = await build_enabled_models(role=context_role)
+    variable_hints = await build_variable_hints(role=context_role, session=session)
+    secret_hints = await build_secret_hints(role=context_role, session=session)
+    enabled_models = await build_enabled_models(role=context_role, session=session)
     return WorkflowAuthoringContextResponse(
         actions=actions,
         variable_hints=variable_hints,
@@ -874,7 +875,11 @@ async def execute_workflow(
     # This follows the same code path as the regular workflow execution endpoint,
     # including StoredObject handling for trigger inputs (done in _dispatch_workflow)
     try:
-        exec_service = await WorkflowExecutionsService.connect(role=role)
+        # Workspace settings are read on the request session; the background
+        # start never touches it.
+        exec_service = await WorkflowExecutionsService.connect(
+            role=role, session=session
+        )
         # Pass registry_lock from the definition, same as regular execution
         registry_lock = (
             RegistryLock.model_validate(defn.registry_lock)
@@ -917,23 +922,25 @@ async def execute_workflow(
 async def run_workflow(
     *,
     role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
     params: InternalWorkflowRunRequest,
 ) -> InternalWorkflowExecuteResponse:
     """Run a workflow from its draft state or a published definition.
 
     Shared entry point for the chat SDK's ``core.workflow.run`` tool. Delegates
     to ``WorkflowsManagementService.run_workflow`` so draft-vs-published and
-    version selection stay in one place.
+    version selection stay in one place. The whole run uses the request
+    session, so it holds one database connection.
     """
     wf_id = WorkflowUUID.new(params.workflow_id)
+    mgmt_service = WorkflowsManagementService(session, role=role)
     try:
-        async with WorkflowsManagementService.with_session(role=role) as mgmt_service:
-            response = await mgmt_service.run_workflow(
-                wf_id,
-                inputs=params.inputs,
-                use_draft=params.use_draft,
-                version=params.version,
-            )
+        response = await mgmt_service.run_workflow(
+            wf_id,
+            inputs=params.inputs,
+            use_draft=params.use_draft,
+            version=params.version,
+        )
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(e)) from e
     except TracecatValidationError as e:

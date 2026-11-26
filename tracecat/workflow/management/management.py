@@ -1203,7 +1203,10 @@ class WorkflowsManagementService(BaseWorkspaceService):
         # the management import chain.
         from tracecat.workflow.executions.service import WorkflowExecutionsService
 
-        exec_service = await WorkflowExecutionsService.connect(role=self.role)
+        # Reuse this session so a run holds one connection from load to start.
+        exec_service = await WorkflowExecutionsService.connect(
+            role=self.role, session=self.session
+        )
         if use_draft:
             return await exec_service.create_draft_workflow_execution_wait_for_start(
                 dsl=dsl,

@@ -149,7 +149,9 @@ class _AsyncContext:
         return None
 
 
-async def _empty_oauth_inventory(_role: Any) -> set[ProviderKey]:
+async def _empty_oauth_inventory(
+    _role: Any, *, session: Any = None
+) -> set[ProviderKey]:
     """Default OAuth inventory stub: no workspace integrations configured."""
     return set()
 
@@ -3575,7 +3577,7 @@ async def test_load_oauth_inventory_includes_only_connected(monkeypatch):
     monkeypatch.setattr(
         mcp_server.IntegrationService,
         "with_session",
-        lambda role: _AsyncContext(_IntegrationService()),
+        lambda role, session=None: _AsyncContext(_IntegrationService()),
     )
 
     inventory = await authoring_context.load_oauth_inventory(
@@ -7221,7 +7223,9 @@ async def test_get_workflow_authoring_context_truncates_embedded_collections(
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
         return workspace_id, role
 
-    async def _secret_inventory(_role: Any) -> dict[str, set[str]]:
+    async def _secret_inventory(
+        _role: Any, *, session: Any = None
+    ) -> dict[str, set[str]]:
         return {"alpha": {"TOKEN"}, "beta": {"TOKEN"}}
 
     class _IndexEntry:
@@ -7275,11 +7279,11 @@ async def test_get_workflow_authoring_context_truncates_embedded_collections(
     monkeypatch.setattr(mcp_server, "create_tool_from_registry", _create_tool)
     monkeypatch.setattr(
         "tracecat.registry.actions.service.RegistryActionsService.with_session",
-        lambda role: _AsyncContext(_RegistryService()),
+        lambda role, session=None: _AsyncContext(_RegistryService()),
     )
     monkeypatch.setattr(
         "tracecat.agent.authoring_context.VariablesService.with_session",
-        lambda role: _AsyncContext(_VariablesService()),
+        lambda role, session=None: _AsyncContext(_VariablesService()),
     )
     monkeypatch.setattr(
         "tracecat.agent.authoring_context.load_secret_inventory",

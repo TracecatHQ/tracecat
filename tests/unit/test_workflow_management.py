@@ -1073,7 +1073,7 @@ def _patch_exec_service(monkeypatch: pytest.MonkeyPatch) -> _FakeExecService:
 
     fake = _FakeExecService()
 
-    async def _connect(role: Any = None) -> _FakeExecService:
+    async def _connect(role: Any = None, *, session: Any = None) -> _FakeExecService:
         return fake
 
     monkeypatch.setattr(

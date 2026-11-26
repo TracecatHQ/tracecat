@@ -10,17 +10,23 @@ Tests cover:
 """
 
 import uuid
+from types import SimpleNamespace
+from typing import Any, cast
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from tracecat_registry import RegistrySecret
 
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement, DSLConfig
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.expressions.common import ExprType
 from tracecat.validation.service import (
     get_effective_environment,
     validate_dsl_expressions,
+    validate_single_secret,
 )
 
 
@@ -284,9 +290,6 @@ class TestSecretValidationWithEnvironmentOverride:
             return []  # Return empty results
 
         with (
-            patch(
-                "tracecat.validation.service.get_async_session_context_manager"
-            ) as mock_session_mgr,
             patch("tracecat.validation.service.SecretsService") as mock_secrets_service,
             patch(
                 "tracecat.validation.service.RegistryActionsService"
@@ -295,13 +298,7 @@ class TestSecretValidationWithEnvironmentOverride:
                 "tracecat.validation.service.check_action_secrets_from_manifest",
                 side_effect=mock_check_action_secrets_from_manifest,
             ),
-            patch("tracecat.validation.service.GatheringTaskGroup") as mock_task_group,
         ):
-            # Setup mocks
-            mock_session = AsyncMock()
-            mock_session_mgr.return_value.__aenter__.return_value = mock_session
-            mock_session_mgr.return_value.__aexit__.return_value = None
-
             mock_secrets = AsyncMock()
             mock_secrets_service.return_value = mock_secrets
 
@@ -324,33 +321,9 @@ class TestSecretValidationWithEnvironmentOverride:
             mock_registry_service.return_value = mock_registry
             mock_registry.get_actions_from_index.return_value = mock_actions_data
 
-            # Mock task group to actually execute tasks synchronously for testing
-            async def mock_task_group_impl():
-                # Simulate the behavior of the actual task group
-                tasks = []
-
-                class MockTaskGroup:
-                    def create_task(self, coro):
-                        tasks.append(coro)
-
-                    async def __aenter__(self):
-                        return self
-
-                    async def __aexit__(self, *args):
-                        # Execute all tasks
-                        for task in tasks:
-                            await task
-                        return None
-
-                    def results(self):
-                        return []  # Return empty results for testing
-
-                return MockTaskGroup()
-
-            mock_task_group.return_value = await mock_task_group_impl()
-
-            # Call the function
-            await validate_actions_have_defined_secrets(dsl, role=mock_role)
+            await validate_actions_have_defined_secrets(
+                AsyncMock(), dsl, role=mock_role
+            )
 
             # Verify that check_action_secrets_from_manifest was called with correct environments
             assert len(captured_environments) == 2
@@ -370,3 +343,43 @@ class TestSecretValidationWithEnvironmentOverride:
             # Check that all expected pairs are present (order doesn't matter)
             for expected_env, expected_action in expected_pairs:
                 assert (expected_env, expected_action) in env_action_pairs
+
+
+@pytest.mark.anyio
+async def test_same_secret_is_checked_in_each_environment() -> None:
+    """A secret defined in one environment still fails where it is missing."""
+    secret = SimpleNamespace(name="api")
+
+    async def get_secret_by_name(name: str, *, environment: str) -> SimpleNamespace:
+        if environment == "present":
+            return secret
+        raise TracecatNotFoundError(f"{name} not found")
+
+    secrets_service = cast(
+        Any,
+        SimpleNamespace(get_secret_by_name=AsyncMock(side_effect=get_secret_by_name)),
+    )
+    checked_keys: set[str] = set()
+    requirement = RegistrySecret(name="api", keys=["TOKEN"])
+
+    with patch("tracecat.validation.service.secret_key_names", return_value=["TOKEN"]):
+        present = await validate_single_secret(
+            secrets_service, checked_keys, "present", requirement
+        )
+        missing = await validate_single_secret(
+            secrets_service, checked_keys, "missing", requirement
+        )
+        repeated = await validate_single_secret(
+            secrets_service, checked_keys, "missing", requirement
+        )
+        other_keys = await validate_single_secret(
+            secrets_service,
+            checked_keys,
+            "present",
+            RegistrySecret(name="api", keys=["OTHER"]),
+        )
+
+    assert present == []
+    assert [r.status for r in missing] == ["error"]
+    assert repeated == []
+    assert [r.status for r in other_keys] == ["error"]
