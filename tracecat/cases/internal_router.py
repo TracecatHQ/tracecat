@@ -1226,7 +1226,7 @@ async def run_task(
                 ),
             ) from e
 
-    exec_service = await WorkflowExecutionsService.connect(role=role)
+    exec_service = await WorkflowExecutionsService.connect(role=role, session=session)
     try:
         response = await exec_service.create_workflow_execution_wait_for_start(
             dsl=dsl,
