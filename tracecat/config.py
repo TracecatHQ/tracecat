@@ -1739,6 +1739,15 @@ TRACECAT__CASE_TRIGGERS_LOCK_TTL_SECONDS = int(
 )
 """TTL for case trigger lock keys in seconds."""
 
+TRACECAT__TRIGGERS_INGEST_RATE_LIMIT_PER_MINUTE = max(
+    1, int(os.environ.get("TRACECAT__TRIGGERS_INGEST_RATE_LIMIT_PER_MINUTE") or 6000)
+)
+"""Notifications one event source may deliver per minute. Defaults to 6000.
+
+Past the cap, ingest answers 503 so SNS retries later. It is the loop guard for
+a workflow that writes under the prefix it watches.
+"""
+
 TRACECAT__CASE_DURATION_SYNC_STREAM_KEY = os.environ.get(
     "TRACECAT__CASE_DURATION_SYNC_STREAM_KEY", "case-duration-sync"
 )
