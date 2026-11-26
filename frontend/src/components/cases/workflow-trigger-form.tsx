@@ -1,7 +1,7 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { PlayIcon, Plus, RotateCcw } from "lucide-react"
+import { Plus, RotateCcw } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
@@ -345,58 +345,6 @@ export function WorkflowTriggerForm({
     [schema]
   )
 
-  const fieldStatuses = useMemo(() => {
-    const statusMap = new Map<string, MappingStatus>()
-
-    properties.forEach(([fieldName, fieldSchema]) => {
-      const currentValue = previewValues[fieldName]
-      const defaultValue = computedDefaults[fieldName]
-      const caseFieldValue =
-        !groupCaseFields && fieldName in caseFields
-          ? caseFields[fieldName]
-          : undefined
-
-      const matchesCaseId =
-        fieldName === "case_id" && areValuesEqual(currentValue, caseId)
-      const matchesCaseFields =
-        (!groupCaseFields &&
-          !isNullish(caseFieldValue) &&
-          !isNullish(currentValue) &&
-          areValuesEqual(currentValue, caseFieldValue)) ||
-        (groupCaseFields &&
-          fieldName === "case_fields" &&
-          !isNullish(currentValue) &&
-          areValuesEqual(currentValue, caseFields))
-
-      const matchesDefault =
-        !matchesCaseId &&
-        !matchesCaseFields &&
-        !isNullish(defaultValue) &&
-        !isNullish(currentValue) &&
-        areValuesEqual(currentValue, defaultValue)
-
-      const status: MappingStatus =
-        currentValue === undefined || currentValue === null
-          ? "empty"
-          : matchesCaseId || matchesCaseFields
-            ? "case"
-            : matchesDefault
-              ? "schema-default"
-              : "custom"
-
-      statusMap.set(fieldName, status)
-    })
-
-    return statusMap
-  }, [
-    caseFields,
-    caseId,
-    computedDefaults,
-    groupCaseFields,
-    previewValues,
-    properties,
-  ])
-
   return (
     <Form {...form}>
       <form
@@ -427,23 +375,6 @@ export function WorkflowTriggerForm({
                     const fieldTypeLabel = Array.isArray(fieldSchema.type)
                       ? fieldSchema.type.join(" | ")
                       : (fieldSchema.type ?? (enumOptions ? "enum" : undefined))
-                    const fieldStatus = fieldStatuses.get(fieldName)
-
-                    const statusBadge =
-                      fieldStatus === "case" ? (
-                        <TooltipProvider>
-                          <Tooltip delayDuration={100}>
-                            <TooltipTrigger asChild>
-                              <span className="flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
-                                Matches custom field
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent side="top" className="text-xs">
-                              Auto-filled from case data
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      ) : null
 
                     return (
                       <FormItem className="group space-y-2">
@@ -456,7 +387,6 @@ export function WorkflowTriggerForm({
                                   <span className="text-red-500">*</span>
                                 )}
                               </span>
-                              {statusBadge}
                               {fieldTypeLabel && (
                                 <span className="font-mono text-[11px] text-muted-foreground opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
                                   {fieldTypeLabel}
@@ -628,16 +558,13 @@ export function WorkflowTriggerForm({
           </div>
           <AlertDialogCancel className="text-xs">Cancel</AlertDialogCancel>
           <Button type="submit" className="text-xs" disabled={isSubmitting}>
-            <PlayIcon className="mr-1.5 h-3 w-3" />
-            Trigger
+            Submit
           </Button>
         </AlertDialogFooter>
       </form>
     </Form>
   )
 }
-
-type MappingStatus = "case" | "schema-default" | "custom" | "empty"
 
 interface CaseValueSelectorProps {
   fieldName: string

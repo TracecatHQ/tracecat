@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowUpRight, PlayIcon } from "lucide-react"
+import { ArrowUpRight } from "lucide-react"
 import Link from "next/link"
 import { useCallback, useMemo } from "react"
 import type { ApiError, CaseRead, WorkflowRead } from "@/client"
@@ -185,7 +185,7 @@ export function WorkflowTriggerDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent className="flex max-h-[85vh] max-w-md flex-col overflow-hidden [overflow-wrap:anywhere]">
+      <AlertDialogContent className="flex max-h-[85vh] max-w-2xl flex-col overflow-hidden [overflow-wrap:anywhere]">
         <AlertDialogHeader>
           <AlertDialogTitle className="text-sm">
             {triggerSchema
@@ -245,8 +245,7 @@ export function WorkflowTriggerDialog({
                 className="text-xs"
                 disabled={createExecutionIsPending}
               >
-                <PlayIcon className="mr-1.5 h-3 w-3" />
-                Trigger
+                Submit
               </Button>
             </AlertDialogFooter>
           </>
