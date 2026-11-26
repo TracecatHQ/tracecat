@@ -53,11 +53,19 @@ def _to_event(
     key = unquote_plus(obj.key)
     if len(key.encode()) > MAX_OBJECT_KEY_BYTES:
         raise _malformed("Object key is longer than S3 allows")
-    if "\x00" in key:
-        # S3 allows it, but PostgreSQL JSONB cannot store U+0000. Refusing
-        # (4xx) sends the message to the dead-letter queue; a 5xx would
-        # only make SNS retry an insert that always fails.
-        raise _malformed("Object key contains a NUL character")
+    stored_text = (
+        key,
+        bucket,
+        record.aws_region,
+        obj.etag,
+        obj.version_id,
+        obj.sequencer,
+    )
+    if any("\x00" in value for value in stored_text if value):
+        # S3 allows it in keys, but PostgreSQL JSONB cannot store U+0000.
+        # Refusing (4xx) sends the message to the dead-letter queue; a 5xx
+        # would only make SNS retry an insert that always fails.
+        raise _malformed("Event contains a NUL character")
     occurrence_key = build_occurrence_key(
         bucket=bucket, key=key, version_id=obj.version_id, sequencer=obj.sequencer
     )
@@ -108,6 +116,8 @@ def parse_s3_message(
         records = S3EventMessage.model_validate(data).records
     except ValidationError:
         raise _malformed("Message is not an S3 event notification") from None
+    if not records:
+        raise _malformed("S3 event notification has no records")
 
     events: list[ParsedObjectEvent] = []
     ignored = 0

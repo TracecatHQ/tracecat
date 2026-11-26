@@ -127,7 +127,8 @@ async def _download_cert(url: str) -> bytes:
                         if len(body) > MAX_CERT_BYTES:
                             raise _invalid_signature("Signing certificate too large")
                     return bytes(body)
-    except (TimeoutError, httpx.TransportError):
+    except (TimeoutError, httpx.RequestError):
+        # RequestError covers transport failures and body decoding errors.
         raise _unavailable("Signing certificate could not be fetched") from None
 
 

@@ -444,6 +444,8 @@ async def test_s3_test_event_is_ignored(
         orjson.dumps({"hello": "world"}).decode(),
         _s3_message({"eventName": "ObjectCreated:Put", "eventSource": "aws:s3"}),
         _s3_message(_s3_record("k" * 1025)),
+        orjson.dumps({"Records": []}).decode(),
+        _s3_message(_s3_record() | {"awsRegion": "us-east-1\u0000"}),
         # orjson cannot encode the value either, so splice it into the text.
         _s3_message(_s3_record()).replace('"size":1024', f'"size":{10**30}'),
     ],
@@ -452,6 +454,8 @@ async def test_s3_test_event_is_ignored(
         "no-records",
         "missing-object-fields",
         "key-too-long",
+        "empty-records",
+        "nul-in-region",
         "huge-size",
     ],
 )
@@ -636,8 +640,17 @@ async def test_cert_redirect_is_not_followed(
         (httpx.ConnectTimeout("slow"), 503),
         (httpx.Response(200, content=b"x" * (sns.MAX_CERT_BYTES + 1)), 403),
         (httpx.Response(200, content=b"not a certificate"), 403),
+        (
+            httpx.Response(
+                200,
+                headers={"Content-Encoding": "gzip"},
+                # A raw stream: the body is only decoded when read.
+                stream=httpx.ByteStream(b"not gzip"),
+            ),
+            503,
+        ),
     ],
-    ids=["host-5xx", "timeout", "oversized", "not-pem"],
+    ids=["host-5xx", "timeout", "oversized", "not-pem", "bad-encoding"],
 )
 async def test_cert_fetch_failures(
     client: httpx.AsyncClient,
@@ -811,6 +824,7 @@ async def test_raw_body_without_envelope_is_refused(
 
 async def test_message_type_header_must_match(
     client: httpx.AsyncClient,
+    session: AsyncSession,
     source: EventSource,
     sign: SignFn,
     aws: respx.MockRouter,
@@ -823,6 +837,8 @@ async def test_message_type_header_must_match(
         headers={"x-amz-sns-message-type": "SubscriptionConfirmation"},
     )
     assert response.status_code == 400
+    assert _code(response) == "malformed"
+    assert await _outbox(session, source) == []
 
 
 async def test_oversized_body_is_refused(
