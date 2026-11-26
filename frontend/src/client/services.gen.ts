@@ -1143,20 +1143,44 @@ import type {
   TagsUpdateTagResponse,
   TriggersCreateCaseTriggerData,
   TriggersCreateCaseTriggerResponse,
+  TriggersCreateEventSourceData,
+  TriggersCreateEventSourceResponse,
+  TriggersCreateTriggerBindingData,
+  TriggersCreateTriggerBindingResponse,
+  TriggersCreateTriggerData,
+  TriggersCreateTriggerResponse,
   TriggersCreateWebhookData,
   TriggersCreateWebhookResponse,
+  TriggersDeleteTriggerBindingData,
+  TriggersDeleteTriggerBindingResponse,
+  TriggersDeleteTriggerData,
+  TriggersDeleteTriggerResponse,
   TriggersDeleteWebhookApiKeyData,
   TriggersDeleteWebhookApiKeyResponse,
   TriggersGenerateWebhookApiKeyData,
   TriggersGenerateWebhookApiKeyResponse,
   TriggersGetCaseTriggerData,
   TriggersGetCaseTriggerResponse,
+  TriggersGetEventSourceData,
+  TriggersGetEventSourceResponse,
+  TriggersGetTriggerData,
+  TriggersGetTriggerResponse,
   TriggersGetWebhookData,
   TriggersGetWebhookResponse,
+  TriggersListEventSourcesData,
+  TriggersListEventSourcesResponse,
+  TriggersListTriggersData,
+  TriggersListTriggersResponse,
   TriggersRevokeWebhookApiKeyData,
   TriggersRevokeWebhookApiKeyResponse,
   TriggersUpdateCaseTriggerData,
   TriggersUpdateCaseTriggerResponse,
+  TriggersUpdateEventSourceData,
+  TriggersUpdateEventSourceResponse,
+  TriggersUpdateTriggerBindingData,
+  TriggersUpdateTriggerBindingResponse,
+  TriggersUpdateTriggerData,
+  TriggersUpdateTriggerResponse,
   TriggersUpdateWebhookData,
   TriggersUpdateWebhookResponse,
   TunnelsCreateManagedTunnelData,
@@ -14332,6 +14356,362 @@ export const formsDeleteFormSubmission = (
       workspace_id: data.workspaceId,
     },
     errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Event Sources
+ * List event sources, newest first.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_EventSourceRead_ Successful Response
+ * @throws ApiError
+ */
+export const triggersListEventSources = (
+  data: TriggersListEventSourcesData
+): CancelablePromise<TriggersListEventSourcesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/event-sources",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Event Source
+ * Create an event source. Its endpoint URL is fixed from now on.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns EventSourceRead Successful Response
+ * @throws ApiError
+ */
+export const triggersCreateEventSource = (
+  data: TriggersCreateEventSourceData
+): CancelablePromise<TriggersCreateEventSourceResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/event-sources",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      409: "See detail.code",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Event Source
+ * Get an event source with its endpoint URL and subscription state.
+ * @param data The data for the request.
+ * @param data.sourceId
+ * @param data.workspaceId
+ * @returns EventSourceRead Successful Response
+ * @throws ApiError
+ */
+export const triggersGetEventSource = (
+  data: TriggersGetEventSourceData
+): CancelablePromise<TriggersGetEventSourceResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/event-sources/{source_id}",
+    path: {
+      source_id: data.sourceId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      404: "See detail.code",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Event Source
+ * Rename a source, change its feed, or take it online or offline.
+ * @param data The data for the request.
+ * @param data.sourceId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns EventSourceRead Successful Response
+ * @throws ApiError
+ */
+export const triggersUpdateEventSource = (
+  data: TriggersUpdateEventSourceData
+): CancelablePromise<TriggersUpdateEventSourceResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/workspaces/{workspace_id}/event-sources/{source_id}",
+    path: {
+      source_id: data.sourceId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      400: "See detail.code",
+      404: "See detail.code",
+      409: "See detail.code",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Triggers
+ * List triggers newest first, each with its config and bindings.
+ *
+ * ``workflow_id`` or ``agent_preset_id`` keeps the triggers bound to that
+ * target.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.kind
+ * @param data.sourceId
+ * @param data.agentPresetId
+ * @param data.limit
+ * @param data.cursor
+ * @param data.workflowId
+ * @returns CursorPaginatedResponse_TriggerRead_ Successful Response
+ * @throws ApiError
+ */
+export const triggersListTriggers = (
+  data: TriggersListTriggersData
+): CancelablePromise<TriggersListTriggersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/triggers",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      kind: data.kind,
+      source_id: data.sourceId,
+      agent_preset_id: data.agentPresetId,
+      limit: data.limit,
+      cursor: data.cursor,
+      workflow_id: data.workflowId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Trigger
+ * Create a trigger. It has no bindings yet.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns TriggerRead Successful Response
+ * @throws ApiError
+ */
+export const triggersCreateTrigger = (
+  data: TriggersCreateTriggerData
+): CancelablePromise<TriggersCreateTriggerResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/triggers",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      400: "See detail.code",
+      404: "See detail.code",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Trigger
+ * Get a trigger with its config and bindings.
+ * @param data The data for the request.
+ * @param data.triggerId
+ * @param data.workspaceId
+ * @returns TriggerRead Successful Response
+ * @throws ApiError
+ */
+export const triggersGetTrigger = (
+  data: TriggersGetTriggerData
+): CancelablePromise<TriggersGetTriggerResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/triggers/{trigger_id}",
+    path: {
+      trigger_id: data.triggerId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      404: "See detail.code",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Trigger
+ * Rename a trigger, replace its config, or take it online or offline.
+ * @param data The data for the request.
+ * @param data.triggerId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns TriggerRead Successful Response
+ * @throws ApiError
+ */
+export const triggersUpdateTrigger = (
+  data: TriggersUpdateTriggerData
+): CancelablePromise<TriggersUpdateTriggerResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/workspaces/{workspace_id}/triggers/{trigger_id}",
+    path: {
+      trigger_id: data.triggerId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      400: "See detail.code",
+      404: "See detail.code",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Trigger
+ * Delete a trigger and its bindings.
+ * @param data The data for the request.
+ * @param data.triggerId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const triggersDeleteTrigger = (
+  data: TriggersDeleteTriggerData
+): CancelablePromise<TriggersDeleteTriggerResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/triggers/{trigger_id}",
+    path: {
+      trigger_id: data.triggerId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      404: "See detail.code",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Trigger Binding
+ * Bind a trigger to a workflow or an agent preset.
+ *
+ * Also needs ``workflow:execute`` for a workflow or ``agent:execute`` for an
+ * agent: every matching event will run the target.
+ * @param data The data for the request.
+ * @param data.triggerId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns TriggerBindingRead Successful Response
+ * @throws ApiError
+ */
+export const triggersCreateTriggerBinding = (
+  data: TriggersCreateTriggerBindingData
+): CancelablePromise<TriggersCreateTriggerBindingResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/triggers/{trigger_id}/bindings",
+    path: {
+      trigger_id: data.triggerId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      404: "See detail.code",
+      409: "See detail.code",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Trigger Binding
+ * Take a binding online or offline, or change an agent's instruction.
+ * @param data The data for the request.
+ * @param data.triggerId
+ * @param data.bindingId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns TriggerBindingRead Successful Response
+ * @throws ApiError
+ */
+export const triggersUpdateTriggerBinding = (
+  data: TriggersUpdateTriggerBindingData
+): CancelablePromise<TriggersUpdateTriggerBindingResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/workspaces/{workspace_id}/triggers/{trigger_id}/bindings/{binding_id}",
+    path: {
+      trigger_id: data.triggerId,
+      binding_id: data.bindingId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      400: "See detail.code",
+      404: "See detail.code",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Trigger Binding
+ * Delete one binding of a trigger.
+ * @param data The data for the request.
+ * @param data.triggerId
+ * @param data.bindingId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const triggersDeleteTriggerBinding = (
+  data: TriggersDeleteTriggerBindingData
+): CancelablePromise<TriggersDeleteTriggerBindingResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/triggers/{trigger_id}/bindings/{binding_id}",
+    path: {
+      trigger_id: data.triggerId,
+      binding_id: data.bindingId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      404: "See detail.code",
       422: "Validation Error",
     },
   })

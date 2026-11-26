@@ -320,6 +320,25 @@ from tracecat.tags.service import TagsService
 from tracecat.tiers.enums import Entitlement
 from tracecat.tiers.schemas import OrganizationLimitsRead
 from tracecat.tiers.service import OrgLimitsService
+from tracecat.triggers.dependencies import TRIGGERS_ENTITLEMENT
+from tracecat.triggers.enums import TriggerKind, TriggerStatus
+from tracecat.triggers.exceptions import TriggerError
+from tracecat.triggers.schemas import (
+    BindingTarget,
+    EventSourceConfig,
+    EventSourceCreate,
+    EventSourceRead,
+    EventSourceUpdate,
+    TriggerBindingCreate,
+    TriggerBindingRead,
+    TriggerBindingUpdate,
+    TriggerConfig,
+    TriggerCreate,
+    TriggerRead,
+    TriggerUpdate,
+)
+from tracecat.triggers.service import TriggersService, read_event_source
+from tracecat.triggers.types import EXECUTE_SCOPE_BY_TARGET
 from tracecat.validation.schemas import (
     ValidationDetail,
     ValidationResult,
@@ -6856,6 +6875,369 @@ async def update_form(
         )
         form = await svc.upsert_form(workflow_id, params)
         return await svc.read_form(form)
+
+
+@asynccontextmanager
+async def _triggers_service(
+    workspace_id: uuid.UUID, action: str, *scopes: str
+) -> AsyncIterator[TriggersService]:
+    """Open the triggers service for one trigger tool call and map its errors.
+
+    Checks, in order: the caller's workspace role, the triggers entitlement,
+    and the scopes. Any error raised inside the block, the tool's own
+    included, reaches the client as a ``ToolError``.
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with TriggersService.with_session(role=role) as svc:
+            if not await svc.has_entitlement(TRIGGERS_ENTITLEMENT):
+                raise EntitlementRequired(TRIGGERS_ENTITLEMENT.value)
+            check_scopes(role, *scopes)
+            yield svc
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (TriggerError, EntitlementRequired, ValueError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error(f"Failed to {action}", error=str(e))
+        raise ToolError(f"Failed to {action}: {e}") from None
+
+
+def _trigger_page_limit(limit: int) -> int:
+    return _normalize_limit(
+        limit,
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+    )
+
+
+@mcp.tool()
+async def list_event_sources(
+    workspace_id: uuid.UUID,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+) -> MCPPaginatedResponse[EventSourceRead]:
+    """List the event sources of a workspace, newest first.
+
+    An event source is a configured inbound feed of events. Kind `aws_sns` is a
+    customer-owned SNS topic, pinned by its ARN, that S3 publishes to. Triggers
+    read a source; one source can feed many triggers.
+
+    Args:
+        workspace_id: The workspace ID.
+        limit: Maximum number of sources to return.
+        cursor: `next_cursor` from a previous page.
+
+    Returns JSON with `items` (id, kind, name, config, status,
+    subscription_status, subscription_ref, endpoint_url) and the cursor fields.
+    """
+    async with _triggers_service(
+        workspace_id, "list event sources", "trigger:read"
+    ) as svc:
+        page = await svc.list_event_sources(
+            PageParams(limit=_trigger_page_limit(limit), cursor=cursor)
+        )
+    return MCPPaginatedResponse(
+        items=page.items,
+        next_cursor=page.next_cursor,
+        prev_cursor=page.prev_cursor,
+        has_more=page.has_more,
+        has_previous=page.has_previous,
+    )
+
+
+@mcp.tool()
+async def get_event_source(
+    workspace_id: uuid.UUID,
+    source_id: uuid.UUID,
+) -> EventSourceRead:
+    """Get an event source with its endpoint URL and subscription state.
+
+    Args:
+        workspace_id: The workspace ID.
+        source_id: The source ID, from `list_event_sources`.
+
+    Returns the source as JSON. `endpoint_url` is the HTTPS URL the feed must
+    deliver to (for `aws_sns`, the SNS subscription endpoint). It never changes.
+    """
+    async with _triggers_service(
+        workspace_id, "get event source", "trigger:read"
+    ) as svc:
+        source = await svc.get_event_source(_coerce_uuid_arg(source_id, "source_id"))
+        return read_event_source(source)
+
+
+@mcp.tool()
+async def create_event_source(
+    workspace_id: uuid.UUID,
+    name: str,
+    config: EventSourceConfig,
+    status: Literal["online", "offline"] = "offline",
+) -> EventSourceRead:
+    """Create an event source and get the endpoint URL to subscribe.
+
+    For `{"kind": "aws_sns", "topic_arn": "arn:aws:sns:..."}`, subscribe the
+    topic to the returned `endpoint_url` over HTTPS with raw message delivery
+    off. The source accepts messages from that topic only. A workspace has at
+    most one source per topic.
+
+    Args:
+        workspace_id: The workspace ID.
+        name: A display name.
+        config: The source kind and its settings.
+        status: `"online"` accepts events; `"offline"` (default) does not.
+
+    Returns the new source as JSON, in the same shape as `get_event_source`.
+    """
+    async with _triggers_service(
+        workspace_id, "create event source", "trigger:create"
+    ) as svc:
+        params = EventSourceCreate(
+            name=name, config=config, status=TriggerStatus(status)
+        )
+        return read_event_source(await svc.create_event_source(params))
+
+
+@mcp.tool()
+async def update_event_source(
+    workspace_id: uuid.UUID,
+    source_id: uuid.UUID,
+    name: str | None = None,
+    config: EventSourceConfig | None = None,
+    status: Literal["online", "offline"] | None = None,
+) -> EventSourceRead:
+    """Rename an event source, change its feed, or take it online or offline.
+
+    There is no delete: take a source offline instead. Changing where events
+    come from (for `aws_sns`, the topic ARN) resets the subscription to pending.
+    The kind cannot change. The endpoint URL never changes.
+
+    Args:
+        workspace_id: The workspace ID.
+        source_id: The source ID.
+        name: A new display name. Omit to leave unchanged.
+        config: The whole new config. Omit to leave unchanged.
+        status: `"online"` or `"offline"`. Omit to leave unchanged.
+
+    Returns the saved source as JSON.
+    """
+    async with _triggers_service(
+        workspace_id, "update event source", "trigger:update"
+    ) as svc:
+        params = EventSourceUpdate(
+            name=name,
+            config=config,
+            status=TriggerStatus(status) if status else None,
+        )
+        source = await svc.update_event_source(
+            _coerce_uuid_arg(source_id, "source_id"), params
+        )
+        return read_event_source(source)
+
+
+@mcp.tool()
+async def list_triggers(
+    workspace_id: uuid.UUID,
+    kind: Literal["object_storage"] | None = None,
+    source_id: uuid.UUID | None = None,
+    workflow_id: MCPWorkflowUUID | None = None,
+    agent_preset_id: uuid.UUID | None = None,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+) -> MCPPaginatedResponse[TriggerRead]:
+    """List triggers newest first, each with its config and bindings.
+
+    A trigger is a rule over events; its bindings start a Workflow or an Agent
+    for each matching event. Kind `object_storage` fires once per object
+    created in its source whose key starts with `config.key_prefix`.
+
+    Args:
+        workspace_id: The workspace ID.
+        kind: Only triggers of this kind.
+        source_id: Only triggers reading this event source.
+        workflow_id: Only triggers bound to this workflow.
+        agent_preset_id: Only triggers bound to this agent preset.
+        limit: Maximum number of triggers to return.
+        cursor: `next_cursor` from a previous page.
+
+    Returns JSON with `items` (id, kind, name, status, config, bindings with
+    target_type, target_id and target_name) and the cursor fields. An
+    `object_storage` config holds source_id, source_name and key_prefix.
+    """
+    async with _triggers_service(workspace_id, "list triggers", "trigger:read") as svc:
+        page = await svc.list_triggers(
+            PageParams(limit=_trigger_page_limit(limit), cursor=cursor),
+            kind=TriggerKind(kind) if kind else None,
+            source_id=source_id,
+            workflow_id=WorkflowUUID.new(workflow_id) if workflow_id else None,
+            agent_preset_id=agent_preset_id,
+        )
+    return MCPPaginatedResponse(
+        items=page.items,
+        next_cursor=page.next_cursor,
+        prev_cursor=page.prev_cursor,
+        has_more=page.has_more,
+        has_previous=page.has_previous,
+    )
+
+
+@mcp.tool()
+async def get_trigger(
+    workspace_id: uuid.UUID,
+    trigger_id: uuid.UUID,
+) -> TriggerRead:
+    """Get a trigger with its config and bindings.
+
+    Args:
+        workspace_id: The workspace ID.
+        trigger_id: The trigger ID, from `list_triggers`.
+
+    Returns the trigger as JSON, in the same shape as a `list_triggers` item.
+    """
+    async with _triggers_service(workspace_id, "get trigger", "trigger:read") as svc:
+        return await svc.get_trigger(_coerce_uuid_arg(trigger_id, "trigger_id"))
+
+
+@mcp.tool()
+async def create_trigger(
+    workspace_id: uuid.UUID,
+    name: str,
+    config: TriggerConfig,
+    status: Literal["online", "offline"] = "offline",
+) -> TriggerRead:
+    """Create a trigger. Add targets with `create_trigger_binding`.
+
+    For `{"kind": "object_storage", "source_id": ..., "key_prefix": "..."}`,
+    the source must be an event source of this workspace that delivers object
+    events (kind `aws_sns`). An empty `key_prefix` matches every key. A
+    workflow that writes under the prefix it watches triggers itself.
+
+    Args:
+        workspace_id: The workspace ID.
+        name: A display name.
+        config: The trigger kind and its settings.
+        status: `"online"` fires; `"offline"` (default) does not.
+
+    Returns the new trigger as JSON, in the same shape as `get_trigger`.
+    """
+    async with _triggers_service(
+        workspace_id, "create trigger", "trigger:create"
+    ) as svc:
+        params = TriggerCreate(name=name, config=config, status=TriggerStatus(status))
+        trigger = await svc.create_trigger(params)
+        return await svc.get_trigger(trigger.id)
+
+
+@mcp.tool()
+async def update_trigger(
+    workspace_id: uuid.UUID,
+    trigger_id: uuid.UUID,
+    name: str | None = None,
+    config: TriggerConfig | None = None,
+    status: Literal["online", "offline"] | None = None,
+) -> TriggerRead:
+    """Rename a trigger, replace its config, or take it online or offline.
+
+    There is no delete tool: take a trigger offline instead.
+
+    Args:
+        workspace_id: The workspace ID.
+        trigger_id: The trigger ID.
+        name: A new display name. Omit to leave unchanged.
+        config: The whole new config; the kind cannot change. Omit to leave
+            unchanged.
+        status: `"online"` or `"offline"`. Omit to leave unchanged.
+
+    Returns the saved trigger as JSON.
+    """
+    async with _triggers_service(
+        workspace_id, "update trigger", "trigger:update"
+    ) as svc:
+        trigger_id = _coerce_uuid_arg(trigger_id, "trigger_id")
+        params = TriggerUpdate(
+            name=name,
+            config=config,
+            status=TriggerStatus(status) if status else None,
+        )
+        await svc.update_trigger(trigger_id, params)
+        return await svc.get_trigger(trigger_id)
+
+
+@mcp.tool()
+async def create_trigger_binding(
+    workspace_id: uuid.UUID,
+    trigger_id: uuid.UUID,
+    target: BindingTarget,
+    status: Literal["online", "offline"] = "online",
+) -> TriggerBindingRead:
+    """Bind a trigger to a Workflow or an Agent, so each event starts it.
+
+    `{"type": "workflow", "workflow_id": ...}` runs the workflow's published
+    definition with the event as its trigger input. Needs `workflow:execute`.
+    `{"type": "agent", "agent_preset_id": ..., "instruction": "..."}` starts a
+    new session of the preset's current version with the instruction; the
+    event is added to the first message as data. Needs `agent:execute`.
+    A trigger can be bound to the same target only once.
+
+    Args:
+        workspace_id: The workspace ID.
+        trigger_id: The trigger ID.
+        target: The workflow or agent to start.
+        status: `"online"` (default) or `"offline"`.
+
+    Returns the new binding as JSON (id, trigger_id, target_type, target_id,
+    target_name, instruction, status).
+    """
+    scopes = ("trigger:update", EXECUTE_SCOPE_BY_TARGET[target.type])
+    async with _triggers_service(
+        workspace_id, "create trigger binding", *scopes
+    ) as svc:
+        params = TriggerBindingCreate(target=target, status=TriggerStatus(status))
+        binding = await svc.create_binding(
+            _coerce_uuid_arg(trigger_id, "trigger_id"), params
+        )
+        return await svc.read_binding(binding)
+
+
+@mcp.tool()
+async def update_trigger_binding(
+    workspace_id: uuid.UUID,
+    trigger_id: uuid.UUID,
+    binding_id: uuid.UUID,
+    status: Literal["online", "offline"] | None = None,
+    instruction: str | None = None,
+) -> TriggerBindingRead:
+    """Take a binding online or offline, or change an agent binding's instruction.
+
+    There is no delete tool: take a binding offline instead. The target
+    cannot change; add a new binding for another target.
+
+    Args:
+        workspace_id: The workspace ID.
+        trigger_id: The trigger ID.
+        binding_id: The binding ID, from `get_trigger`.
+        status: `"online"` or `"offline"`. Omit to leave unchanged.
+        instruction: New instruction (agent bindings only). Omit to leave
+            unchanged.
+
+    Returns the saved binding as JSON.
+    """
+    async with _triggers_service(
+        workspace_id, "update trigger binding", "trigger:update"
+    ) as svc:
+        params = TriggerBindingUpdate(
+            status=TriggerStatus(status) if status else None,
+            instruction=instruction,
+        )
+        binding = await svc.update_binding(
+            _coerce_uuid_arg(trigger_id, "trigger_id"),
+            _coerce_uuid_arg(binding_id, "binding_id"),
+            params,
+        )
+        return await svc.read_binding(binding)
 
 
 @mcp.tool()

@@ -35,6 +35,7 @@ from tracecat.registry.actions import router as registry_actions_router
 from tracecat.registry.repositories import router as registry_repos_router
 from tracecat.tables import router as tables_router
 from tracecat.tables.folders import router as table_folder_router
+from tracecat.triggers import router as triggers_router
 from tracecat.vcs import router as vcs_router
 from tracecat.workflow.executions import router as workflow_executions_router
 from tracecat.workflow.store import router as workflow_store_router
@@ -777,6 +778,30 @@ async def test_mcp_create_scope_guards(endpoint: AsyncEndpoint) -> None:
         endpoint,
         ("integration:create", "integration:read"),
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "required_scopes"),
+    [
+        (triggers_router.list_event_sources, ("trigger:read",)),
+        (triggers_router.create_event_source, ("trigger:create",)),
+        (triggers_router.get_event_source, ("trigger:read",)),
+        (triggers_router.update_event_source, ("trigger:update",)),
+        (triggers_router.list_triggers, ("trigger:read",)),
+        (triggers_router.create_trigger, ("trigger:create",)),
+        (triggers_router.get_trigger, ("trigger:read",)),
+        (triggers_router.update_trigger, ("trigger:update",)),
+        (triggers_router.delete_trigger, ("trigger:delete",)),
+        (triggers_router.create_trigger_binding, ("trigger:update",)),
+        (triggers_router.update_trigger_binding, ("trigger:update",)),
+        (triggers_router.delete_trigger_binding, ("trigger:delete",)),
+    ],
+)
+async def test_trigger_scope_guards(
+    endpoint: AsyncEndpoint, required_scopes: tuple[str, ...]
+) -> None:
+    await _assert_endpoint_requires_all_scopes(endpoint, required_scopes)
 
 
 @pytest.mark.anyio

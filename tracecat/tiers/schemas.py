@@ -162,6 +162,12 @@ class EffectiveEntitlements(Schema):
         description="Whether the organization uses the channel bot API in place"
         " of legacy agent channels",
     )
+    object_triggers: bool = Field(
+        default=False,
+        title="Object triggers",
+        description="Whether object storage events (S3 object created, over"
+        " SNS) may start workflows and agents",
+    )
 
 
 class TierRead(Schema):

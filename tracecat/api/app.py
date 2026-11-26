@@ -248,6 +248,8 @@ from tracecat.tables.exceptions import TableRowError
 from tracecat.tables.folders.router import router as table_folders_router
 from tracecat.tables.router import router as tables_router
 from tracecat.tags.router import router as tags_router
+from tracecat.triggers.exceptions import TriggerError, trigger_error_handler
+from tracecat.triggers.router import event_sources_router, triggers_router
 from tracecat.variables.router import router as variables_router
 from tracecat.vcs.router import org_router as vcs_router
 from tracecat.webhooks.router import router as webhook_router
@@ -860,6 +862,8 @@ def create_app(**kwargs) -> FastAPI:
     _include_workspace_scoped_router(app, tables_router)
     _include_workspace_scoped_router(app, table_folders_router)
     _include_workspace_scoped_router(app, forms_router)
+    _include_workspace_scoped_router(app, event_sources_router)
+    _include_workspace_scoped_router(app, triggers_router)
     app.include_router(forms_intake_router)
     _include_workspace_scoped_router(app, cases_router)
     _include_workspace_scoped_router(app, case_versions_router)
@@ -991,6 +995,7 @@ def create_app(**kwargs) -> FastAPI:
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
     app.add_exception_handler(TableRowError, table_row_exception_handler)
     app.add_exception_handler(FormError, form_error_handler)
+    app.add_exception_handler(TriggerError, trigger_error_handler)
     app.add_exception_handler(RPCError, temporal_rpc_exception_handler)
     app.add_exception_handler(
         TracecatQueryTimeoutError,

@@ -141,6 +141,30 @@ when it creates the form.
 `update_form` creates the form if the workflow has none. `config` replaces the
 stored config whole. Submissions are not exposed over MCP.
 
+## Trigger tools
+
+These need the `object_triggers` entitlement, plus scopes: list and get tools
+need `trigger:read`, create tools `trigger:create`, update tools
+`trigger:update`. `create_trigger_binding` also needs `workflow:execute` for a
+workflow target or `agent:execute` for an agent target.
+
+- `list_event_sources(workspace_id, limit=..., cursor=None)`
+- `get_event_source(workspace_id, source_id)`
+- `create_event_source(workspace_id, name, config, status="offline")`
+- `update_event_source(workspace_id, source_id, name=None, config=None, status=None)`
+- `list_triggers(workspace_id, kind=None, source_id=None, workflow_id=None, agent_preset_id=None, limit=..., cursor=None)`
+- `get_trigger(workspace_id, trigger_id)`
+- `create_trigger(workspace_id, name, config, status="offline")`
+- `update_trigger(workspace_id, trigger_id, name=None, config=None, status=None)`
+- `create_trigger_binding(workspace_id, trigger_id, target, status="online")`
+- `update_trigger_binding(workspace_id, trigger_id, binding_id, status=None, instruction=None)`
+
+An event source is an inbound feed (kind `aws_sns`: a customer SNS topic). A
+trigger is a rule over a source's events (kind `object_storage`). A binding
+starts a workflow or an agent preset for each matching event. Each `config` is
+discriminated by `kind`. There are no delete tools: take a source, trigger or
+binding offline instead. The API deletes triggers and bindings.
+
 ## Workflow tag tools
 
 - `list_workflow_tags(workspace_id, limit=20, cursor=None)`
