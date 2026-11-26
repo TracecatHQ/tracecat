@@ -36,19 +36,50 @@ MAX_BODY_BYTES = 512 * 1024
 # Tokens are secrets.token_urlsafe(32): 43 URL-safe characters.
 _TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_-]{16,64}")
 
-_STATUS_BY_CODE: dict[IngestErrorCode, int] = {
-    IngestErrorCode.PAYLOAD_TOO_LARGE: status.HTTP_413_CONTENT_TOO_LARGE,
-    IngestErrorCode.MALFORMED: status.HTTP_400_BAD_REQUEST,
-    IngestErrorCode.RAW_DELIVERY: status.HTTP_400_BAD_REQUEST,
-    IngestErrorCode.SOURCE_NOT_FOUND: status.HTTP_404_NOT_FOUND,
-    IngestErrorCode.NOT_ENTITLED: status.HTTP_403_FORBIDDEN,
-    IngestErrorCode.TOPIC_MISMATCH: status.HTTP_403_FORBIDDEN,
-    IngestErrorCode.SIGNATURE_INVALID: status.HTTP_403_FORBIDDEN,
-    IngestErrorCode.STALE_MESSAGE: status.HTTP_400_BAD_REQUEST,
-    IngestErrorCode.SOURCE_OFFLINE: status.HTTP_409_CONFLICT,
-    IngestErrorCode.CONFIRMATION_REJECTED: status.HTTP_400_BAD_REQUEST,
-    IngestErrorCode.RATE_LIMITED: status.HTTP_503_SERVICE_UNAVAILABLE,
-    IngestErrorCode.UNAVAILABLE: status.HTTP_503_SERVICE_UNAVAILABLE,
+# Status and the fixed message answered per code. The exception's own text
+# (which may name what failed) goes only to the logs.
+_RESPONSE_BY_CODE: dict[IngestErrorCode, tuple[int, str]] = {
+    IngestErrorCode.PAYLOAD_TOO_LARGE: (
+        status.HTTP_413_CONTENT_TOO_LARGE,
+        "Body is larger than an SNS message",
+    ),
+    IngestErrorCode.MALFORMED: (
+        status.HTTP_400_BAD_REQUEST,
+        "Not a usable SNS message carrying an S3 event notification",
+    ),
+    IngestErrorCode.RAW_DELIVERY: (
+        status.HTTP_400_BAD_REQUEST,
+        "Raw message delivery is not supported. Turn it off on the subscription.",
+    ),
+    IngestErrorCode.SOURCE_NOT_FOUND: (status.HTTP_404_NOT_FOUND, "Not found"),
+    IngestErrorCode.NOT_ENTITLED: (
+        status.HTTP_403_FORBIDDEN,
+        "Object storage triggers are not enabled for this organization",
+    ),
+    IngestErrorCode.TOPIC_MISMATCH: (
+        status.HTTP_403_FORBIDDEN,
+        "Topic is not the one this source accepts",
+    ),
+    IngestErrorCode.SIGNATURE_INVALID: (
+        status.HTTP_403_FORBIDDEN,
+        "SNS signature could not be verified",
+    ),
+    IngestErrorCode.SOURCE_OFFLINE: (
+        status.HTTP_409_CONFLICT,
+        "Event source is offline",
+    ),
+    IngestErrorCode.CONFIRMATION_REJECTED: (
+        status.HTTP_400_BAD_REQUEST,
+        "SNS refused the subscription confirmation",
+    ),
+    IngestErrorCode.RATE_LIMITED: (
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        "Event source is over its rate cap",
+    ),
+    IngestErrorCode.UNAVAILABLE: (
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        "Temporarily unavailable",
+    ),
 }
 
 # Machine-to-machine; left out of the OpenAPI schema and the generated client.
@@ -63,9 +94,10 @@ def _error_response(error: IngestError) -> Response:
     headers: dict[str, str] = {}
     if error.retry_after_seconds is not None:
         headers["Retry-After"] = str(error.retry_after_seconds)
+    status_code, message = _RESPONSE_BY_CODE[error.code]
     return ORJSONResponse(
-        status_code=_STATUS_BY_CODE[error.code],
-        content={"detail": {"code": error.code.value, "message": str(error)}},
+        status_code=status_code,
+        content={"detail": {"code": error.code.value, "message": message}},
         headers=headers,
     )
 

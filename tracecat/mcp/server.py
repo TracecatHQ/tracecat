@@ -6963,6 +6963,7 @@ async def get_event_source(
     Returns the source as JSON. `endpoint_url` (null without `trigger:update`)
     is the HTTPS URL the feed must
     deliver to (for `aws_sns`, the SNS subscription endpoint). It never changes.
+    `subscription_ref` is also null without `trigger:update`.
     """
     async with _triggers_service(
         workspace_id, "get event source", "trigger:read"

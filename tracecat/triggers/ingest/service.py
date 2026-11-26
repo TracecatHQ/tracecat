@@ -208,6 +208,30 @@ async def _handle_subscription_confirmation(
     return IngestResult(confirmed=confirmed)
 
 
+async def _handle_unsubscribe_confirmation(
+    *, source: SnsIngestSource, topic: SnsTopic
+) -> IngestResult:
+    # SNS keeps one subscription per topic and endpoint, so this notice means
+    # the source's subscription is gone. A later SubscriptionConfirmation
+    # confirms it again.
+    stmt = (
+        update(EventSource)
+        .where(
+            EventSource.id == source.id,
+            EventSource.workspace_id == source.workspace_id,
+            EventSource.config["topic_arn"].astext == topic.arn,
+        )
+        .values(
+            subscription_status=SubscriptionStatus.PENDING.value,
+            subscription_ref=None,
+        )
+    )
+    async with get_async_session_bypass_rls_context_manager() as session:
+        await session.execute(stmt)
+        await session.commit()
+    return IngestResult(ignored=1)
+
+
 async def handle_sns_message(
     *,
     endpoint_token: str,
@@ -242,9 +266,7 @@ async def handle_sns_message(
                 envelope, source=source, topic=topic
             )
         case SnsMessageType.UNSUBSCRIBE_CONFIRMATION:
-            # Sent after an unsubscribe; nothing to do. The source keeps its
-            # state until it is pointed at a topic again.
-            result = IngestResult(ignored=1)
+            result = await _handle_unsubscribe_confirmation(source=source, topic=topic)
 
     logger.info(
         "SNS message ingested",

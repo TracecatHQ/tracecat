@@ -53,6 +53,11 @@ def _to_event(
     key = unquote_plus(obj.key)
     if len(key.encode()) > MAX_OBJECT_KEY_BYTES:
         raise _malformed("Object key is longer than S3 allows")
+    if "\x00" in key:
+        # S3 allows it, but PostgreSQL JSONB cannot store U+0000. Refusing
+        # (4xx) sends the message to the dead-letter queue; a 5xx would
+        # only make SNS retry an insert that always fails.
+        raise _malformed("Object key contains a NUL character")
     occurrence_key = build_occurrence_key(
         bucket=bucket, key=key, version_id=obj.version_id, sequencer=obj.sequencer
     )

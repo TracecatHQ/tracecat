@@ -670,20 +670,41 @@ async def test_cert_is_fetched_once(
     assert aws.calls.call_count == 1
 
 
-async def test_stale_message_is_refused(
+async def test_delayed_message_is_accepted(
     client: httpx.AsyncClient,
     session: AsyncSession,
     source: EventSource,
     sign: SignFn,
     aws: respx.MockRouter,
 ) -> None:
-    old = (datetime.now(UTC) - timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    # A subscription throttled by its delivery policy can deliver hours late.
+    old = (datetime.now(UTC) - timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
     envelope = sign("Notification", _s3_message(_s3_record()), timestamp=old)
 
     response = await _post(client, source, envelope)
 
+    assert response.status_code == 200, response.text
+    assert len(await _outbox(session, source)) == 1
+
+
+async def test_nul_in_object_key_is_refused_not_retried(
+    client: httpx.AsyncClient,
+    session: AsyncSession,
+    source: EventSource,
+    sign: SignFn,
+    aws: respx.MockRouter,
+) -> None:
+    message = _s3_message(
+        _s3_record("ok.csv", sequencer="01"), _s3_record("bad%00.csv")
+    )
+
+    response = await _post(client, source, sign("Notification", message))
+
+    # 4xx: SNS moves it to the dead-letter queue instead of retrying an
+    # insert PostgreSQL always rejects.
     assert response.status_code == 400
-    assert _code(response) == "stale_message"
+    assert _code(response) == "malformed"
+    assert await _outbox(session, source) == []
 
 
 # ----- Topic pin, raw delivery, size, token, entitlement, state -----
@@ -918,17 +939,25 @@ async def test_confirmation_rejected_by_sns(
     assert source.subscription_status == SubscriptionStatus.PENDING.value
 
 
-async def test_unsubscribe_confirmation_is_acknowledged(
+async def test_unsubscribe_confirmation_resets_the_subscription(
     client: httpx.AsyncClient,
+    session: AsyncSession,
     source: EventSource,
     sign: SignFn,
     aws: respx.MockRouter,
     confirm_calls: list[tuple[str, str]],
 ) -> None:
+    source.subscription_status = SubscriptionStatus.CONFIRMED.value
+    source.subscription_ref = SUBSCRIPTION_ARN
+    await session.commit()
+
     response = await _post(client, source, sign("UnsubscribeConfirmation", "bye"))
 
     assert response.status_code == 200
     assert confirm_calls == []
+    await session.refresh(source)
+    assert source.subscription_status == SubscriptionStatus.PENDING.value
+    assert source.subscription_ref is None
 
 
 # ----- ConfirmSubscription client -----
@@ -980,7 +1009,13 @@ async def test_confirm_subscription_calls_the_topic_region_unsigned(
     arn = await sns.confirm_subscription(topic=topic, token="synthetic-token")
 
     assert arn == SUBSCRIPTION_ARN
-    assert fake.calls == [{"TopicArn": topic.arn, "Token": "synthetic-token"}]
+    assert fake.calls == [
+        {
+            "TopicArn": topic.arn,
+            "Token": "synthetic-token",
+            "AuthenticateOnUnsubscribe": "true",
+        }
+    ]
     assert fake_session.client_kwargs["region_name"] == "eu-west-2"
     assert fake_session.client_kwargs["config"].signature_version is UNSIGNED
 

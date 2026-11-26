@@ -98,8 +98,10 @@ def _source_identity(config: EventSourceConfig) -> tuple[str, ...]:
 def read_event_source(source: EventSource, role: Role) -> EventSourceRead:
     """Build the API view of a source.
 
-    The endpoint URL goes only to callers who may change the source: anyone
-    holding it can reach the ingest endpoint, and it is never rotated.
+    The endpoint URL and the subscription ref go only to callers who may
+    change the source: anyone holding the URL can reach the ingest endpoint
+    (it is never rotated), and an SNS subscription ARN is enough to
+    unsubscribe a subscription confirmed without authentication.
     """
     kind = EventSourceKind(source.kind)
     can_manage = has_scope(role.scopes or frozenset(), "trigger:update")
@@ -110,7 +112,7 @@ def read_event_source(source: EventSource, role: Role) -> EventSourceRead:
         config=_source_config(source),
         status=TriggerStatus(source.status),
         subscription_status=SubscriptionStatus(source.subscription_status),
-        subscription_ref=source.subscription_ref,
+        subscription_ref=source.subscription_ref if can_manage else None,
         endpoint_url=(
             event_source_endpoint_url(kind, source.endpoint_token)
             if can_manage

@@ -18,12 +18,27 @@ Tracecat never reads your bucket on ingest. The triggered workflow or agent fetc
 
 1. Create an SNS event source in Tracecat with your topic ARN, such as `arn:aws:sns:us-east-1:123456789012:bucket-events`. Tracecat accepts messages from that topic only.
 2. Copy the source's endpoint URL. It has the form `https://<your-tracecat-api>/ingest/sns/<token>`. Treat the URL as a secret.
-3. In S3, add an event notification on the bucket for `s3:ObjectCreated:*` events with your SNS topic as the destination. Set a key prefix to limit which objects send events.
-4. Allow S3 to publish to the topic: the topic's access policy must grant `sns:Publish` to the `s3.amazonaws.com` service principal for your bucket.
+3. Allow only your bucket to publish to the topic. Add this statement to the topic's access policy, with your topic ARN, bucket name and account ID:
+
+   ```json
+   {
+     "Effect": "Allow",
+     "Principal": { "Service": "s3.amazonaws.com" },
+     "Action": "sns:Publish",
+     "Resource": "arn:aws:sns:us-east-1:123456789012:bucket-events",
+     "Condition": {
+       "ArnLike": { "aws:SourceArn": "arn:aws:s3:::your-bucket" },
+       "StringEquals": { "aws:SourceAccount": "123456789012" }
+     }
+   }
+   ```
+
+   Keep both conditions. Without them, any S3 bucket in any AWS account can publish to your topic, and Tracecat accepts its events because SNS signs them for your topic.
+4. In S3, add an event notification on the bucket for `s3:ObjectCreated:*` events with your SNS topic as the destination. Set a key prefix to limit which objects send events. S3 checks that it may publish to the topic, so add the topic policy first.
 5. Subscribe the endpoint URL to the topic with the `HTTPS` protocol. Leave raw message delivery off.
 6. Set the subscription's delivery retry policy to retry for one hour, and attach a dead-letter queue (an SQS queue) to the subscription.
 
-Tracecat confirms the subscription by itself through the SNS `ConfirmSubscription` API. The source shows the subscription as `confirmed` when it is done. Turn the source online to start queuing events.
+Tracecat confirms the subscription by itself through the SNS `ConfirmSubscription` API. The source shows the subscription as `confirmed` when it is done, and back to `pending` if the subscription is deleted. Turn the source online to start queuing events.
 
 ## Delivery rules
 

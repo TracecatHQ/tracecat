@@ -23,7 +23,7 @@ import base64
 import binascii
 import re
 from collections import OrderedDict
-from datetime import datetime, timedelta
+from datetime import datetime
 from urllib.parse import urlsplit
 
 import aioboto3
@@ -49,11 +49,6 @@ CERT_FETCH_TIMEOUT_SECONDS = 5.0
 # few in use. Expired entries are dropped when read.
 _CERT_CACHE_SIZE = 32
 _cert_cache: OrderedDict[str, x509.Certificate] = OrderedDict()
-
-# SNS retries an HTTPS delivery for at most an hour, so a genuine message is
-# never much older than that. An older one is a replay.
-MAX_MESSAGE_AGE = timedelta(hours=2)
-MAX_CLOCK_SKEW = timedelta(minutes=15)
 
 # ConfirmSubscription errors that mean the token or topic is wrong, so a retry
 # cannot succeed. Others (throttling, AWS errors) are worth a retry.
@@ -159,29 +154,20 @@ async def get_signing_cert(url: str, *, now: datetime) -> x509.Certificate:
     return cert
 
 
-def _parse_timestamp(raw: str) -> datetime:
-    try:
-        parsed = datetime.fromisoformat(raw)
-    except ValueError:
-        raise IngestError(
-            IngestErrorCode.MALFORMED, "Timestamp is not ISO 8601"
-        ) from None
-    if parsed.tzinfo is None:
-        raise IngestError(IngestErrorCode.MALFORMED, "Timestamp has no time zone")
-    return parsed
-
-
 async def verify_envelope(
     envelope: SnsEnvelope, *, topic: SnsTopic, now: datetime
 ) -> None:
-    """Verify the SNS signature (versions 1 and 2) and the message's age.
+    """Verify the SNS signature (versions 1 and 2).
+
+    The message's age is not checked: a subscription throttled by its delivery
+    policy can hold genuine messages for longer than any fixed window.
+    Redelivery is caught by the outbox's occurrence key.
 
     Call only after ``envelope.topic_arn`` matched the pinned topic: the
     certificate host is derived from that topic.
 
     Raises:
-        IngestError: ``SIGNATURE_INVALID``, ``STALE_MESSAGE``, ``MALFORMED``
-            or ``UNAVAILABLE``.
+        IngestError: ``SIGNATURE_INVALID`` or ``UNAVAILABLE``.
     """
     url = signing_cert_url(envelope.signing_cert_url, topic=topic)
     try:
@@ -204,11 +190,6 @@ async def verify_envelope(
     except InvalidSignature:
         raise _invalid_signature("Signature does not match") from None
 
-    # Checked after the signature, so the timestamp read is the signed one.
-    sent_at = _parse_timestamp(envelope.timestamp)
-    if sent_at < now - MAX_MESSAGE_AGE or sent_at > now + MAX_CLOCK_SKEW:
-        raise IngestError(IngestErrorCode.STALE_MESSAGE, "Message is too old")
-
 
 async def confirm_subscription(*, topic: SnsTopic, token: str) -> str:
     """Confirm a pending subscription with the ``ConfirmSubscription`` API.
@@ -225,7 +206,12 @@ async def confirm_subscription(*, topic: SnsTopic, token: str) -> str:
         async with session.client(
             "sns", region_name=topic.region, config=_CONFIRM_CLIENT_CONFIG
         ) as sns:
-            response = await sns.confirm_subscription(TopicArn=topic.arn, Token=token)
+            response = await sns.confirm_subscription(
+                TopicArn=topic.arn,
+                Token=token,
+                # Only the topic owner can then remove the subscription.
+                AuthenticateOnUnsubscribe="true",
+            )
     except ClientError as e:
         code = e.response.get("Error", {}).get("Code", "")
         logger.warning(

@@ -21028,7 +21028,7 @@ export const $EventSourceRead = {
       ],
       title: "Subscription Ref",
       description:
-        "The provider's subscription ID, e.g. the SNS subscription ARN",
+        "The provider's subscription ID, e.g. the SNS subscription ARN. Null for callers without trigger:update.",
     },
     endpoint_url: {
       anyOf: [

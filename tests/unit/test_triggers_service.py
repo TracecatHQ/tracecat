@@ -141,9 +141,14 @@ async def test_create_event_source_gives_a_stable_unguessable_url(
     )
     assert read_event_source(renamed, service.role).endpoint_url == read.endpoint_url
 
-    # A viewer sees the source but not the URL that reaches its ingest endpoint.
+    # A viewer sees the source but not the URL that reaches its ingest endpoint,
+    # nor the subscription ARN that is enough to unsubscribe it.
+    source.subscription_ref = f"{TOPIC}:sub"
+    assert read_event_source(source, service.role).subscription_ref == f"{TOPIC}:sub"
     viewer = service.role.model_copy(update={"scopes": frozenset({"trigger:read"})})
-    assert read_event_source(source, viewer).endpoint_url is None
+    viewer_read = read_event_source(source, viewer)
+    assert viewer_read.endpoint_url is None
+    assert viewer_read.subscription_ref is None
 
 
 async def test_one_source_per_topic_per_workspace(
