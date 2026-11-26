@@ -10734,6 +10734,7 @@ export type Role = {
     | "tracecat-runner"
     | "tracecat-schedule-runner"
     | "tracecat-service"
+    | "tracecat-triggers"
     | "tracecat-ui"
   is_platform_superuser?: boolean
   scopes?: Array<string> | null
@@ -10755,6 +10756,7 @@ export type service_id =
   | "tracecat-runner"
   | "tracecat-schedule-runner"
   | "tracecat-service"
+  | "tracecat-triggers"
   | "tracecat-ui"
 
 /**
@@ -13846,7 +13848,13 @@ export type TriggerTargetType = "workflow" | "agent"
 /**
  * Trigger type for a workflow execution.
  */
-export type TriggerType = "manual" | "scheduled" | "webhook" | "case" | "form"
+export type TriggerType =
+  | "manual"
+  | "scheduled"
+  | "webhook"
+  | "case"
+  | "form"
+  | "object_storage"
 
 export type TriggerUpdate = {
   name?: string | null

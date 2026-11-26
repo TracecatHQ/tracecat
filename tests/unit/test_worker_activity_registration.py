@@ -30,6 +30,8 @@ from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
 from tracecat.dsl.worker import get_activities as get_dsl_worker_activities
 from tracecat.search import indexing_schedule
 from tracecat.search.indexing_workflow import SearchIndexDispatcher
+from tracecat.triggers import dispatcher as trigger_event_dispatcher
+from tracecat.triggers.dispatcher import TriggerEventDispatcher
 
 
 @pytest.fixture(autouse=True)
@@ -65,7 +67,7 @@ def test_dsl_worker_registers_preset_version_resolution_activity() -> None:
 
 
 @pytest.mark.anyio
-async def test_background_worker_runs_search_and_case_triggers_on_background_queue(
+async def test_background_worker_runs_search_and_trigger_dispatchers_on_background_queue(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from tracecat.background import worker
@@ -75,7 +77,7 @@ async def test_background_worker_runs_search_and_case_triggers_on_background_que
 
     def _started(name: str) -> None:
         started.add(name)
-        if started == {"search", "case_triggers"}:
+        if started == {"search", "case_triggers", "trigger_events"}:
             shutdown_event.set()
 
     schedule = AsyncMock(side_effect=lambda *_: _started("search"))
@@ -83,6 +85,12 @@ async def test_background_worker_runs_search_and_case_triggers_on_background_que
     dispatcher = AsyncMock(side_effect=lambda *_: _started("case_triggers"))
     monkeypatch.setattr(
         case_trigger_dispatcher, "ensure_case_trigger_dispatcher", dispatcher
+    )
+    event_dispatcher = AsyncMock(side_effect=lambda *_: _started("trigger_events"))
+    monkeypatch.setattr(
+        trigger_event_dispatcher,
+        "ensure_trigger_event_dispatcher",
+        event_dispatcher,
     )
     captured: dict[str, object] = {}
 
@@ -112,14 +120,20 @@ async def test_background_worker_runs_search_and_case_triggers_on_background_que
     dispatcher.assert_awaited_once()
     assert dispatcher.await_args is not None
     assert dispatcher.await_args.args[1] == "test-bg-queue"
+    event_dispatcher.assert_awaited_once()
+    assert event_dispatcher.await_args is not None
+    assert event_dispatcher.await_args.args[1] == "test-bg-queue"
     workflows = cast(Sequence[type], captured["workflows"])
     assert SearchIndexDispatcher in workflows
     assert CaseTriggerDispatcher in workflows
+    assert TriggerEventDispatcher in workflows
     assert {
         "discover_search_collections",
         "index_search_collection",
         "wait_for_case_trigger_outbox",
         "dispatch_case_trigger_outbox_batch",
+        "wait_for_trigger_events",
+        "dispatch_trigger_event_batch",
     } <= _activity_names(cast(Sequence[object], captured["activities"]))
 
 

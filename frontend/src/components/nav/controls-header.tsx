@@ -107,6 +107,7 @@ import { TableInsertButton } from "@/components/tables/table-insert-button"
 import { TableSearchBadge } from "@/components/tables/table-search-badge"
 import { TableSearchProvider } from "@/components/tables/table-search-context"
 import { CreateTagDialog } from "@/components/tags/create-tag-dialog"
+import { CreateTriggerButton } from "@/components/triggers/create-trigger-dialog"
 import { CreateTunnelButton } from "@/components/tunnels/workspace-tunnels"
 import { useQueryClient } from "@/lib/query"
 import { groupLibraryProviders } from "@/lib/skill-library"
@@ -187,6 +188,8 @@ import { useFormsAccess } from "@/hooks/use-forms-access"
 import { useSkillLibrary } from "@/hooks/use-skill-library"
 import { useSkillTagCatalog } from "@/hooks/use-skill-tags"
 import { useSkill } from "@/hooks/use-skills"
+import { useTrigger } from "@/hooks/use-triggers"
+import { useTriggersAccess } from "@/hooks/use-triggers-access"
 import { holdDoubleTapKey } from "@/hooks/use-type-to-focus"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
 import { getFormErrorDetail } from "@/lib/forms/errors"
@@ -2348,6 +2351,46 @@ function FormDetailActions({
   )
 }
 
+function TriggerBreadcrumb({
+  triggerId,
+  workspaceId,
+}: {
+  triggerId: string
+  workspaceId: string
+}) {
+  const access = useTriggersAccess()
+  const canRead = useScopeCheck("trigger:read")
+  const canLoad = access === "enabled" && canRead === true
+  const { data: trigger } = useTrigger(workspaceId, triggerId, {
+    enabled: canLoad,
+  })
+
+  if (!canLoad) {
+    return <h1 className="text-sm font-semibold">Triggers</h1>
+  }
+
+  return (
+    <Breadcrumb>
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
+        <BreadcrumbItem>
+          <BreadcrumbLink asChild className="font-semibold hover:no-underline">
+            <Link href={`/workspaces/${workspaceId}/triggers`}>Triggers</Link>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator className="shrink-0">
+          <span className="text-muted-foreground">/</span>
+        </BreadcrumbSeparator>
+        <BreadcrumbItem>
+          <BreadcrumbEntityPage
+            label={trigger?.name}
+            skeletonClassName="h-4 w-28"
+          />
+        </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
+  )
+}
+
 function TableBreadcrumb({
   tableId,
   workspaceId,
@@ -2726,6 +2769,24 @@ function getPageConfig(
     return {
       title: "MCP access",
       actions: <McpAccessActions />,
+    }
+  }
+
+  if (pagePath.startsWith("/triggers")) {
+    const triggerMatch = pagePath.match(/^\/triggers\/([^/]+)$/)
+    if (triggerMatch) {
+      return {
+        title: (
+          <TriggerBreadcrumb
+            triggerId={triggerMatch[1]}
+            workspaceId={workspaceId}
+          />
+        ),
+      }
+    }
+    return {
+      title: "Triggers",
+      actions: <CreateTriggerButton />,
     }
   }
 

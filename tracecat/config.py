@@ -308,6 +308,7 @@ TRACECAT__SERVICE_ROLES_WHITELIST = [
     "tracecat-schedule-runner",
     "tracecat-case-triggers",
     "tracecat-case-duration-sync",
+    "tracecat-triggers",
     "tracecat-ui",
 ]
 TRACECAT__DEFAULT_USER_ID = uuid.UUID(int=0)
