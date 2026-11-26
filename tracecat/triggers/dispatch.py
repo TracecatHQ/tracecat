@@ -27,7 +27,7 @@ import time
 import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 from html import escape
 from typing import Any, Literal
 
@@ -261,6 +261,10 @@ class ClaimedRow:
     # workflows as their trigger input unchanged, so it stays a plain mapping.
     payload: dict[str, Any]
     attempts: int
+    lease_until: datetime
+    """The ``next_attempt_at`` this claim set. It fences the finish: no later
+    claim, release or retry can set the same value again, unlike ``attempts``,
+    which a release gives back."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -398,7 +402,9 @@ async def claim_rows(session: AsyncSession, row_ids: Sequence[int]) -> list[Clai
         update(EventOutbox)
         .where(still_ready, EventOutbox.attempts < MAX_ATTEMPTS)
         .values(
-            next_attempt_at=func.now() + LEASE,
+            # clock_timestamp, not now(): each claim's lease is a distinct
+            # value, so it can fence that claim's finish.
+            next_attempt_at=func.clock_timestamp() + LEASE,
             attempts=EventOutbox.attempts + 1,
         )
         .returning(
@@ -408,6 +414,7 @@ async def claim_rows(session: AsyncSession, row_ids: Sequence[int]) -> list[Clai
             EventOutbox.occurrence_key,
             EventOutbox.payload,
             EventOutbox.attempts,
+            EventOutbox.next_attempt_at,
         )
     )
     claimed = {
@@ -418,6 +425,7 @@ async def claim_rows(session: AsyncSession, row_ids: Sequence[int]) -> list[Clai
             occurrence_key=row.occurrence_key,
             payload=row.payload,
             attempts=row.attempts,
+            lease_until=row.next_attempt_at,
         )
         for row in result
     }
@@ -874,26 +882,29 @@ class TriggerOutboxDispatcher:
         """Delete delivered rows, release deferred ones, schedule or stop the rest.
 
         A row is deleted or updated only while it still carries this batch's
-        attempt, so a slow batch whose lease ran out never overrides a newer
+        lease, so a slow batch whose lease ran out never overrides a newer
         attempt, which may have matched a binding added since. The newer
         attempt finds this batch's runs already started and finishes the row.
         Returns how many rows were stopped.
         """
         delivered = [
-            (row.id, row.attempts)
+            (row.id, row.lease_until)
             for row in rows
             if outcomes[row.id].error is None and not outcomes[row.id].deferred
         ]
         if delivered:
             await session.execute(
-                delete(EventOutbox).where(
-                    tuple_(EventOutbox.id, EventOutbox.attempts).in_(delivered)
+                delete(EventOutbox)
+                .where(
+                    tuple_(EventOutbox.id, EventOutbox.next_attempt_at).in_(delivered)
                 )
+                # The batch holds no ORM objects to keep in sync.
+                .execution_options(synchronize_session=False)
             )
         stopped = 0
         for row in rows:
             this_attempt = and_(
-                EventOutbox.id == row.id, EventOutbox.attempts == row.attempts
+                EventOutbox.id == row.id, EventOutbox.next_attempt_at == row.lease_until
             )
             outcome = outcomes[row.id]
             if outcome.deferred and outcome.error is None:

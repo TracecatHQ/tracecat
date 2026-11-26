@@ -234,6 +234,11 @@ async def _seconds_until_ready(session: AsyncSession, row_id: int) -> float | No
     )
 
 
+def _is_lease(seconds: float | None) -> bool:
+    """A claim's lease: 60 s past the claim's clock, which runs after ``now()``."""
+    return seconds is not None and 60 <= seconds < 90
+
+
 async def _expire_lease(session: AsyncSession, row_id: int) -> None:
     await session.execute(
         update(EventOutbox)
@@ -435,7 +440,7 @@ async def test_claim_takes_the_lease_once(
     assert [c.id for c in claimed] == [row.id]
     assert claimed[0].attempts == 1
     assert claimed[0].occurrence_key == row.occurrence_key
-    assert await _seconds_until_ready(outbox, row.id) == 60
+    assert _is_lease(await _seconds_until_ready(outbox, row.id))
     # A second dispatcher that picked the same row claims nothing.
     assert await claim_rows(outbox, [row.id]) == []
     assert await pick_ready_rows(outbox) == []
@@ -632,7 +637,7 @@ async def test_a_late_finish_never_overwrites_a_newer_attempt(
     assert newer is not None
     assert newer.attempts == 2
     assert newer.last_error is None
-    assert await _seconds_until_ready(outbox, row.id) == 60
+    assert _is_lease(await _seconds_until_ready(outbox, row.id))
 
 
 @pytest.mark.parametrize(
@@ -864,6 +869,37 @@ async def test_a_late_success_leaves_a_reclaimed_row_to_the_newer_attempt(
     kept = await _row(outbox, row.id)
     assert kept is not None
     assert kept.attempts == 2
+
+
+async def test_a_release_by_a_newer_attempt_still_fences_the_stale_batch(
+    outbox: AsyncSession, svc_workspace: Workspace, starts: Starts
+) -> None:
+    """Claim 1, reclaim as 2, release back to 1: the stale success must not delete."""
+    fx = await _source_and_trigger(outbox, svc_workspace.id)
+    await _bind_workflow(outbox, fx)
+    row = await _enqueue(outbox, fx)
+    await outbox.commit()
+
+    async def reclaimed_then_released(**_: Any) -> None:
+        await _expire_lease(outbox, row.id)
+        (newer,) = await claim_rows(outbox, [row.id])
+        # The newer attempt's targets never began: it gives its attempt back.
+        await outbox.execute(
+            update(EventOutbox)
+            .where(EventOutbox.id == row.id, EventOutbox.attempts == newer.attempts)
+            .values(
+                attempts=EventOutbox.attempts - 1,
+                next_attempt_at=func.now() + timedelta(seconds=1),
+            )
+        )
+        await outbox.commit()
+
+    starts.workflow.side_effect = reclaimed_then_released
+    await TriggerOutboxDispatcher().dispatch_batch()
+
+    kept = await _row(outbox, row.id)
+    assert kept is not None
+    assert kept.attempts == 1
 
 
 # ----- Two dispatchers -----
