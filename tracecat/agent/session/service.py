@@ -2587,8 +2587,12 @@ class AgentSessionService(BaseWorkspaceService):
         request_id: str,
         instructions: str | None = None,
         author_id: uuid.UUID | None = None,
+        origin: UserMessageOrigin = UserMessageOrigin.CHANNEL,
     ) -> RunStarted:
         """Start a turn for the message, recording ``author_id`` as its author.
+
+        ``origin`` is where the message entered: channel ingress by default, or
+        ``TRACECAT`` for a caller inside Tracecat, such as a trigger.
 
         A retry of the same ``request_id`` returns the run the first attempt
         started and re-issues a start whose outcome was lost. Recovery may
@@ -2632,7 +2636,7 @@ class AgentSessionService(BaseWorkspaceService):
                     page_context=None,
                     is_first_prompt=None,
                     run_id=run_id,
-                    origin=UserMessageOrigin.CHANNEL,
+                    origin=origin,
                     author_id=author_id,
                     stream_id=uuid.uuid4(),
                 )
