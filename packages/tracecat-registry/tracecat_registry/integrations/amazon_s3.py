@@ -74,18 +74,20 @@ _AWS_SERVICE_REGION_DOC = (
 _READ_CHUNK_BYTES = 1024 * 1024
 _GZIP_MAGIC = b"\x1f\x8b"
 _GZIP_WBITS = 16 + zlib.MAX_WBITS
+# A fixed constant, not TRACECAT__MAX_FILE_SIZE_BYTES: that env var is not passed into
+# the action sandbox, so the indexed schema and the runtime check could disagree.
+_MAX_BYTES_LIMIT = 20 * 1024 * 1024
 
 MaxBytes = Annotated[
     int,
     Field(
         ...,
         ge=1,
-        le=TRACECAT__MAX_FILE_SIZE_BYTES,
+        le=_MAX_BYTES_LIMIT,
         description=(
             "Maximum number of bytes to return, counted after gzip decompression. "
             "A larger object is cut at this size and the result ends with a "
-            "truncation notice. The default is also the ceiling "
-            "(TRACECAT__MAX_FILE_SIZE_BYTES, 20 MiB unless the operator changes it)."
+            "truncation notice. The default, 20 MiB, is also the maximum."
         ),
     ),
 ]
@@ -93,10 +95,9 @@ MaxBytes = Annotated[
 
 def _check_max_bytes(max_bytes: int) -> None:
     # The executor does not re-validate action inputs, so enforce the bounds here.
-    if not 1 <= max_bytes <= TRACECAT__MAX_FILE_SIZE_BYTES:
+    if not 1 <= max_bytes <= _MAX_BYTES_LIMIT:
         raise ValueError(
-            f"max_bytes must be between 1 and {TRACECAT__MAX_FILE_SIZE_BYTES}, "
-            f"got {max_bytes}."
+            f"max_bytes must be between 1 and {_MAX_BYTES_LIMIT}, got {max_bytes}."
         )
 
 
@@ -130,6 +131,7 @@ async def _read_bounded(body: Any, max_bytes: int) -> tuple[bytes, bool, bool]:
 
 async def _gunzip_bounded(body: Any, data: bytes, max_bytes: int) -> tuple[bytes, bool]:
     out = bytearray()
+    consumed = len(data)
     inflater = zlib.decompressobj(wbits=_GZIP_WBITS)
     try:
         while data:
@@ -148,6 +150,11 @@ async def _gunzip_bounded(body: Any, data: bytes, max_bytes: int) -> tuple[bytes
                 del out[max_bytes:]
                 return bytes(out), True
             data = await _read_chunk(body)
+            consumed += len(data)
+            if data and consumed > max_bytes + _READ_CHUNK_BYTES:
+                # Input that inflates to little (padding, tiny members) must not pull
+                # the whole object down: download no more than the plain path does.
+                return bytes(out), True
     except zlib.error as e:
         raise ValueError(f"Invalid gzip data: {e}") from e
     if not inflater.eof:
@@ -261,7 +268,7 @@ async def get_object(
         str | None,
         Doc("Version ID used to reference a specific version of the object."),
     ] = None,
-    max_bytes: MaxBytes = TRACECAT__MAX_FILE_SIZE_BYTES,
+    max_bytes: MaxBytes = _MAX_BYTES_LIMIT,
 ) -> str:
     _check_max_bytes(max_bytes)
     session = await aws_boto3.get_session(
@@ -288,7 +295,7 @@ async def get_object(
     return (
         f"{text}\n\n[Truncated by Tracecat: returned at most the first {max_bytes} "
         f"bytes of {whole}. Raise max_bytes (at most "
-        f"{TRACECAT__MAX_FILE_SIZE_BYTES}) to read more.]"
+        f"{_MAX_BYTES_LIMIT}) to read more.]"
     )
 
 
@@ -445,7 +452,7 @@ async def get_objects(
     role_session_name: aws_boto3.RoleSessionName = None,
     external_id: aws_boto3.ExternalId = None,
     duration_seconds: aws_boto3.DurationSeconds = None,
-    max_bytes: MaxBytes = TRACECAT__MAX_FILE_SIZE_BYTES,
+    max_bytes: MaxBytes = _MAX_BYTES_LIMIT,
 ) -> list[str]:
     _check_max_bytes(max_bytes)
 

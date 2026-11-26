@@ -15,7 +15,7 @@ from tracecat_registry.integrations import amazon_s3
 from tests.conftest import MINIO_PORT, _minio_credentials
 
 ENDPOINT_URL = f"http://localhost:{MINIO_PORT}"
-CEILING = amazon_s3.TRACECAT__MAX_FILE_SIZE_BYTES
+CEILING = 20 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -33,7 +33,7 @@ class Bucket:
         key: str,
         *,
         version_id: str | None = None,
-        max_bytes: int = amazon_s3.TRACECAT__MAX_FILE_SIZE_BYTES,
+        max_bytes: int = CEILING,
     ) -> str:
         return await amazon_s3.get_object(
             self.name,
@@ -174,6 +174,17 @@ async def test_gzip_that_expands_past_the_cap_stays_bounded(bucket: Bucket) -> N
 
     assert result.startswith("\0" * max_bytes + "\n\n[Truncated by Tracecat:")
     assert peak < 16 * 1024 * 1024
+
+
+@pytest.mark.anyio
+async def test_gzip_that_inflates_to_little_stops_downloading(bucket: Bucket) -> None:
+    # 8 MiB of padding after a 1-byte member: the output never reaches the cap, so
+    # only the input bound stops the read.
+    await bucket.put("padding.gz", gzip.compress(b"x") + b"\0" * (8 * 1024 * 1024))
+
+    result = await bucket.get("padding.gz", max_bytes=1024)
+
+    assert result.startswith("x\n\n[Truncated by Tracecat:")
 
 
 @pytest.mark.anyio
