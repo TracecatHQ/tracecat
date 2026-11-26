@@ -36,7 +36,7 @@ Tracecat never reads your bucket on ingest. The triggered workflow or agent fetc
    Keep both conditions. Without them, any S3 bucket in any AWS account can publish to your topic, and Tracecat accepts its events because SNS signs them for your topic.
 4. In S3, add an event notification on the bucket for `s3:ObjectCreated:*` events with your SNS topic as the destination. Set a key prefix to limit which objects send events. S3 checks that it may publish to the topic, so add the topic policy first.
 5. Subscribe the endpoint URL to the topic with the `HTTPS` protocol. Leave raw message delivery off.
-6. Set the subscription's delivery retry policy to retry for one hour, and attach a dead-letter queue (an SQS queue) to the subscription.
+6. Set the subscription's delivery retry policy to retry for one hour, and attach a dead-letter queue (an SQS queue) to the subscription. If you also throttle delivery (`maxReceivesPerSecond`), keep the limit high enough that a backlog drains within 24 hours: Tracecat refuses messages older than that.
 
 Tracecat confirms the subscription by itself through the SNS `ConfirmSubscription` API. The source shows the subscription as `confirmed` when it is done, and back to `pending` if the subscription is deleted. Turn the source online to start queuing events.
 

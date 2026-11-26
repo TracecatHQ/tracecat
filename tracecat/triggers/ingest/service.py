@@ -183,8 +183,9 @@ async def _handle_notification(
     parsed = parse_s3_message(envelope.message, topic=topic, received_at=received_at)
     if not parsed.events:
         return IngestResult(ignored=parsed.ignored)
-    # Redeliveries of queued events cost nothing, so replaying one message
-    # cannot use up the source's cap.
+    # Redeliveries of events still queued cost nothing. Once a row is
+    # dispatched and deleted, a replay counts again; the 24 h age bound limits
+    # how long a captured message can be replayed.
     queued_keys = await _already_queued(source, parsed.events)
     new_events = [e for e in parsed.events if e.occurrence_key not in queued_keys]
     if not new_events:
