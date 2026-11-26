@@ -120,9 +120,8 @@ export function EventSourcePanel({
             notifications).
           </li>
           <li>
-            Subscribe the endpoint URL to the topic with the HTTPS protocol.
-            Tracecat confirms the subscription itself; the state above then
-            reads confirmed.
+            Subscribe the endpoint URL to the topic with the HTTPS protocol. The
+            state above changes to confirmed once the subscription is confirmed.
           </li>
           <li>
             Leave raw message delivery off, so SNS sends its signed message

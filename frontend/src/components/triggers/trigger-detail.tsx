@@ -11,7 +11,11 @@ import {
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
-import type { TriggerBindingRead, TriggerRead } from "@/client"
+import type {
+  TriggerBindingRead,
+  TriggerRead,
+  TriggerTargetType,
+} from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AddTargetDialog } from "@/components/triggers/add-target-dialog"
@@ -86,6 +90,22 @@ export function TriggerDetail({ triggerId }: { triggerId: string }) {
   )
 }
 
+const RUN_ACTION_BY_TARGET: Record<TriggerTargetType, string> = {
+  workflow: "run workflows (workflow:execute)",
+  agent: "run agents (agent:execute)",
+}
+
+/**
+ * Whether the caller may make a target live. The API needs the target's
+ * execute scope on top of `trigger:update`.
+ */
+function useCanRunTarget(): (type: TriggerTargetType) => boolean {
+  const canRunWorkflows = useScopeCheck("workflow:execute")
+  const canRunAgents = useScopeCheck("agent:execute")
+  return (type) =>
+    type === "agent" ? canRunAgents === true : canRunWorkflows === true
+}
+
 function TriggerDetailBody({
   workspaceId,
   trigger,
@@ -101,6 +121,19 @@ function TriggerDetailBody({
   const [confirmDelete, setConfirmDelete] = useState(false)
   const definition = getTriggerKind(trigger)
   const Icon = definition?.icon ?? ZapIcon
+  const canRunTarget = useCanRunTarget()
+  // Putting the trigger online makes every online target live, so the API
+  // checks the execute scope of each.
+  const blockedTarget =
+    trigger.status === "offline"
+      ? trigger.bindings.find(
+          (binding) =>
+            binding.status === "online" && !canRunTarget(binding.target_type)
+        )
+      : undefined
+  const onlineBlockedReason = blockedTarget
+    ? `You need permission to ${RUN_ACTION_BY_TARGET[blockedTarget.target_type]} to put this trigger online.`
+    : undefined
 
   async function setOnline(online: boolean) {
     try {
@@ -149,12 +182,18 @@ function TriggerDetailBody({
         </div>
         <div className="flex items-center gap-3">
           <TriggerStatusLabel status={trigger.status} />
-          <Switch
-            aria-label={`${trigger.name} online`}
-            checked={trigger.status === "online"}
-            disabled={canUpdate !== true || updateTrigger.isPending}
-            onCheckedChange={setOnline}
-          />
+          <span title={onlineBlockedReason}>
+            <Switch
+              aria-label={`${trigger.name} online`}
+              checked={trigger.status === "online"}
+              disabled={
+                canUpdate !== true ||
+                updateTrigger.isPending ||
+                onlineBlockedReason !== undefined
+              }
+              onCheckedChange={setOnline}
+            />
+          </span>
           {canDelete === true ? (
             <Button
               variant="ghost"
@@ -274,7 +313,12 @@ function TargetRow({
   const canDelete = useScopeCheck("trigger:delete")
   const { updateBinding, deleteBinding } = useTriggerMutations(workspaceId)
   const [confirmRemove, setConfirmRemove] = useState(false)
+  const canRunTarget = useCanRunTarget()
   const isAgent = binding.target_type === "agent"
+  const onlineBlockedReason =
+    binding.status === "offline" && !canRunTarget(binding.target_type)
+      ? `You need permission to ${RUN_ACTION_BY_TARGET[binding.target_type]} to put this target online.`
+      : undefined
   const Icon = isAgent ? MousePointerClickIcon : WorkflowIcon
 
   async function setOnline(online: boolean) {
@@ -338,12 +382,18 @@ function TargetRow({
       <span className="w-16 shrink-0">
         <TriggerStatusLabel status={binding.status} />
       </span>
-      <Switch
-        aria-label={`${binding.target_name} online`}
-        checked={binding.status === "online"}
-        disabled={canUpdate !== true || updateBinding.isPending}
-        onCheckedChange={setOnline}
-      />
+      <span title={onlineBlockedReason}>
+        <Switch
+          aria-label={`${binding.target_name} online`}
+          checked={binding.status === "online"}
+          disabled={
+            canUpdate !== true ||
+            updateBinding.isPending ||
+            onlineBlockedReason !== undefined
+          }
+          onCheckedChange={setOnline}
+        />
+      </span>
       {canDelete === true ? (
         <Button
           variant="ghost"

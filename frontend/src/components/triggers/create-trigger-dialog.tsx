@@ -85,6 +85,11 @@ export function CreateTriggerDialog({
     try {
       // Read the name now: the field is disabled from here on.
       const triggerName = name.trim()
+      // Check before the kind's own requests: a new source would be left
+      // behind by a trigger the API then refuses.
+      if (!triggerName) {
+        throw new Error("Give the trigger a name.")
+      }
       const config = await resolveConfig()
       trigger = await createTrigger.mutateAsync({ name: triggerName, config })
     } finally {
@@ -100,7 +105,14 @@ export function CreateTriggerDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        // Closing mid-submit would drop the error or navigate unasked.
+        if (!next && submittingRef.current) return
+        onOpenChange(next)
+      }}
+    >
       <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>

@@ -8,6 +8,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import type { TriggerBindingRead, TriggerRead } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { describeTriggerError } from "@/components/triggers/trigger-errors"
@@ -34,6 +35,24 @@ const MAX_TARGETS_SHOWN = 3
 export function TriggersLockedState({ access }: { access: TriggersAccess }) {
   if (access === "loading") {
     return <CenteredSpinner />
+  }
+  if (access === "unknown") {
+    return (
+      <div className="flex h-full p-6">
+        <EntitlementRequiredEmptyState
+          title="Unable to check plan access"
+          description="Reload the page to try again."
+        >
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.location.reload()}
+          >
+            Reload
+          </Button>
+        </EntitlementRequiredEmptyState>
+      </div>
+    )
   }
   return (
     <div className="flex h-full p-6">
@@ -64,6 +83,7 @@ export function TriggersLockedState({ access }: { access: TriggersAccess }) {
 export function WorkspaceTriggers() {
   const workspaceId = useWorkspaceId()
   const access = useTriggersAccess()
+  const canCreate = useScopeCheck("trigger:create")
   const {
     triggers,
     isLoading,
@@ -78,7 +98,7 @@ export function WorkspaceTriggers() {
   }
 
   let body: React.ReactNode
-  if (error) {
+  if (error && triggers.length === 0) {
     body = (
       <p className="p-6 text-xs text-destructive">
         Couldn't load triggers. {describeTriggerError(error)}
@@ -98,7 +118,7 @@ export function WorkspaceTriggers() {
             <EmptyDescription>
               A trigger listens for outside events, such as a new file in an S3
               bucket, and starts the workflows and agents you attach to it.
-              Create one with Create trigger.
+              {canCreate === true ? " Create one with Create trigger." : ""}
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -122,6 +142,11 @@ export function WorkspaceTriggers() {
             trigger={trigger}
           />
         ))}
+        {error ? (
+          <p className="px-4 py-2 text-xs text-destructive">
+            Couldn't load more triggers. {describeTriggerError(error)}
+          </p>
+        ) : null}
         {hasNextPage ? (
           <div className="px-4 py-2">
             <Button

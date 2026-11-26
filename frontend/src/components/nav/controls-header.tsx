@@ -2359,9 +2359,15 @@ function TriggerBreadcrumb({
   workspaceId: string
 }) {
   const access = useTriggersAccess()
+  const canRead = useScopeCheck("trigger:read")
+  const canLoad = access === "enabled" && canRead === true
   const { data: trigger } = useTrigger(workspaceId, triggerId, {
-    enabled: access === "enabled",
+    enabled: canLoad,
   })
+
+  if (!canLoad) {
+    return <h1 className="text-sm font-semibold">Triggers</h1>
+  }
 
   return (
     <Breadcrumb>

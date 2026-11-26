@@ -37,7 +37,9 @@ export const TRIGGER_KIND_LIST: TriggerKindDefinition[] =
 export function getTriggerKind(
   trigger: Pick<TriggerRead, "kind">
 ): TriggerKindDefinition | undefined {
-  return (TRIGGER_KINDS as Partial<Record<string, TriggerKindDefinition>>)[
-    trigger.kind
-  ]
+  // Own keys only: an unknown kind like "toString" must not hit the prototype.
+  if (!Object.prototype.hasOwnProperty.call(TRIGGER_KINDS, trigger.kind)) {
+    return undefined
+  }
+  return TRIGGER_KINDS[trigger.kind]
 }

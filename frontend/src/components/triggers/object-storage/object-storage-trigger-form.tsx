@@ -38,8 +38,13 @@ export function ObjectStorageTriggerForm({
   const [keyPrefix, setKeyPrefix] = useState("")
   const [formError, setFormError] = useState<string | null>(null)
 
-  const mode: SourceMode =
-    chosenMode ?? (sources.length > 0 ? "existing" : "new")
+  // Until the list loads, "no sources" isn't known; default to picking one.
+  let mode: SourceMode = "existing"
+  if (chosenMode) {
+    mode = chosenMode
+  } else if (!sourcesLoading && sources.length === 0) {
+    mode = "new"
+  }
   const busy = pending
 
   async function resolveSourceId(): Promise<string> {
@@ -56,6 +61,8 @@ export function ObjectStorageTriggerForm({
     // hitting the one-source-per-topic rule.
     setChosenMode("existing")
     setSourceId(created.id)
+    setSourceName("")
+    setTopicArn("")
     return created.id
   }
 

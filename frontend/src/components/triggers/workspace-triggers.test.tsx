@@ -35,6 +35,7 @@ jest.mock("@/client", () => ({
 
 let scopes: Record<string, boolean | undefined> = {}
 let entitled = true
+let entitlementsFailed = false
 const push = jest.fn()
 
 jest.mock("@/components/auth/scope-guard", () => ({
@@ -42,8 +43,9 @@ jest.mock("@/components/auth/scope-guard", () => ({
 }))
 jest.mock("@/hooks/use-entitlements", () => ({
   useEntitlements: () => ({
-    hasEntitlement: (key: string) => key === "object_triggers" && entitled,
-    hasEntitlementData: true,
+    hasEntitlement: (key: string) =>
+      !entitlementsFailed && key === "object_triggers" && entitled,
+    hasEntitlementData: !entitlementsFailed,
     isLoading: false,
   }),
 }))
@@ -137,6 +139,7 @@ function renderWithClient(ui: ReactNode) {
 beforeEach(() => {
   jest.clearAllMocks()
   entitled = true
+  entitlementsFailed = false
   presets = []
   scopes = {
     "trigger:read": true,
@@ -206,6 +209,44 @@ describe("WorkspaceTriggers", () => {
     ).not.toBeInTheDocument()
   })
 
+  it("offers a reload when the plan can't be checked", () => {
+    entitlementsFailed = true
+
+    renderWithClient(<WorkspaceTriggers />)
+
+    expect(screen.getByText("Unable to check plan access")).toBeInTheDocument()
+    expect(triggersListTriggers).not.toHaveBeenCalled()
+  })
+
+  it("keeps the list when a later page fails", async () => {
+    const user = userEvent.setup()
+    jest
+      .mocked(triggersListTriggers)
+      .mockResolvedValueOnce({
+        items: [TRIGGER],
+        has_more: true,
+        next_cursor: "cursor-2",
+      })
+      .mockRejectedValueOnce(
+        // A 4xx: the shared retry handler doesn't retry it.
+        Object.assign(new Error("Bad cursor"), {
+          status: 400,
+          body: { detail: "Bad cursor" },
+        })
+      )
+
+    renderWithClient(<WorkspaceTriggers />)
+
+    await user.click(await screen.findByRole("button", { name: "Load more" }))
+
+    expect(
+      await screen.findByText(/Couldn't load more triggers/)
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: /New uploads/ })
+    ).toBeInTheDocument()
+  })
+
   it("shows the upgrade state and fetches nothing without the entitlement", () => {
     entitled = false
 
@@ -264,6 +305,32 @@ describe("CreateTriggerDialog", () => {
   })
 })
 
+describe("CreateTriggerDialog name check", () => {
+  it("refuses a blank name before creating a source", async () => {
+    const user = userEvent.setup()
+    jest
+      .mocked(triggersListEventSources)
+      .mockResolvedValue({ items: [], has_more: false })
+
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
+
+    await user.click(screen.getByRole("button", { name: /Object storage/ }))
+    await user.type(screen.getByLabelText("Name"), "   ")
+    await user.type(screen.getByLabelText("Event source name"), "Uploads")
+    await user.type(
+      screen.getByLabelText("SNS topic ARN"),
+      SOURCE.config.topic_arn
+    )
+    await user.click(screen.getByRole("button", { name: "Create trigger" }))
+
+    expect(
+      await screen.findByText("Give the trigger a name.")
+    ).toBeInTheDocument()
+    expect(triggersCreateEventSource).not.toHaveBeenCalled()
+    expect(triggersCreateTrigger).not.toHaveBeenCalled()
+  })
+})
+
 describe("CreateTriggerDialog while submitting", () => {
   it("locks the name until the inline source and the trigger are created", async () => {
     const user = userEvent.setup()
@@ -308,6 +375,12 @@ describe("CreateTriggerDialog while submitting", () => {
 })
 
 describe("useEventSources via the form", () => {
+  // jsdom lacks the pointer capture API that Radix Select calls on open.
+  beforeAll(() => {
+    Element.prototype.hasPointerCapture = () => false
+    Element.prototype.releasePointerCapture = () => {}
+  })
+
   it("offers sources from every page", async () => {
     const user = userEvent.setup()
     const second = {
@@ -337,6 +410,10 @@ describe("useEventSources via the form", () => {
     expect(triggersListEventSources).toHaveBeenLastCalledWith(
       expect.objectContaining({ cursor: "cursor-2" })
     )
+    await user.click(screen.getByRole("combobox", { name: "Event source" }))
+    expect(
+      await screen.findByRole("option", { name: /Archive bucket/ })
+    ).toBeInTheDocument()
   })
 })
 
@@ -385,8 +462,10 @@ describe("TriggerDetail", () => {
     ).toBeInTheDocument()
   })
 
-  it("names the missing execute scope when a target can't go online", async () => {
+  it("names the missing execute scope when the API refuses a target", async () => {
     const user = userEvent.setup()
+    // The UI allows it; the server still refuses (a stale scope set).
+    scopes = { ...scopes, "workflow:execute": true }
     jest.mocked(triggersUpdateTriggerBinding).mockRejectedValue(
       Object.assign(new Error("Forbidden"), {
         status: 403,
@@ -414,6 +493,36 @@ describe("TriggerDetail", () => {
           ),
         })
       )
+    )
+  })
+
+  it("keeps a target offline without its execute scope", async () => {
+    scopes = { ...scopes, "agent:execute": true }
+
+    renderWithClient(<TriggerDetail triggerId="trigger-1" />)
+
+    const workflowSwitch = await screen.findByRole("switch", {
+      name: "Scan file online",
+    })
+    expect(workflowSwitch).toBeDisabled()
+    expect(workflowSwitch.parentElement).toHaveAttribute(
+      "title",
+      "You need permission to run workflows (workflow:execute) to put this target online."
+    )
+  })
+
+  it("keeps the trigger offline without the execute scope of an online target", async () => {
+    scopes = { ...scopes, "workflow:execute": true }
+
+    renderWithClient(<TriggerDetail triggerId="trigger-1" />)
+
+    const triggerSwitch = await screen.findByRole("switch", {
+      name: "New uploads online",
+    })
+    expect(triggerSwitch).toBeDisabled()
+    expect(triggerSwitch.parentElement).toHaveAttribute(
+      "title",
+      "You need permission to run agents (agent:execute) to put this trigger online."
     )
   })
 
