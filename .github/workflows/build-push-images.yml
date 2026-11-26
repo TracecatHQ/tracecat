@@ -501,30 +501,16 @@ jobs:
 
   attest-published:
     needs: [approve-publish, merge-api, merge-tunnel-gateway, build-and-push-ui]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    uses: TracecatHQ/tracecat/.github/workflows/attest-ghcr.yml@c80ed5d35a5f9d1dde87db4a54ad51786e732bee
     permissions:
+      actions: read
       contents: read
       id-token: write
       attestations: write
-    steps:
-      - name: Attest API manifest
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-name: ghcr.io/tracecathq/tracecat
-          subject-digest: ${{ needs.merge-api.outputs.digest }}
-
-      - name: Attest tunnel gateway manifest
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-name: ghcr.io/tracecathq/tracecat-tunnel-gateway
-          subject-digest: ${{ needs.merge-tunnel-gateway.outputs.digest }}
-
-      - name: Attest UI manifest
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-name: ghcr.io/tracecathq/tracecat-ui
-          subject-digest: ${{ needs.build-and-push-ui.outputs.digest }}
+    with:
+      api-digest: ${{ needs.merge-api.outputs.digest }}
+      ui-digest: ${{ needs.build-and-push-ui.outputs.digest }}
+      tunnel-digest: ${{ needs.merge-tunnel-gateway.outputs.digest }}
 
   promote-latest:
     needs: [validate, merge-api, build-and-push-ui, merge-tunnel-gateway, approve-publish, attest-published]
