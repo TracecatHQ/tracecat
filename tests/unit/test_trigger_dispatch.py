@@ -521,6 +521,8 @@ async def test_starts_every_target_with_fixed_ids_then_deletes_the_row(
     assert create.id == trigger_run_uuid(agent_binding.id, row.occurrence_key)
     assert create.entity_type is AgentSessionEntity.AGENT_PRESET
     assert create.entity_id == agent_binding.agent_preset_id
+    # Unpinned, so every turn (and every retry) runs the preset's current version.
+    assert create.agent_preset_version_id is None
     (agent_call,) = starts.agent.await_args_list
     assert agent_call.args == (create.id,)
     assert agent_call.kwargs["request_id"] == row.occurrence_key
@@ -756,8 +758,12 @@ async def test_a_session_someone_else_created_under_the_id_is_not_used(
 
     result = await TriggerOutboxDispatcher().dispatch_batch()
 
-    assert result.delivered == 1
+    # Kept and retried, so the conflict ends as a visible stopped row.
+    assert result.retrying == 1
     starts.agent.assert_not_awaited()
+    kept = await _row(outbox, row.id)
+    assert kept is not None and kept.last_error is not None
+    assert "TriggerSessionConflictError" in kept.last_error
 
 
 async def test_last_error_redacts_credentials(
@@ -803,6 +809,39 @@ async def test_stopped_rows_are_counted_at_most_once_a_minute_across_polls(
         assert await ActivityEnvironment().run(wait_for_trigger_events)
 
     assert counted == [True, False, False]
+
+
+async def test_rows_not_reached_by_the_deadline_keep_their_attempt(
+    outbox: AsyncSession,
+    svc_workspace: Workspace,
+    starts: Starts,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Slow targets ahead of a row cannot use up its attempts."""
+    monkeypatch.setattr(dispatch, "MAX_CONCURRENT_STARTS", 1)
+    monkeypatch.setattr(dispatch, "BATCH_START_DEADLINE_SECONDS", 0.05)
+    fx = await _source_and_trigger(outbox, svc_workspace.id)
+    await _bind_workflow(outbox, fx)
+    slow = await _enqueue(outbox, fx, "in/slow")
+    late = await _enqueue(outbox, fx, "in/late")
+    await outbox.commit()
+
+    async def slow_start(**_: Any) -> None:
+        await asyncio.sleep(0.1)
+        raise RuntimeError("slow and failed")
+
+    starts.workflow.side_effect = slow_start
+    result = await TriggerOutboxDispatcher().dispatch_batch()
+
+    assert (result.retrying, result.deferred) == (1, 1)
+    assert starts.workflow.await_count == 1
+    failed = await _row(outbox, slow.id)
+    released = await _row(outbox, late.id)
+    assert failed is not None and failed.attempts == 1
+    assert released is not None
+    assert released.attempts == 0
+    assert released.last_error is None
+    assert await pick_ready_rows(outbox) == [late.id]
 
 
 # ----- Two dispatchers -----

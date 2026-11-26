@@ -23,6 +23,7 @@ when the lease runs out.
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -91,6 +92,12 @@ MAX_CONCURRENT_STARTS = 16
 """Starts in flight per batch. Each agent start holds a connection while it runs."""
 START_TIMEOUT_SECONDS = 30.0
 """A start still unanswered after this fails the row; the retry is safe."""
+BATCH_START_DEADLINE_SECONDS = 300.0
+"""No new start begins after this; well inside the batch activity's timeout.
+
+A row whose targets never began is released without spending an attempt, so
+slow failing targets ahead of it cannot use up its attempts.
+"""
 LAST_ERROR_MAX_LENGTH = 2_000
 LEASE_EXPIRED_ERROR = "The last attempt's lease ran out before it finished"
 
@@ -147,6 +154,27 @@ _STOPPED_ROWS = _METER.create_gauge(
 )
 
 type StartOutcome = Literal["started", "already_started", "dropped"]
+
+
+class StartDeferred(Exception):
+    """The batch's start deadline passed before this start began."""
+
+
+class TriggerSessionConflictError(Exception):
+    """A session that is not the trigger's own holds the derived session ID.
+
+    Not a permanent error on purpose: the row keeps retrying and then stops
+    with this error, so a squatted ID is visible instead of a silent drop.
+    """
+
+
+@dataclass(frozen=True, slots=True)
+class RowOutcome:
+    """How one row's starts went: all landed, some failed, or none began."""
+
+    error: str | None = None
+    deferred: bool = False
+
 
 # Every workspace that has outbox rows, by a skip scan of the dispatch index:
 # two index probes per workspace, however many rows each holds.
@@ -277,7 +305,7 @@ class BatchContext:
     roles: dict[uuid.UUID, Role] = field(default_factory=dict)
     workflows: dict[uuid.UUID, PublishedWorkflow] = field(default_factory=dict)
     executions: dict[uuid.UUID, WorkflowExecutionsService] = field(default_factory=dict)
-    preset_versions: dict[uuid.UUID, uuid.UUID | None] = field(default_factory=dict)
+    live_presets: set[uuid.UUID] = field(default_factory=set)
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,6 +315,7 @@ class BatchResult:
     delivered: int
     retrying: int
     stopped: int
+    deferred: int = 0
 
 
 def trigger_run_uuid(binding_id: uuid.UUID, occurrence_key: str) -> uuid.UUID:
@@ -561,18 +590,18 @@ async def _published_workflows(
     return published
 
 
-async def _live_preset_versions(
+async def _live_presets(
     session: AsyncSession, preset_ids: set[uuid.UUID]
-) -> dict[uuid.UUID, uuid.UUID | None]:
-    """Each live (not soft-deleted) preset's current version."""
+) -> set[uuid.UUID]:
+    """The presets that are not soft-deleted."""
     if not preset_ids:
-        return {}
-    rows = await session.execute(
-        select(AgentPreset.id, AgentPreset.current_version_id).where(
+        return set()
+    rows = await session.scalars(
+        select(AgentPreset.id).where(
             AgentPreset.id.in_(preset_ids), AgentPreset.deleted_at.is_(None)
         )
     )
-    return dict(rows.tuples().all())
+    return set(rows.all())
 
 
 class TriggerOutboxDispatcher:
@@ -581,6 +610,7 @@ class TriggerOutboxDispatcher:
     def __init__(self, heartbeat: Callable[[], None] | None = None) -> None:
         self._heartbeat = heartbeat or (lambda: None)
         self._org_entitled: dict[uuid.UUID, bool] = {}
+        self._start_deadline = 0.0
 
     async def dispatch_batch(self, limit: int = BATCH_SIZE) -> BatchResult:
         """Pick, claim, start and finish one batch."""
@@ -591,29 +621,33 @@ class TriggerOutboxDispatcher:
         if not rows or context is None:
             return BatchResult(len(row_ids), 0, 0, 0, 0)
 
+        self._start_deadline = time.monotonic() + BATCH_START_DEADLINE_SECONDS
         slots = asyncio.Semaphore(MAX_CONCURRENT_STARTS)
         async with asyncio.TaskGroup() as tasks:
-            outcomes = [
+            tasks_by_row = [
                 tasks.create_task(self._dispatch_row(row, context, slots))
                 for row in rows
             ]
-        errors = {
-            row.id: task.result() for row, task in zip(rows, outcomes, strict=True)
+        outcomes = {
+            row.id: task.result() for row, task in zip(rows, tasks_by_row, strict=True)
         }
 
         async with get_async_session_bypass_rls_context_manager() as session:
-            stopped = await self._finish(session, rows, errors)
-        failed = sum(error is not None for error in errors.values())
-        delivered = len(rows) - failed
+            stopped = await self._finish(session, rows, outcomes)
+        failed = sum(o.error is not None for o in outcomes.values())
+        deferred = sum(o.deferred for o in outcomes.values())
+        delivered = len(rows) - failed - deferred
         _ROWS.add(delivered, {"outcome": "delivered"})
         _ROWS.add(failed - stopped, {"outcome": "retrying"})
         _ROWS.add(stopped, {"outcome": "stopped"})
+        _ROWS.add(deferred, {"outcome": "deferred"})
         return BatchResult(
             picked=len(row_ids),
             claimed=len(rows),
             delivered=delivered,
             retrying=failed - stopped,
             stopped=stopped,
+            deferred=deferred,
         )
 
     async def _load_context(
@@ -658,7 +692,7 @@ class TriggerOutboxDispatcher:
             session,
             {t.workflow_id for t in live_targets if isinstance(t, WorkflowTarget)},
         )
-        context.preset_versions = await _live_preset_versions(
+        context.live_presets = await _live_presets(
             session,
             {t.agent_preset_id for t in live_targets if isinstance(t, AgentTarget)},
         )
@@ -676,11 +710,11 @@ class TriggerOutboxDispatcher:
 
     async def _dispatch_row(
         self, row: ClaimedRow, context: BatchContext, slots: asyncio.Semaphore
-    ) -> str | None:
-        """Start every target of one row; return the errors, or None if all landed."""
+    ) -> RowOutcome:
+        """Start every target of one row and say how it went."""
         targets = context.targets.get(row.id, [])
         if not targets:
-            return None
+            return RowOutcome()
         if row.workspace_id not in context.entitled_workspaces:
             logger.info(
                 "Dropping trigger event; the organization lacks the entitlement",
@@ -688,19 +722,23 @@ class TriggerOutboxDispatcher:
                 workspace_id=str(row.workspace_id),
                 entitlement=Entitlement.OBJECT_TRIGGERS.value,
             )
-            return None
+            return RowOutcome()
         results = await asyncio.gather(
             *(self._start(row, target, context, slots) for target in targets),
             return_exceptions=True,
         )
         errors: list[str] = []
+        deferred = False
         for target, result in zip(targets, results, strict=True):
             target_type = (
                 TriggerTargetType.WORKFLOW
                 if isinstance(target, WorkflowTarget)
                 else TriggerTargetType.AGENT
             )
-            if isinstance(result, BaseException):
+            if isinstance(result, StartDeferred):
+                deferred = True
+                _STARTS.add(1, {"target_type": target_type, "outcome": "deferred"})
+            elif isinstance(result, BaseException):
                 if not isinstance(result, Exception):
                     raise result
                 _STARTS.add(1, {"target_type": target_type, "outcome": "failed"})
@@ -714,7 +752,9 @@ class TriggerOutboxDispatcher:
                 errors.append(f"binding {target.binding_id}: {_error_text(result)}")
             else:
                 _STARTS.add(1, {"target_type": target_type, "outcome": result})
-        return "; ".join(errors)[:LAST_ERROR_MAX_LENGTH] if errors else None
+        if errors:
+            return RowOutcome(error="; ".join(errors)[:LAST_ERROR_MAX_LENGTH])
+        return RowOutcome(deferred=deferred)
 
     async def _start(
         self,
@@ -724,6 +764,8 @@ class TriggerOutboxDispatcher:
         slots: asyncio.Semaphore,
     ) -> StartOutcome:
         async with slots:
+            if time.monotonic() >= self._start_deadline:
+                raise StartDeferred
             self._heartbeat()
             role = context.roles[row.workspace_id]
             log = logger.bind(
@@ -782,7 +824,7 @@ class TriggerOutboxDispatcher:
         role: Role,
         context: BatchContext,
     ) -> StartOutcome:
-        if target.agent_preset_id not in context.preset_versions:
+        if target.agent_preset_id not in context.live_presets:
             logger.warning(
                 "Dropping trigger run; the agent preset was deleted",
                 outbox_id=row.id,
@@ -802,16 +844,15 @@ class TriggerOutboxDispatcher:
                     title=target.trigger_name[:200],
                     entity_type=AgentSessionEntity.AGENT_PRESET,
                     entity_id=target.agent_preset_id,
+                    # Unpinned: each turn runs the preset's current version, so a
+                    # retry after the preset was fixed uses the fix.
                     agent_preset_id=target.agent_preset_id,
-                    agent_preset_version_id=context.preset_versions[
-                        target.agent_preset_id
-                    ],
                 )
             )
             # A session someone else created under this ID would get the event
             # and the instruction instead of the preset's own session.
             if not created and not _is_trigger_session(agent_session, target):
-                raise TracecatValidationError(
+                raise TriggerSessionConflictError(
                     f"Session {session_id} exists but is not this binding's session"
                 )
             # The run ID is derived from the session and the request ID, both
@@ -828,28 +869,46 @@ class TriggerOutboxDispatcher:
         self,
         session: AsyncSession,
         rows: Sequence[ClaimedRow],
-        errors: dict[int, str | None],
+        outcomes: dict[int, RowOutcome],
     ) -> int:
-        """Delete delivered rows and schedule or stop the failed ones.
+        """Delete delivered rows, release deferred ones, schedule or stop the rest.
 
-        A failed row is updated only while it still carries this batch's
-        attempt, so a slow batch whose lease ran out never overwrites a newer
-        attempt's state. Returns how many rows were stopped.
+        A row is updated only while it still carries this batch's attempt, so
+        a slow batch whose lease ran out never overwrites a newer attempt's
+        state. Returns how many rows were stopped.
         """
-        delivered = [row.id for row in rows if errors[row.id] is None]
+        delivered = [
+            row.id
+            for row in rows
+            if outcomes[row.id].error is None and not outcomes[row.id].deferred
+        ]
         if delivered:
             await session.execute(
                 delete(EventOutbox).where(EventOutbox.id.in_(delivered))
             )
         stopped = 0
         for row in rows:
-            if (error := errors[row.id]) is None:
+            this_attempt = and_(
+                EventOutbox.id == row.id, EventOutbox.attempts == row.attempts
+            )
+            outcome = outcomes[row.id]
+            if outcome.deferred and outcome.error is None:
+                # None of its targets began; give the attempt back.
+                await session.execute(
+                    update(EventOutbox)
+                    .where(this_attempt)
+                    .values(
+                        attempts=EventOutbox.attempts - 1, next_attempt_at=func.now()
+                    )
+                )
+                continue
+            if (error := outcome.error) is None:
                 continue
             stop = row.attempts >= MAX_ATTEMPTS
             stopped += stop
             await session.execute(
                 update(EventOutbox)
-                .where(EventOutbox.id == row.id, EventOutbox.attempts == row.attempts)
+                .where(this_attempt)
                 .values(
                     last_error=error,
                     next_attempt_at=None
