@@ -209,6 +209,8 @@ jobs:
           retention-days: 1
 
   merge-api:
+    outputs:
+      digest: ${{ steps.manifest.outputs.digest }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -252,6 +254,7 @@ jobs:
             type=match,pattern=nightly-(.*),group=0
 
       - name: Create manifest list and push
+        id: manifest
         working-directory: /tmp/digests
         run: |
           args=()
@@ -261,7 +264,10 @@ jobs:
           for digest in *; do
             args+=("ghcr.io/tracecathq/tracecat@sha256:$digest")
           done
-          docker buildx imagetools create "${args[@]}"
+          metadata="$RUNNER_TEMP/published-manifest.json"
+          docker buildx imagetools create --metadata-file "$metadata" "${args[@]}"
+          digest=$(jq -er '."containerimage.descriptor".digest | select(test("^sha256:[a-f0-9]{64}$"))' "$metadata")
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       - name: Inspect image
         run: |
@@ -349,6 +355,8 @@ jobs:
           retention-days: 1
 
   merge-tunnel-gateway:
+    outputs:
+      digest: ${{ steps.manifest.outputs.digest }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -392,6 +400,7 @@ jobs:
             type=match,pattern=nightly-(.*),group=0
 
       - name: Create manifest list and push
+        id: manifest
         working-directory: /tmp/tunnel-gateway-digests
         run: |
           args=()
@@ -401,13 +410,18 @@ jobs:
           for digest in *; do
             args+=("ghcr.io/tracecathq/tracecat-tunnel-gateway@sha256:$digest")
           done
-          docker buildx imagetools create "${args[@]}"
+          metadata="$RUNNER_TEMP/published-manifest.json"
+          docker buildx imagetools create --metadata-file "$metadata" "${args[@]}"
+          digest=$(jq -er '."containerimage.descriptor".digest | select(test("^sha256:[a-f0-9]{64}$"))' "$metadata")
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       - name: Inspect image
         run: |
           docker buildx imagetools inspect ghcr.io/tracecathq/tracecat-tunnel-gateway:${{ steps.meta.outputs.version }}
 
   build-and-push-ui:
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     needs: [validate, approve-publish]
     permissions:
       contents: read
@@ -463,6 +477,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
 
       - name: Build and push
+        id: build
         uses: useblacksmith/build-push-action@9b0579bbec7a6cad2f171596c57e7ac1e7658850 # v2.3.0
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000
@@ -484,8 +499,35 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           push: true
 
+  attest-published:
+    needs: [approve-publish, merge-api, merge-tunnel-gateway, build-and-push-ui]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Attest API manifest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/tracecathq/tracecat
+          subject-digest: ${{ needs.merge-api.outputs.digest }}
+
+      - name: Attest tunnel gateway manifest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/tracecathq/tracecat-tunnel-gateway
+          subject-digest: ${{ needs.merge-tunnel-gateway.outputs.digest }}
+
+      - name: Attest UI manifest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/tracecathq/tracecat-ui
+          subject-digest: ${{ needs.build-and-push-ui.outputs.digest }}
+
   promote-latest:
-    needs: [validate, merge-api, build-and-push-ui, merge-tunnel-gateway, approve-publish]
+    needs: [validate, merge-api, build-and-push-ui, merge-tunnel-gateway, approve-publish, attest-published]
     if: needs.validate.outputs.latest == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -511,6 +553,9 @@ jobs:
       - name: Promote stable manifests to X.Y and latest
         env:
           VERSION: ${{ needs.validate.outputs.tag }}
+          API_DIGEST: ${{ needs.merge-api.outputs.digest }}
+          UI_DIGEST: ${{ needs.build-and-push-ui.outputs.digest }}
+          TUNNEL_GATEWAY_DIGEST: ${{ needs.merge-tunnel-gateway.outputs.digest }}
         shell: bash
         run: |
           set -euo pipefail
@@ -554,8 +599,14 @@ jobs:
           if [[ ${#refs[@]} -eq 0 ]]; then
             exit 0
           fi
+          declare -A digests=(
+            [tracecat]="$API_DIGEST"
+            [tracecat-ui]="$UI_DIGEST"
+            [tracecat-tunnel-gateway]="$TUNNEL_GATEWAY_DIGEST"
+          )
           for ref in "${refs[@]}"; do
+            image=${ref%%:*}
             docker buildx imagetools create \
               --tag "ghcr.io/tracecathq/$ref" \
-              "ghcr.io/tracecathq/${ref%%:*}:$VERSION"
+              "ghcr.io/tracecathq/$image@${digests[$image]}"
           done

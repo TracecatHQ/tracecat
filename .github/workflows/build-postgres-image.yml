@@ -130,6 +130,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
+      attestations: write
     strategy:
       matrix:
         variant: [trixie, bookworm]
@@ -148,6 +150,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Publish tested architectures and versioned manifest
+        id: manifest
         env:
           VARIANT: ${{ matrix.variant }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -172,4 +175,12 @@ jobs:
             digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$tag")
             refs+=("$digest")
           done
-          docker buildx imagetools create -t "$image" "${refs[@]}"
+          metadata="$RUNNER_TEMP/published-manifest.json"
+          docker buildx imagetools create --metadata-file "$metadata" -t "$image" "${refs[@]}"
+          digest=$(jq -er '."containerimage.descriptor".digest | select(test("^sha256:[a-f0-9]{64}$"))' "$metadata")
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - name: Attest PostgreSQL manifest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/tracecathq/tracecat-postgres
+          subject-digest: ${{ steps.manifest.outputs.digest }}
