@@ -1,0 +1,109 @@
+name: Sign approved GHCR manifests
+
+on:
+  workflow_call:
+    inputs:
+      api-digest:
+        type: string
+        default: ''
+      ui-digest:
+        type: string
+        default: ''
+      tunnel-digest:
+        type: string
+        default: ''
+
+permissions: {}
+
+jobs:
+  sign:
+    if: >-
+      github.repository == 'TracecatHQ/tracecat' &&
+      (startsWith(github.workflow_ref, 'TracecatHQ/tracecat/.github/workflows/build-push-images.yml@') ||
+       startsWith(github.workflow_ref, 'TracecatHQ/tracecat/.github/workflows/build-postgres-image.yml@'))
+    environment: ghcr-attest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download PostgreSQL manifest records
+        if: startsWith(github.workflow_ref, 'TracecatHQ/tracecat/.github/workflows/build-postgres-image.yml@')
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: postgres-published-manifest-*
+          path: ${{ runner.temp }}/postgres-published
+
+      - name: Validate published manifest records
+        id: manifests
+        shell: bash
+        env:
+          API_DIGEST: ${{ inputs.api-digest }}
+          UI_DIGEST: ${{ inputs.ui-digest }}
+          TUNNEL_DIGEST: ${{ inputs.tunnel-digest }}
+        run: |
+          set -euo pipefail
+
+          output_digest() {
+            local output=$1 digest=$2
+            if ! [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+              echo "::error::Missing or malformed manifest digest for $output."
+              exit 1
+            fi
+            printf '%s=%s\n' "$output" "$digest" >> "$GITHUB_OUTPUT"
+          }
+
+          case "$GITHUB_WORKFLOW_REF" in
+            TracecatHQ/tracecat/.github/workflows/build-push-images.yml@*)
+              output_digest api "$API_DIGEST"
+              output_digest ui "$UI_DIGEST"
+              output_digest tunnel "$TUNNEL_DIGEST"
+              ;;
+            TracecatHQ/tracecat/.github/workflows/build-postgres-image.yml@*)
+              for variant in bookworm trixie; do
+                record="$RUNNER_TEMP/postgres-published/postgres-published-manifest-$variant/digest"
+                output_digest "$variant" "$(< "$record")"
+              done
+              ;;
+            *)
+              exit 1
+              ;;
+          esac
+
+      - name: Attest API manifest
+        if: steps.manifests.outputs.api != ''
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/tracecathq/tracecat
+          subject-digest: ${{ steps.manifests.outputs.api }}
+
+      - name: Attest UI manifest
+        if: steps.manifests.outputs.ui != ''
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/tracecathq/tracecat-ui
+          subject-digest: ${{ steps.manifests.outputs.ui }}
+
+      - name: Attest tunnel gateway manifest
+        if: steps.manifests.outputs.tunnel != ''
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/tracecathq/tracecat-tunnel-gateway
+          subject-digest: ${{ steps.manifests.outputs.tunnel }}
+
+      - name: Attest PostgreSQL Bookworm manifest
+        if: steps.manifests.outputs.bookworm != ''
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/tracecathq/tracecat-postgres
+          subject-digest: ${{ steps.manifests.outputs.bookworm }}
+
+      - name: Attest PostgreSQL Trixie manifest
+        if: steps.manifests.outputs.trixie != ''
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/tracecathq/tracecat-postgres
+          subject-digest: ${{ steps.manifests.outputs.trixie }}
