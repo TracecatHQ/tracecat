@@ -48,7 +48,7 @@ export default function WorkspaceGitSyncPage() {
   if (!hasEntitlementData) {
     return (
       <div className="flex h-full flex-col">
-        <GitSyncHeader workspaceName={workspace.name} />
+        <GitSyncHeader />
         <div className="flex flex-1 items-center justify-center">
           <EntitlementRequiredEmptyState
             icon={<AlertTriangleIcon className="size-6" />}
@@ -70,7 +70,7 @@ export default function WorkspaceGitSyncPage() {
   if (!hasEntitlement("git_sync")) {
     return (
       <div className="flex h-full flex-col">
-        <GitSyncHeader workspaceName={workspace.name} />
+        <GitSyncHeader />
         <div className="flex flex-1 items-center justify-center">
           <EntitlementRequiredEmptyState
             title="Upgrade required"
@@ -98,7 +98,7 @@ export default function WorkspaceGitSyncPage() {
   if (!canPush && !canPull && !canManageConnection) {
     return (
       <div className="flex h-full flex-col">
-        <GitSyncHeader workspaceName={workspace.name} />
+        <GitSyncHeader />
         <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
           You don&apos;t have permission to sync this workspace.
         </div>
