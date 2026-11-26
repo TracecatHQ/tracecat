@@ -32,6 +32,14 @@ S3 method parameters.
 
 </ParamField>
 
+<ParamField path="duration_seconds" type="integer | null">
+
+Duration of the chained role session in seconds (900-3600). AWS limits role chaining to a maximum of one hour. Only used together with role_arn.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="endpoint_url" type="string | null">
 
 Endpoint URL for the AWS S3 service.
@@ -40,9 +48,33 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="external_id" type="string | null">
+
+External ID required by the chained role's trust policy, if any. Only used together with role_arn.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="region_name" type="string | null">
 
 AWS service region to use for this request. Overrides the AWS_REGION secret for the service client.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="role_arn" type="string | null">
+
+ARN of an IAM role to assume (role chaining) with the credentials from the AWS secret before calling the service, e.g. a role in another AWS account that trusts the configured role or user. Requires sts:AssumeRole on that role.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="role_session_name" type="string | null">
+
+Session name recorded in CloudTrail for the chained AssumeRole. Defaults to a Tracecat workspace/run derived name.
 
 Default: `null`.
 
@@ -82,6 +114,14 @@ Source S3 bucket name.
 
 </ParamField>
 
+<ParamField path="duration_seconds" type="integer | null">
+
+Duration of the chained role session in seconds (900-3600). AWS limits role chaining to a maximum of one hour. Only used together with role_arn.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="endpoint_url" type="string | null">
 
 Endpoint URL for the AWS S3 service.
@@ -90,9 +130,33 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="external_id" type="string | null">
+
+External ID required by the chained role's trust policy, if any. Only used together with role_arn.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="region_name" type="string | null">
 
 AWS service region to use for this request. Overrides the AWS_REGION secret for the service client.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="role_arn" type="string | null">
+
+ARN of an IAM role to assume (role chaining) with the credentials from the AWS secret before calling the service, e.g. a role in another AWS account that trusts the configured role or user. Requires sts:AssumeRole on that role.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="role_session_name" type="string | null">
+
+Session name recorded in CloudTrail for the chained AssumeRole. Defaults to a Tracecat workspace/run derived name.
 
 Default: `null`.
 
@@ -126,9 +190,25 @@ S3 object key.
 
 </ParamField>
 
+<ParamField path="duration_seconds" type="integer | null">
+
+Duration of the chained role session in seconds (900-3600). AWS limits role chaining to a maximum of one hour. Only used together with role_arn.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="endpoint_url" type="string | null">
 
 Endpoint URL for the AWS S3 service.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="external_id" type="string | null">
+
+External ID required by the chained role's trust policy, if any. Only used together with role_arn.
 
 Default: `null`.
 
@@ -142,11 +222,27 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="role_arn" type="string | null">
+
+ARN of an IAM role to assume (role chaining) with the credentials from the AWS secret before calling the service, e.g. a role in another AWS account that trusts the configured role or user. Requires sts:AssumeRole on that role.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="role_session_name" type="string | null">
+
+Session name recorded in CloudTrail for the chained AssumeRole. Defaults to a Tracecat workspace/run derived name.
+
+Default: `null`.
+
+</ParamField>
+
 ## Get S3 object
 
 Action ID: `tools.amazon_s3.get_object`
 
-Download an object from S3 and return its body as a string.
+Download a text object from S3 and return its body as a string. Gzip objects are decompressed, and the result is capped at max_bytes.
 
 Reference: [https://docs.aws.amazon.com/boto3/latest/reference/services/s3.html#S3.Client.get_object](https://docs.aws.amazon.com/boto3/latest/reference/services/s3.html#S3.Client.get_object)
 
@@ -170,6 +266,14 @@ S3 object key.
 
 </ParamField>
 
+<ParamField path="duration_seconds" type="integer | null">
+
+Duration of the chained role session in seconds (900-3600). AWS limits role chaining to a maximum of one hour. Only used together with role_arn.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="endpoint_url" type="string | null">
 
 Endpoint URL for the AWS S3 service.
@@ -178,9 +282,49 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="external_id" type="string | null">
+
+External ID required by the chained role's trust policy, if any. Only used together with role_arn.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="max_bytes" type="integer">
+
+Maximum number of bytes to return, counted after gzip decompression. A larger object is cut at this size and the result ends with a truncation notice.
+
+Default: `20971520`.
+
+</ParamField>
+
 <ParamField path="region_name" type="string | null">
 
 AWS service region to use for this request. Overrides the AWS_REGION secret for the service client.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="role_arn" type="string | null">
+
+ARN of an IAM role to assume (role chaining) with the credentials from the AWS secret before calling the service, e.g. a role in another AWS account that trusts the configured role or user. Requires sts:AssumeRole on that role.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="role_session_name" type="string | null">
+
+Session name recorded in CloudTrail for the chained AssumeRole. Defaults to a Tracecat workspace/run derived name.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="version_id" type="string | null">
+
+Version ID used to reference a specific version of the object.
 
 Default: `null`.
 
@@ -214,6 +358,14 @@ S3 object keys.
 
 </ParamField>
 
+<ParamField path="duration_seconds" type="integer | null">
+
+Duration of the chained role session in seconds (900-3600). AWS limits role chaining to a maximum of one hour. Only used together with role_arn.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="endpoint_url" type="string | null">
 
 Endpoint URL for the AWS S3 service.
@@ -222,9 +374,41 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="external_id" type="string | null">
+
+External ID required by the chained role's trust policy, if any. Only used together with role_arn.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="max_bytes" type="integer">
+
+Maximum number of bytes to return, counted after gzip decompression. A larger object is cut at this size and the result ends with a truncation notice.
+
+Default: `20971520`.
+
+</ParamField>
+
 <ParamField path="region_name" type="string | null">
 
 AWS service region to use for this request. Overrides the AWS_REGION secret for the service client.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="role_arn" type="string | null">
+
+ARN of an IAM role to assume (role chaining) with the credentials from the AWS secret before calling the service, e.g. a role in another AWS account that trusts the configured role or user. Requires sts:AssumeRole on that role.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="role_session_name" type="string | null">
+
+Session name recorded in CloudTrail for the chained AssumeRole. Defaults to a Tracecat workspace/run derived name.
 
 Default: `null`.
 
@@ -252,9 +436,25 @@ S3 bucket name.
 
 </ParamField>
 
+<ParamField path="duration_seconds" type="integer | null">
+
+Duration of the chained role session in seconds (900-3600). AWS limits role chaining to a maximum of one hour. Only used together with role_arn.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="endpoint_url" type="string | null">
 
 Endpoint URL for the AWS S3 service.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="external_id" type="string | null">
+
+External ID required by the chained role's trust policy, if any. Only used together with role_arn.
 
 Default: `null`.
 
@@ -279,6 +479,22 @@ Default: `null`.
 <ParamField path="region_name" type="string | null">
 
 AWS service region to use for this request. Overrides the AWS_REGION secret for the service client.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="role_arn" type="string | null">
+
+ARN of an IAM role to assume (role chaining) with the credentials from the AWS secret before calling the service, e.g. a role in another AWS account that trusts the configured role or user. Requires sts:AssumeRole on that role.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="role_session_name" type="string | null">
+
+Session name recorded in CloudTrail for the chained AssumeRole. Defaults to a Tracecat workspace/run derived name.
 
 Default: `null`.
 
@@ -339,6 +555,14 @@ S3 object key.
 
 </ParamField>
 
+<ParamField path="duration_seconds" type="integer | null">
+
+Duration of the chained role session in seconds (900-3600). AWS limits role chaining to a maximum of one hour. Only used together with role_arn.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="endpoint_url" type="string | null">
 
 Endpoint URL for the AWS S3 service.
@@ -347,9 +571,33 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="external_id" type="string | null">
+
+External ID required by the chained role's trust policy, if any. Only used together with role_arn.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="region_name" type="string | null">
 
 AWS service region to use for this request. Overrides the AWS_REGION secret for the service client.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="role_arn" type="string | null">
+
+ARN of an IAM role to assume (role chaining) with the credentials from the AWS secret before calling the service, e.g. a role in another AWS account that trusts the configured role or user. Requires sts:AssumeRole on that role.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="role_session_name" type="string | null">
+
+Session name recorded in CloudTrail for the chained AssumeRole. Defaults to a Tracecat workspace/run derived name.
 
 Default: `null`.
 

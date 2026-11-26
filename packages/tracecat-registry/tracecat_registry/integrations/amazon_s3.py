@@ -3,9 +3,12 @@
 import asyncio
 import base64
 import binascii
+import codecs
 import re
+import zlib
 from typing import TYPE_CHECKING, Annotated, Any
 
+from pydantic import Field
 from tenacity import retry, stop_after_attempt, wait_exponential
 from typing_extensions import Doc
 
@@ -68,6 +71,95 @@ _AWS_SERVICE_REGION_DOC = (
     "for the service client."
 )
 
+_READ_CHUNK_BYTES = 1024 * 1024
+_GZIP_MAGIC = b"\x1f\x8b"
+_GZIP_WBITS = 16 + zlib.MAX_WBITS
+
+MaxBytes = Annotated[
+    int,
+    Field(
+        ...,
+        ge=1,
+        description=(
+            "Maximum number of bytes to return, counted after gzip decompression. "
+            "A larger object is cut at this size and the result ends with a "
+            "truncation notice."
+        ),
+    ),
+]
+
+
+async def _read_bounded(body: Any, max_bytes: int) -> tuple[bytes, bool, bool]:
+    """Read at most ``max_bytes`` of an S3 body, gunzipping gzip data.
+
+    Gzip is detected from the magic bytes, so it works whatever the key or
+    ``ContentEncoding`` says. The cap applies to the decompressed output and
+    each inflate call is bounded, so a small file cannot expand without limit.
+
+    Returns the bytes, whether the body was gzip, and whether it was cut.
+    """
+    try:
+        head = b""
+        while len(head) < len(_GZIP_MAGIC) and (chunk := await _read_chunk(body)):
+            head += chunk
+        if head.startswith(_GZIP_MAGIC):
+            data, truncated = await _gunzip_bounded(body, head, max_bytes)
+            return data, True, truncated
+
+        out = bytearray(head)
+        while len(out) <= max_bytes and (chunk := await _read_chunk(body)):
+            out += chunk
+        truncated = len(out) > max_bytes
+        del out[max_bytes:]
+        return bytes(out), False, truncated
+    finally:
+        # Stop the download here rather than draining the rest of the object.
+        body.close()
+
+
+async def _gunzip_bounded(body: Any, data: bytes, max_bytes: int) -> tuple[bytes, bool]:
+    out = bytearray()
+    inflater = zlib.decompressobj(wbits=_GZIP_WBITS)
+    try:
+        while data:
+            while data and len(out) <= max_bytes:
+                if inflater.eof:
+                    # Concatenated gzip members, as log shippers often write.
+                    inflater = zlib.decompressobj(wbits=_GZIP_WBITS)
+                out += inflater.decompress(data, max_bytes + 1 - len(out))
+                data = (
+                    inflater.unused_data if inflater.eof else inflater.unconsumed_tail
+                )
+            if len(out) > max_bytes:
+                del out[max_bytes:]
+                return bytes(out), True
+            data = await _read_chunk(body)
+    except zlib.error as e:
+        raise ValueError(f"Invalid gzip data: {e}") from e
+    if not inflater.eof:
+        raise ValueError("Invalid gzip data: the stream ended early.")
+    return bytes(out), False
+
+
+async def _read_chunk(body: Any) -> bytes:
+    chunk = await body.read(_READ_CHUNK_BYTES)
+    if not isinstance(chunk, bytes):
+        raise ValueError(f"Unexpected body type. Expected bytes, got {type(chunk)}")
+    return chunk
+
+
+def _decode_utf8(data: bytes, *, key: str, truncated: bool) -> str:
+    # When the cut lands inside a multi-byte character, the incremental decoder
+    # holds the partial character back instead of raising.
+    decoder = codecs.getincrementaldecoder("utf-8")()
+    try:
+        return decoder.decode(data, final=not truncated)
+    except UnicodeDecodeError as e:
+        raise ValueError(
+            f"S3 object '{key}' is not UTF-8 text (invalid byte at offset "
+            f"{e.start}). get_object only returns text objects."
+        ) from e
+
 
 @registry.register(
     default_title="Parse S3 URI",
@@ -127,7 +219,10 @@ async def call_method(
 
 @registry.register(
     default_title="Get S3 object",
-    description="Download an object from S3 and return its body as a string.",
+    description=(
+        "Download a text object from S3 and return its body as a string. "
+        "Gzip objects are decompressed, and the result is capped at max_bytes."
+    ),
     display_group="Amazon S3",
     doc_url="https://docs.aws.amazon.com/boto3/latest/reference/services/s3.html#S3.Client.get_object",
     namespace="tools.amazon_s3",
@@ -136,6 +231,11 @@ async def call_method(
 async def get_object(
     bucket: Annotated[str, Doc("S3 bucket name.")],
     key: Annotated[str, Doc("S3 object key.")],
+    version_id: Annotated[
+        str | None,
+        Doc("Version ID used to reference a specific version of the object."),
+    ] = None,
+    max_bytes: MaxBytes = TRACECAT__MAX_FILE_SIZE_BYTES,
     endpoint_url: Annotated[
         str | None,
         Doc("Endpoint URL for the AWS S3 service."),
@@ -156,14 +256,24 @@ async def get_object(
         external_id=external_id,
         duration_seconds=duration_seconds,
     )
+    params: dict[str, Any] = {"Bucket": bucket, "Key": key}
+    if version_id:
+        params["VersionId"] = version_id
     async with session.client("s3", endpoint_url=endpoint_url) as s3_client:  # type: ignore
-        obj = await s3_client.get_object(Bucket=bucket, Key=key)
-        body = await obj["Body"].read()
-        # Defensively handle different types of bodies
-        if isinstance(body, bytes):
-            return body.decode("utf-8")
-        else:
-            raise ValueError(f"Unexpected body type. Expected bytes, got {type(body)}")
+        obj = await s3_client.get_object(**params)
+        data, gzipped, truncated = await _read_bounded(obj["Body"], max_bytes)
+
+    text = _decode_utf8(data, key=key, truncated=truncated)
+    if not truncated:
+        return text
+    if gzipped:
+        whole = "the decompressed object"
+    else:
+        whole = f"the {obj.get('ContentLength')}-byte object"
+    return (
+        f"{text}\n\n[Truncated by Tracecat: returned at most the first {max_bytes} "
+        f"bytes of {whole}. Raise max_bytes to read more.]"
+    )
 
 
 @registry.register(
@@ -307,6 +417,7 @@ async def copy_objects(
 async def get_objects(
     bucket: Annotated[str, Doc("S3 bucket name.")],
     keys: Annotated[list[str], Doc("S3 object keys.")],
+    max_bytes: MaxBytes = TRACECAT__MAX_FILE_SIZE_BYTES,
     endpoint_url: Annotated[
         str | None,
         Doc("Endpoint URL for the AWS S3 service."),
@@ -330,6 +441,7 @@ async def get_objects(
             return await get_object(
                 bucket,
                 key,
+                max_bytes=max_bytes,
                 endpoint_url=endpoint_url,
                 region_name=region_name,
                 role_arn=role_arn,
