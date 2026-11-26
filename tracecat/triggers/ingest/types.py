@@ -15,8 +15,8 @@ from tracecat.triggers.enums import TriggerStatus
 class IngestErrorCode(StrEnum):
     """Why an ingest request was refused. The router maps each to a status.
 
-    SNS retries only on 5xx (and timeouts). Every 4xx is final: SNS drops the
-    message, or moves it to the subscription's dead-letter queue.
+    SNS retries on 5xx, 429 and timeouts. Any other 4xx is final: SNS drops
+    the message, or moves it to the subscription's dead-letter queue.
     """
 
     PAYLOAD_TOO_LARGE = "payload_too_large"

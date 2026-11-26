@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat import config
 from tracecat.api.app import app as tracecat_app
 from tracecat.db.models import EventOutbox, EventSource, Workspace
+from tracecat.tiers.exceptions import DefaultTierNotConfiguredError
 from tracecat.triggers.enums import (
     EventSourceKind,
     SubscriptionStatus,
@@ -492,6 +493,28 @@ async def test_failed_insert_answers_5xx(
     )
 
     assert response.status_code == 500
+
+
+async def test_internal_error_text_is_not_echoed(
+    client: httpx.AsyncClient,
+    source: EventSource,
+    sign: SignFn,
+    aws: respx.MockRouter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _fail(*_: object) -> bool:
+        raise DefaultTierNotConfiguredError
+
+    monkeypatch.setattr(ingest_service, "is_org_entitled", _fail)
+
+    response = await _post(
+        client, source, sign("Notification", _s3_message(_s3_record()))
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "detail": {"code": "internal_error", "message": "Internal error"}
+    }
 
 
 # ----- Signature and certificate -----

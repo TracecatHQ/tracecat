@@ -3,15 +3,16 @@
 No user auth, like incoming webhooks: the URL token finds the source, and the
 SNS signature plus the pinned topic decide whether the message is accepted.
 
-SNS retries a delivery only on a 5xx or a timeout. Answers:
+SNS retries a delivery on a 5xx, a 429 or a timeout; any other 4xx is final.
+Answers:
 
 - 200 once every event is committed to the outbox (or there was nothing to
   queue: a test event, a duplicate, a confirmation).
 - 4xx when retrying cannot help: SNS drops the message, or moves it to the
   subscription's dead-letter queue.
 - 503 when a retry can help: over the rate cap (with ``Retry-After``), the
-  certificate host or the SNS API unreachable. A failed outbox write
-  surfaces as a 500, which SNS also retries.
+  certificate host or the SNS API unreachable. A failed outbox write, or any
+  other unexpected error, answers 500 with a fixed body; SNS retries it.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from fastapi import APIRouter, Header, Request, Response, status
 from fastapi.responses import ORJSONResponse
 from starlette.requests import ClientDisconnect
 
+from tracecat.exceptions import TracecatException
 from tracecat.logger import logger
 from tracecat.triggers.enums import EventSourceKind
 from tracecat.triggers.ingest.service import handle_sns_message
@@ -156,6 +158,14 @@ async def ingest_sns_message(
     except IngestError as e:
         logger.info("SNS message refused", code=e.code.value, reason=str(e))
         return _error_response(e)
+    except TracecatException as e:
+        # The app-wide handler would echo the exception text to this public,
+        # unauthenticated caller; answer a fixed body instead.
+        logger.error("SNS ingest failed", error_type=type(e).__name__)
+        return ORJSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"detail": {"code": "internal_error", "message": "Internal error"}},
+        )
     return ORJSONResponse(
         status_code=status.HTTP_200_OK,
         content={
