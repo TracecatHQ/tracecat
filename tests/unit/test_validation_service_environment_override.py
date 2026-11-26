@@ -284,9 +284,6 @@ class TestSecretValidationWithEnvironmentOverride:
             return []  # Return empty results
 
         with (
-            patch(
-                "tracecat.validation.service.get_async_session_context_manager"
-            ) as mock_session_mgr,
             patch("tracecat.validation.service.SecretsService") as mock_secrets_service,
             patch(
                 "tracecat.validation.service.RegistryActionsService"
@@ -295,13 +292,7 @@ class TestSecretValidationWithEnvironmentOverride:
                 "tracecat.validation.service.check_action_secrets_from_manifest",
                 side_effect=mock_check_action_secrets_from_manifest,
             ),
-            patch("tracecat.validation.service.GatheringTaskGroup") as mock_task_group,
         ):
-            # Setup mocks
-            mock_session = AsyncMock()
-            mock_session_mgr.return_value.__aenter__.return_value = mock_session
-            mock_session_mgr.return_value.__aexit__.return_value = None
-
             mock_secrets = AsyncMock()
             mock_secrets_service.return_value = mock_secrets
 
@@ -324,33 +315,9 @@ class TestSecretValidationWithEnvironmentOverride:
             mock_registry_service.return_value = mock_registry
             mock_registry.get_actions_from_index.return_value = mock_actions_data
 
-            # Mock task group to actually execute tasks synchronously for testing
-            async def mock_task_group_impl():
-                # Simulate the behavior of the actual task group
-                tasks = []
-
-                class MockTaskGroup:
-                    def create_task(self, coro):
-                        tasks.append(coro)
-
-                    async def __aenter__(self):
-                        return self
-
-                    async def __aexit__(self, *args):
-                        # Execute all tasks
-                        for task in tasks:
-                            await task
-                        return None
-
-                    def results(self):
-                        return []  # Return empty results for testing
-
-                return MockTaskGroup()
-
-            mock_task_group.return_value = await mock_task_group_impl()
-
-            # Call the function
-            await validate_actions_have_defined_secrets(dsl, role=mock_role)
+            await validate_actions_have_defined_secrets(
+                AsyncMock(), dsl, role=mock_role
+            )
 
             # Verify that check_action_secrets_from_manifest was called with correct environments
             assert len(captured_environments) == 2

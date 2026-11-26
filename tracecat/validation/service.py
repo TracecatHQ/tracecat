@@ -1,6 +1,5 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
-from itertools import chain
 from typing import Any
 
 import lark
@@ -17,8 +16,6 @@ from tracecat_registry import (
 )
 
 from tracecat.auth.types import Role
-from tracecat.concurrency import GatheringTaskGroup
-from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import WorkspaceTunnel
 from tracecat.dsl.common import (
     DSLInput,
@@ -237,11 +234,16 @@ class ActionEnvPair:
 
 
 async def validate_actions_have_defined_secrets(
+    session: AsyncSession,
     dsl: DSLInput,
     *,
     role: Role,
 ) -> list[SecretValidationResult]:
-    """Validate that all actions in the DSL have their required secrets defined."""
+    """Validate that all actions in the DSL have their required secrets defined.
+
+    The checks run one at a time on ``session``, which cannot run two queries
+    at once.
+    """
     checked_keys: set[str] = set()
     action_env_pairs: set[ActionEnvPair] = set()
 
@@ -251,33 +253,30 @@ async def validate_actions_have_defined_secrets(
             ActionEnvPair(action=stmt.action, environment=env_override)
         )
 
-    async with get_async_session_context_manager() as session:
-        secrets_service = SecretsService(session, role=role)
+    secrets_service = SecretsService(session, role=role)
 
-        # Get all actions that need validation from index/manifest
-        registry_service = RegistryActionsService(session, role=role)
-        action_names = [a.action for a in dsl.actions]
-        actions_data = await registry_service.get_actions_from_index(action_names)
+    # Get all actions that need validation from index/manifest
+    registry_service = RegistryActionsService(session, role=role)
+    action_names = [a.action for a in dsl.actions]
+    actions_data = await registry_service.get_actions_from_index(action_names)
 
-        # Validate all actions concurrently using manifest-based lookup
-        async with GatheringTaskGroup() as tg:
-            for action_env_pair in action_env_pairs:
-                action_data = actions_data.get(action_env_pair.action)
-                if action_data is None:
-                    # Action not found in index - skip validation
-                    # (will be caught by other validation steps)
-                    continue
-                tg.create_task(
-                    check_action_secrets_from_manifest(
-                        secrets_service,
-                        checked_keys,
-                        action_env_pair.environment,
-                        action_data.manifest,
-                        action_env_pair.action,
-                    )
-                )
-
-        return list(chain.from_iterable(tg.results()))
+    results: list[SecretValidationResult] = []
+    for action_env_pair in action_env_pairs:
+        action_data = actions_data.get(action_env_pair.action)
+        if action_data is None:
+            # Action not found in index - skip validation
+            # (will be caught by other validation steps)
+            continue
+        results.extend(
+            await check_action_secrets_from_manifest(
+                secrets_service,
+                checked_keys,
+                action_env_pair.environment,
+                action_data.manifest,
+                action_env_pair.action,
+            )
+        )
+    return results
 
 
 async def validate_registry_action_args(
@@ -451,9 +450,17 @@ async def validate_dsl_actions(
 async def validate_dsl_expressions(
     dsl: DSLInput,
     *,
+    session: AsyncSession | None = None,
     exclude: set[ExprType] | None = None,
 ) -> list[ExprValidationResult]:
-    """Validate the DSL expressions at commit time."""
+    """Validate the DSL expressions at commit time.
+
+    Args:
+        dsl: The workflow to validate.
+        session: An open session for the secret, variable and integration
+            lookups. ``None`` opens a short session per lookup.
+        exclude: Expression types to skip.
+    """
     validation_context = ExprValidationContext(
         action_refs={a.ref for a in dsl.actions},
     )
@@ -484,6 +491,7 @@ async def validate_dsl_expressions(
         async with ExprValidator(
             validation_context=validation_context,
             environment=env_override,
+            session=session,
         ) as visitor:
             # Validate action args
             for expr in extract_expressions(act_stmt.args):
@@ -726,7 +734,9 @@ async def validate_dsl(
     # 2. For each expression context, cross-reference the expressions API and udf registry
 
     if validate_expressions:
-        expr_errs = await validate_dsl_expressions(dsl, exclude=exclude_exprs)
+        expr_errs = await validate_dsl_expressions(
+            dsl, session=session, exclude=exclude_exprs
+        )
         logger.debug(
             f"{len(expr_errs)} DSL expression validation errors", errs=expr_errs
         )
@@ -735,7 +745,7 @@ async def validate_dsl(
     # For secrets we also need to check if any used actions have undefined secrets
     if validate_secrets:
         udf_missing_secrets = await validate_actions_have_defined_secrets(
-            dsl, role=role
+            session, dsl, role=role
         )
         logger.debug(
             f"{len(udf_missing_secrets)} DSL secret validation errors",

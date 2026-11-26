@@ -874,7 +874,11 @@ async def execute_workflow(
     # This follows the same code path as the regular workflow execution endpoint,
     # including StoredObject handling for trigger inputs (done in _dispatch_workflow)
     try:
-        exec_service = await WorkflowExecutionsService.connect(role=role)
+        # Workspace settings are read on the request session; the background
+        # start never touches it.
+        exec_service = await WorkflowExecutionsService.connect(
+            role=role, session=session
+        )
         # Pass registry_lock from the definition, same as regular execution
         registry_lock = (
             RegistryLock.model_validate(defn.registry_lock)
@@ -917,23 +921,25 @@ async def execute_workflow(
 async def run_workflow(
     *,
     role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
     params: InternalWorkflowRunRequest,
 ) -> InternalWorkflowExecuteResponse:
     """Run a workflow from its draft state or a published definition.
 
     Shared entry point for the chat SDK's ``core.workflow.run`` tool. Delegates
     to ``WorkflowsManagementService.run_workflow`` so draft-vs-published and
-    version selection stay in one place.
+    version selection stay in one place. The whole run uses the request
+    session, so it holds one database connection.
     """
     wf_id = WorkflowUUID.new(params.workflow_id)
+    mgmt_service = WorkflowsManagementService(session, role=role)
     try:
-        async with WorkflowsManagementService.with_session(role=role) as mgmt_service:
-            response = await mgmt_service.run_workflow(
-                wf_id,
-                inputs=params.inputs,
-                use_draft=params.use_draft,
-                version=params.version,
-            )
+        response = await mgmt_service.run_workflow(
+            wf_id,
+            inputs=params.inputs,
+            use_draft=params.use_draft,
+            version=params.version,
+        )
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(e)) from e
     except TracecatValidationError as e:

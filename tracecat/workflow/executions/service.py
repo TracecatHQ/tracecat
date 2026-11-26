@@ -14,6 +14,7 @@ from typing import Any, cast
 import orjson
 import temporalio.api.enums.v1
 from pydantic import BaseModel, ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.api.common.v1 import message_pb2
 from temporalio.api.enums.v1 import EventType, PendingActivityState, ResetReapplyType
 from temporalio.api.history.v1 import HistoryEvent
@@ -290,9 +291,21 @@ def _not_admitted_failure(not_admitted: NotAdmitted) -> EventFailure:
 class WorkflowExecutionsService:
     """Workflow executions service."""
 
-    def __init__(self, client: Client, role: Role | None = None):
+    def __init__(
+        self,
+        client: Client,
+        role: Role | None = None,
+        *,
+        session: AsyncSession | None = None,
+    ):
         self.role = role or ctx_role.get()
         self._client = client
+        self.session = session
+        """The caller's session, reused for database reads and audit events.
+
+        The caller keeps it open across every awaited call on this service.
+        ``None`` opens a short session per read, as before.
+        """
         self.logger = logger.bind(service="workflow_executions")
         # Loaded on first dispatch; batched dispatches (NDJSON webhooks) reuse it.
         self._workspace_settings: WorkspaceSettings | None = None
@@ -321,10 +334,23 @@ class WorkflowExecutionsService:
         return str(cause) or current.__class__.__name__
 
     @staticmethod
-    async def connect(role: Role | None = None) -> WorkflowExecutionsService:
-        """Initialize and connect to the service."""
+    async def connect(
+        role: Role | None = None, *, session: AsyncSession | None = None
+    ) -> WorkflowExecutionsService:
+        """Initialize and connect to the service.
+
+        Args:
+            role: The role to act as. Falls back to ``ctx_role``.
+            session: An open session to reuse instead of opening new ones, so a
+                request that already holds a connection holds only that one.
+                The workspace settings are read on it here, so starts that run
+                after the caller returns (``*_nowait``) never touch it.
+        """
         client = await get_temporal_client()
-        return WorkflowExecutionsService(client=client, role=role)
+        service = WorkflowExecutionsService(client=client, role=role, session=session)
+        if session is not None:
+            await service._get_workspace_settings()
+        return service
 
     def _handle_background_task_exception(self, task: asyncio.Task[Any]) -> None:
         """Handle exceptions from background workflow execution tasks."""
@@ -347,7 +373,9 @@ class WorkflowExecutionsService:
         if self._workspace_settings_loaded:
             return self._workspace_settings
         if self.role is not None and (ws_id := self.role.workspace_id) is not None:
-            async with WorkspaceService.with_session(role=self.role) as ws_svc:
+            async with WorkspaceService.with_session(
+                role=self.role, session=self.session
+            ) as ws_svc:
                 workspace = await ws_svc.get_workspace(ws_id)
                 if workspace and isinstance(workspace.settings, dict):
                     self._workspace_settings = workspace.settings
