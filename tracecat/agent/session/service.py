@@ -220,6 +220,11 @@ AGENT_SESSION_EXECUTION_SCOPES: frozenset[str] = frozenset(
 _background_tasks: set[asyncio.Task[None]] = set()
 # Caps both the attempts a message's run lookup walks and a start's retries.
 _MESSAGE_ADMISSION_TRIES = 5
+# Session kinds a service may start with no owning user. Without an owner,
+# anyone in the workspace who may run agents may act on them.
+_SHARED_WHEN_OWNERLESS = frozenset(
+    {AgentSessionEntity.EXTERNAL_CHANNEL, AgentSessionEntity.AGENT_PRESET}
+)
 
 
 def _require_parent_session(agent_session: AgentSession) -> None:
@@ -719,8 +724,9 @@ class AgentSessionService(BaseWorkspaceService):
         """What the role may do in each session, in at most one query.
 
         A user may act on a session they own; with ``agent:execute`` they may also
-        act on a workflow session, an ownerless channel session, or one they sent
-        a message in. Deciding approvals is acting with ``agent:execute``.
+        act on a workflow session, an ownerless channel or preset session (one a
+        service started, such as a trigger), or one they sent a message in.
+        Deciding approvals is acting with ``agent:execute``.
         """
         execute = self.role.scopes is not None and has_scope(
             self.role.scopes, "agent:execute"
@@ -734,8 +740,7 @@ class AgentSessionService(BaseWorkspaceService):
                 and (
                     s.entity_type == AgentSessionEntity.WORKFLOW
                     or (
-                        s.entity_type == AgentSessionEntity.EXTERNAL_CHANNEL
-                        and s.created_by is None
+                        s.entity_type in _SHARED_WHEN_OWNERLESS and s.created_by is None
                     )
                 )
             )
@@ -2587,8 +2592,12 @@ class AgentSessionService(BaseWorkspaceService):
         request_id: str,
         instructions: str | None = None,
         author_id: uuid.UUID | None = None,
+        origin: UserMessageOrigin = UserMessageOrigin.CHANNEL,
     ) -> RunStarted:
         """Start a turn for the message, recording ``author_id`` as its author.
+
+        ``origin`` is where the message entered: channel ingress by default, or
+        ``TRACECAT`` for a caller inside Tracecat, such as a trigger.
 
         A retry of the same ``request_id`` returns the run the first attempt
         started and re-issues a start whose outcome was lost. Recovery may
@@ -2632,7 +2641,7 @@ class AgentSessionService(BaseWorkspaceService):
                     page_context=None,
                     is_first_prompt=None,
                     run_id=run_id,
-                    origin=UserMessageOrigin.CHANNEL,
+                    origin=origin,
                     author_id=author_id,
                     stream_id=uuid.uuid4(),
                 )

@@ -34800,6 +34800,7 @@ export const $Role = {
         "tracecat-runner",
         "tracecat-schedule-runner",
         "tracecat-service",
+        "tracecat-triggers",
         "tracecat-ui",
       ],
       title: "Service Id",
@@ -45117,7 +45118,7 @@ export const $TriggerTargetType = {
 
 export const $TriggerType = {
   type: "string",
-  enum: ["manual", "scheduled", "webhook", "case", "form"],
+  enum: ["manual", "scheduled", "webhook", "case", "form", "object_storage"],
   title: "TriggerType",
   description: "Trigger type for a workflow execution.",
 } as const

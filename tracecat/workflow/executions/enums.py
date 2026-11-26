@@ -112,6 +112,7 @@ class TriggerType(StrEnum):
     WEBHOOK = "webhook"
     CASE = "case"
     FORM = "form"
+    OBJECT_STORAGE = "object_storage"
 
     def to_temporal_search_attr_pair(self) -> SearchAttributePair[str]:
         return TemporalSearchAttr.TRIGGER_TYPE.create_pair(self.value)

@@ -98,6 +98,7 @@ InternalServiceID = Literal[
     "tracecat-runner",
     "tracecat-schedule-runner",
     "tracecat-service",
+    "tracecat-triggers",
     "tracecat-ui",
 ]
 

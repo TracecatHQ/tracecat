@@ -1,8 +1,9 @@
 """Who may act on, and decide approvals in, an agent session.
 
 A user may act on a session they own; with ``agent:execute`` they may also act
-on a workflow session, an ownerless channel session, or one they sent a message
-in. Deciding approvals is acting plus ``agent:execute``.
+on a workflow session, an ownerless channel or preset session (one a service
+started, such as a trigger), or one they sent a message in. Deciding approvals
+is acting plus ``agent:execute``.
 
 Pinned through the surfaces that decide access, not the predicates behind them.
 """
@@ -54,16 +55,17 @@ TRUTH_TABLE: list[tuple[AgentSessionEntity, str, bool, bool, bool, bool]] = [
     ],
     # Workflow sessions are shared with everyone who may run agents.
     *[(WF, c, p, True, True, True) for c in ("none", "other") for p in (False, True)],
-    # Channel sessions: shared only when ownerless.
-    (CH, "none", False, True, True, True),
-    (CH, "none", True, True, True, True),
-    (CH, "other", False, True, False, False),
-    (CH, "other", True, True, True, True),
-    # Every other session: shared only by participation.
-    (PRESET, "none", False, True, False, False),
-    (PRESET, "none", True, True, True, True),
-    (PRESET, "other", False, True, False, False),
-    (PRESET, "other", True, True, True, True),
+    # Channel and preset sessions: shared when ownerless, else by participation.
+    *[
+        row
+        for e in (CH, PRESET)
+        for row in (
+            (e, "none", False, True, True, True),
+            (e, "none", True, True, True, True),
+            (e, "other", False, True, False, False),
+            (e, "other", True, True, True, True),
+        )
+    ],
 ]
 assert len(TRUTH_TABLE) == 36
 

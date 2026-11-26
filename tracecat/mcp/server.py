@@ -3580,7 +3580,7 @@ success, error
 ## Workflow Execution
 
 ### Trigger Type
-manual, scheduled, webhook, case, form
+manual, scheduled, webhook, case, form, object_storage
 
 ### Execution Type
 draft, published
