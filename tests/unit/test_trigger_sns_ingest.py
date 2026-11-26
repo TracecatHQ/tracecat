@@ -27,12 +27,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.api.app import app as tracecat_app
-from tracecat.db.models import EventOutbox, EventSource, Workspace
+from tracecat.db.models import (
+    EventOutbox,
+    EventSource,
+    ObjectStorageTrigger,
+    Trigger,
+    TriggerBinding,
+    Workflow,
+    Workspace,
+)
 from tracecat.tiers.exceptions import DefaultTierNotConfiguredError
+from tracecat.triggers.dispatch import _matching_targets
+from tracecat.triggers.dispatch_types import WorkflowTarget
 from tracecat.triggers.enums import (
     EventSourceKind,
     SubscriptionStatus,
+    TriggerKind,
     TriggerStatus,
+    TriggerTargetType,
 )
 from tracecat.triggers.ingest import rate_limit, sns
 from tracecat.triggers.ingest import service as ingest_service
@@ -446,6 +458,8 @@ async def test_s3_test_event_is_ignored(
         _s3_message({"eventName": "ObjectCreated:Put", "eventSource": "aws:s3"}),
         _s3_message(_s3_record("k" * 1025)),
         orjson.dumps({"Records": []}).decode(),
+        # A lone surrogate escape: both JSON parsers refuse it.
+        _s3_message(_s3_record("abc.csv")).replace('"abc.csv"', '"a\\ud800.csv"'),
         _s3_message(_s3_record() | {"awsRegion": "us-east-1\u0000"}),
         # orjson cannot encode the value either, so splice it into the text.
         _s3_message(_s3_record()).replace('"size":1024', f'"size":{10**30}'),
@@ -456,6 +470,7 @@ async def test_s3_test_event_is_ignored(
         "missing-object-fields",
         "key-too-long",
         "empty-records",
+        "lone-surrogate",
         "nul-in-region",
         "huge-size",
     ],
@@ -515,6 +530,61 @@ async def test_internal_error_text_is_not_echoed(
     assert response.json() == {
         "detail": {"code": "internal_error", "message": "Internal error"}
     }
+
+
+async def test_queued_event_is_matched_by_the_dispatcher(
+    client: httpx.AsyncClient,
+    session: AsyncSession,
+    source: EventSource,
+    sign: SignFn,
+    aws: respx.MockRouter,
+) -> None:
+    """The row ingest writes is the row the dispatcher matches on its key."""
+    bindings: dict[str, uuid.UUID] = {}
+    for prefix in ("uploads/", "other/"):
+        trigger = Trigger(
+            workspace_id=source.workspace_id,
+            kind=TriggerKind.OBJECT_STORAGE.value,
+            name=f"On {prefix}",
+            status=TriggerStatus.ONLINE.value,
+        )
+        workflow = Workflow(
+            workspace_id=source.workspace_id, title=f"On {prefix}", description=""
+        )
+        session.add_all([trigger, workflow])
+        await session.flush()
+        binding = TriggerBinding(
+            workspace_id=source.workspace_id,
+            trigger_id=trigger.id,
+            target_type=TriggerTargetType.WORKFLOW.value,
+            workflow_id=workflow.id,
+        )
+        session.add_all(
+            [
+                ObjectStorageTrigger(
+                    trigger_id=trigger.id,
+                    workspace_id=source.workspace_id,
+                    source_id=source.id,
+                    key_prefix=prefix,
+                ),
+                binding,
+            ]
+        )
+        await session.flush()
+        bindings[prefix] = binding.id
+    await session.commit()
+
+    # The key arrives URL-encoded ("uploads/report+2026%2F11.csv").
+    response = await _post(
+        client, source, sign("Notification", _s3_message(_s3_record()))
+    )
+    assert response.status_code == 200, response.text
+    (row,) = await _outbox(session, source)
+
+    targets = await _matching_targets(session, [row.id])
+
+    assert [t.binding_id for t in targets[row.id]] == [bindings["uploads/"]]
+    assert isinstance(targets[row.id][0], WorkflowTarget)
 
 
 # ----- Signature and certificate -----
@@ -941,10 +1011,10 @@ async def test_offline_source_refuses_notifications(
 
 
 @pytest.mark.parametrize(
-    ("change", "code"),
+    ("change", "status_code", "code"),
     [
-        ({"config": {"topic_arn": OTHER_TOPIC}}, "topic_mismatch"),
-        ({"status": TriggerStatus.OFFLINE.value}, "source_offline"),
+        ({"config": {"topic_arn": OTHER_TOPIC}}, 403, "topic_mismatch"),
+        ({"status": TriggerStatus.OFFLINE.value}, 409, "source_offline"),
     ],
     ids=["repointed", "taken-offline"],
 )
@@ -956,8 +1026,11 @@ async def test_source_changed_during_verification_queues_nothing(
     aws: respx.MockRouter,
     monkeypatch: pytest.MonkeyPatch,
     change: dict[str, Any],
+    status_code: int,
     code: str,
 ) -> None:
+    # Covers the recheck in the insert transaction. The FOR SHARE lock that
+    # serializes it with a concurrent source update is not exercised here.
     verify = ingest_service.verify_envelope
 
     async def _verify_then_change(*args: Any, **kwargs: Any) -> None:
@@ -973,7 +1046,7 @@ async def test_source_changed_during_verification_queues_nothing(
         client, source, sign("Notification", _s3_message(_s3_record()))
     )
 
-    assert response.status_code in (403, 409)
+    assert response.status_code == status_code
     assert _code(response) == code
     assert await _outbox(session, source) == []
 

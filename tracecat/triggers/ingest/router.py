@@ -11,8 +11,10 @@ Answers:
 - 4xx when retrying cannot help: SNS drops the message, or moves it to the
   subscription's dead-letter queue.
 - 503 when a retry can help: over the rate cap (with ``Retry-After``), the
-  certificate host or the SNS API unreachable. A failed outbox write, or any
-  other unexpected error, answers 500 with a fixed body; SNS retries it.
+  certificate host or the SNS API unreachable.
+- 500 for a failed outbox write (database down) or another unexpected error,
+  with a fixed body; SNS retries it. A row the database refuses as data (the
+  app-wide handler answers 422) is final, like any other 4xx.
 """
 
 from __future__ import annotations

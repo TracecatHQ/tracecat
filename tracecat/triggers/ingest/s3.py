@@ -42,21 +42,26 @@ def _to_event(
     bucket = record.s3.bucket.name
     # S3 form-encodes keys in events: spaces arrive as "+".
     key = unquote_plus(obj.key)
+    stored_text = [
+        value
+        for value in (
+            key,
+            bucket,
+            record.aws_region,
+            obj.etag,
+            obj.version_id,
+            obj.sequencer,
+        )
+        if value
+    ]
+    # S3 allows U+0000 in keys, but PostgreSQL JSONB cannot store it. Refusing
+    # (4xx) sends the message to the dead-letter queue; a 5xx would only make
+    # SNS retry an insert that always fails. (Lone surrogates never get here:
+    # both JSON parsers reject them, which is also a 4xx.)
+    if any("\x00" in value for value in stored_text):
+        raise _malformed("Event contains a NUL character")
     if len(key.encode()) > MAX_OBJECT_KEY_BYTES:
         raise _malformed("Object key is longer than S3 allows")
-    stored_text = (
-        key,
-        bucket,
-        record.aws_region,
-        obj.etag,
-        obj.version_id,
-        obj.sequencer,
-    )
-    if any("\x00" in value for value in stored_text if value):
-        # S3 allows it in keys, but PostgreSQL JSONB cannot store U+0000.
-        # Refusing (4xx) sends the message to the dead-letter queue; a 5xx
-        # would only make SNS retry an insert that always fails.
-        raise _malformed("Event contains a NUL character")
     occurrence_key = build_occurrence_key(
         bucket=bucket, key=key, version_id=obj.version_id, sequencer=obj.sequencer
     )
