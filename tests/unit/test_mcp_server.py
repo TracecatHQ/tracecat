@@ -10164,37 +10164,6 @@ async def test_trigger_tools_need_their_scope(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("target", "execute_scope"),
-    [
-        ({"type": "workflow", "workflow_id": str(uuid.uuid4())}, "workflow:execute"),
-        (
-            {"type": "agent", "agent_preset_id": str(uuid.uuid4()), "instruction": "i"},
-            "agent:execute",
-        ),
-    ],
-    ids=["workflow", "agent"],
-)
-async def test_binding_needs_the_right_to_run_its_target(
-    monkeypatch: pytest.MonkeyPatch, target: dict[str, Any], execute_scope: str
-) -> None:
-    binding_target = mcp_server.TriggerBindingCreate.model_validate(
-        {"target": target}
-    ).target
-    create_binding = AsyncMock()
-    _patch_triggers(
-        monkeypatch,
-        scopes=_TRIGGER_SCOPES - {execute_scope},
-        create_binding=create_binding,
-    )
-
-    # The message lists every required scope, held or not.
-    with pytest.raises(ToolError, match=f"Missing required scope: .*{execute_scope}"):
-        await _call_trigger_tool("create_trigger_binding", target=binding_target)
-    create_binding.assert_not_awaited()
-
-
-@pytest.mark.anyio
 async def test_list_triggers_passes_its_filters_to_the_service(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

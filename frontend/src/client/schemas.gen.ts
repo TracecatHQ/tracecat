@@ -8005,7 +8005,6 @@ export const $AwsSnsSourceConfig = {
     },
     topic_arn: {
       type: "string",
-      maxLength: 256,
       pattern:
         "^arn:aws(-cn|-us-gov)?:sns:[a-z]{2}(-[a-z]+)+-\\d:\\d{12}:[A-Za-z0-9_-]{1,256}$",
       title: "Topic Arn",

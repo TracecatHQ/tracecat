@@ -11,7 +11,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
-from tracecat.authz.controls import check_scopes, require_scope
+from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.identifiers.workflow import OptionalAnyWorkflowIDQuery
 from tracecat.pagination import CursorPaginatedResponse, PageParams, PaginationError
@@ -29,7 +29,6 @@ from tracecat.triggers.schemas import (
     TriggerUpdate,
 )
 from tracecat.triggers.service import TriggersService, read_event_source
-from tracecat.triggers.types import EXECUTE_SCOPE_BY_TARGET
 
 _GATES = [Depends(require_triggers_enabled)]
 
@@ -205,7 +204,6 @@ async def create_trigger_binding(
     Also needs ``workflow:execute`` for a workflow or ``agent:execute`` for an
     agent: every matching event will run the target.
     """
-    check_scopes(role, EXECUTE_SCOPE_BY_TARGET[params.target.type])
     service = TriggersService(session, role)
     binding = await service.create_binding(trigger_id, params)
     return await service.read_binding(binding)
@@ -223,7 +221,11 @@ async def update_trigger_binding(
     binding_id: uuid.UUID,
     params: TriggerBindingUpdate,
 ) -> TriggerBindingRead:
-    """Take a binding online or offline, or change an agent's instruction."""
+    """Take a binding online or offline, or change an agent's instruction.
+
+    Turning it online or changing the instruction also needs the target's
+    execute scope, as for create.
+    """
     service = TriggersService(session, role)
     binding = await service.update_binding(trigger_id, binding_id, params)
     return await service.read_binding(binding)

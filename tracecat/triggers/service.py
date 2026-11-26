@@ -17,6 +17,8 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.audit.logger import audit_log
+from tracecat.auth.types import Role
+from tracecat.authz.controls import check_scopes
 from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     AgentPreset,
@@ -59,6 +61,7 @@ from tracecat.triggers.schemas import (
     WorkflowBindingTarget,
 )
 from tracecat.triggers.types import (
+    EXECUTE_SCOPE_BY_TARGET,
     SOURCE_KINDS_BY_TRIGGER_KIND,
     event_source_endpoint_url,
 )
@@ -425,12 +428,12 @@ class TriggersService(BaseWorkspaceService):
     ) -> TriggerBinding:
         """Bind a trigger to a workflow or agent preset of this workspace.
 
-        The caller's right to run the target is checked by the route or tool.
-
         Raises:
+            ScopeDeniedError: If the caller may not run the target.
             TriggerError: ``not_found`` if the trigger or target is not in the
                 workspace, ``conflict`` if the trigger already has that target.
         """
+        _check_can_run(self.role, params.target.type)
         trigger = await self._get_trigger_row(trigger_id)
         binding = TriggerBinding(
             workspace_id=self.workspace_id,
@@ -472,11 +475,19 @@ class TriggersService(BaseWorkspaceService):
     ) -> TriggerBinding:
         """Take a binding online or offline, or change an agent's instruction.
 
+        Taking a binding offline needs only ``trigger:update``. Turning it on
+        or changing what the agent is told needs the right to run the target,
+        as creating it does.
+
         Raises:
+            ScopeDeniedError: If the update needs the right to run the target
+                and the caller lacks it.
             TriggerError: ``not_found``, or ``invalid`` for an instruction on a
                 workflow binding.
         """
         binding = await self._get_binding_row(trigger_id, binding_id)
+        if params.status is TriggerStatus.ONLINE or params.instruction is not None:
+            _check_can_run(self.role, TriggerTargetType(binding.target_type))
         if params.status is not None:
             binding.status = params.status.value
         if params.instruction is not None:
@@ -651,6 +662,12 @@ class TriggersService(BaseWorkspaceService):
         return found
 
 
+def _check_can_run(role: Role, target_type: TriggerTargetType) -> None:
+    """Binding a target means every matching event runs it, so a caller who
+    makes a binding live needs the right to run its target."""
+    check_scopes(role, EXECUTE_SCOPE_BY_TARGET[target_type])
+
+
 def _has_binding(target: ColumnElement[bool]) -> ColumnElement[bool]:
     return exists().where(
         TriggerBinding.workspace_id == Trigger.workspace_id,
@@ -667,7 +684,11 @@ def select_bindings() -> Select[Any]:
             func.coalesce(TriggerBinding.workflow_id, TriggerBinding.agent_preset_id),
             func.coalesce(Workflow.title, AgentPreset.name),
         )
-        .outerjoin(Workflow, Workflow.id == TriggerBinding.workflow_id)
+        .outerjoin(
+            Workflow,
+            (Workflow.id == TriggerBinding.workflow_id)
+            & (Workflow.workspace_id == TriggerBinding.workspace_id),
+        )
         .outerjoin(
             AgentPreset,
             (AgentPreset.id == TriggerBinding.agent_preset_id)

@@ -298,7 +298,7 @@
 <ResponseField name="update_trigger_binding" type="tool">
   Take a binding online or offline, or change an agent binding's instruction.
 
-  There is no delete tool: take a binding offline instead. The target cannot change; add a new binding for another target.
+  There is no delete tool: take a binding offline instead. Turning a binding online or changing its instruction needs `workflow:execute` or `agent:execute` for its target, as creating it does. The target cannot change; add a new binding for another target.
 </ResponseField>
 
 <ResponseField name="list_workflow_tags" type="tool">

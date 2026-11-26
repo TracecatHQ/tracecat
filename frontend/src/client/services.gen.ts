@@ -14660,6 +14660,9 @@ export const triggersCreateTriggerBinding = (
 /**
  * Update Trigger Binding
  * Take a binding online or offline, or change an agent's instruction.
+ *
+ * Turning it online or changing the instruction also needs the target's
+ * execute scope, as for create.
  * @param data The data for the request.
  * @param data.triggerId
  * @param data.bindingId

@@ -338,7 +338,6 @@ from tracecat.triggers.schemas import (
     TriggerUpdate,
 )
 from tracecat.triggers.service import TriggersService, read_event_source
-from tracecat.triggers.types import EXECUTE_SCOPE_BY_TARGET
 from tracecat.validation.schemas import (
     ValidationDetail,
     ValidationResult,
@@ -6903,7 +6902,8 @@ async def _triggers_service(
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error(f"Failed to {action}", error=str(e))
-        raise ToolError(f"Failed to {action}: {e}") from None
+        # Keep internal details in the log, not in the agent-facing message.
+        raise ToolError(f"Failed to {action}") from None
 
 
 def _trigger_page_limit(limit: int) -> int:
@@ -7191,9 +7191,8 @@ async def create_trigger_binding(
     Returns the new binding as JSON (id, trigger_id, target_type, target_id,
     target_name, instruction, status).
     """
-    scopes = ("trigger:update", EXECUTE_SCOPE_BY_TARGET[target.type])
     async with _triggers_service(
-        workspace_id, "create trigger binding", *scopes
+        workspace_id, "create trigger binding", "trigger:update"
     ) as svc:
         params = TriggerBindingCreate(target=target, status=TriggerStatus(status))
         binding = await svc.create_binding(
@@ -7212,7 +7211,9 @@ async def update_trigger_binding(
 ) -> TriggerBindingRead:
     """Take a binding online or offline, or change an agent binding's instruction.
 
-    There is no delete tool: take a binding offline instead. The target
+    There is no delete tool: take a binding offline instead. Turning a binding
+    online or changing its instruction needs `workflow:execute` or
+    `agent:execute` for its target, as creating it does. The target
     cannot change; add a new binding for another target.
 
     Args:

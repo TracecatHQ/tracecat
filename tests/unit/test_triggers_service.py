@@ -17,6 +17,7 @@ from tracecat.db.models import (
     Workflow,
     Workspace,
 )
+from tracecat.exceptions import ScopeDeniedError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.pagination import PageParams
 from tracecat.triggers.enums import (
@@ -427,6 +428,64 @@ async def test_list_triggers_filters_and_returns_bindings_in_one_page(
     assert [t.id for t in by_source.items] == [to_agent]
     by_kind = await service.list_triggers(PageParams(), kind=TriggerKind.OBJECT_STORAGE)
     assert len(by_kind.items) == 3
+
+
+async def test_making_a_binding_live_needs_the_right_to_run_its_target(
+    service: TriggersService,
+    session: AsyncSession,
+    svc_role: Role,
+    workflow: Workflow,
+    preset: AgentPreset,
+) -> None:
+    trigger_id = await _trigger(service)
+    agent = await service.create_binding(
+        trigger_id,
+        TriggerBindingCreate(
+            target=AgentBindingTarget(agent_preset_id=preset.id, instruction="i"),
+            status=TriggerStatus.OFFLINE,
+        ),
+    )
+    # Configures triggers, may not run workflows or agents.
+    configurer = TriggersService(
+        session,
+        svc_role.model_copy(
+            update={
+                "scopes": frozenset(
+                    {"trigger:read", "trigger:create", "trigger:update"}
+                )
+            }
+        ),
+    )
+
+    for target in (
+        WorkflowBindingTarget(workflow_id=WorkflowUUID.new(workflow.id)),
+        AgentBindingTarget(agent_preset_id=preset.id, instruction="i"),
+    ):
+        with pytest.raises(ScopeDeniedError):
+            await configurer.create_binding(
+                trigger_id, TriggerBindingCreate(target=target)
+            )
+    for update in (
+        TriggerBindingUpdate(status=TriggerStatus.ONLINE),
+        TriggerBindingUpdate(instruction="Do something else"),
+    ):
+        with pytest.raises(ScopeDeniedError):
+            await configurer.update_binding(trigger_id, agent.id, update)
+
+    # Switching a binding off stays open to trigger:update alone.
+    off = await configurer.update_binding(
+        trigger_id, agent.id, TriggerBindingUpdate(status=TriggerStatus.OFFLINE)
+    )
+    assert off.status == TriggerStatus.OFFLINE
+    assert off.instruction == "i"
+
+
+def test_long_topic_names_are_accepted() -> None:
+    # AWS allows topic names up to 256 characters.
+    prefix = "arn:aws-us-gov:sns:us-gov-west-1:123456789012:"
+    assert AwsSnsSourceConfig(topic_arn=prefix + "a" * 256)
+    with pytest.raises(ValueError):
+        AwsSnsSourceConfig(topic_arn=prefix + "a" * 257)
 
 
 # ----- Helpers -----

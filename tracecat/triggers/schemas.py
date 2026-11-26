@@ -43,7 +43,8 @@ SNS_TOPIC_ARN_PATTERN = (
 
 TopicArn = Annotated[
     str,
-    StringConstraints(pattern=SNS_TOPIC_ARN_PATTERN, max_length=256),
+    # The pattern bounds every part, the topic name included (256 characters).
+    StringConstraints(pattern=SNS_TOPIC_ARN_PATTERN),
     Field(
         description="ARN of the customer's SNS topic. The source accepts no other.",
         examples=["arn:aws:sns:us-east-1:123456789012:bucket-events"],
