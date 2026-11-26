@@ -1,0 +1,14 @@
+.github/workflows/attest-ghcr.yml
+  h_5f9670feebc95f 1-109
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c80ed5d35a5f9d1dde87db4a54ad51786e732bee",
+  "prompts": {},
+  "humans": {
+    "h_5f9670feebc95f": {
+      "author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
