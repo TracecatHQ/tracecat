@@ -36,7 +36,7 @@ def event_source_endpoint_url(kind: EventSourceKind, endpoint_token: str) -> str
     URL, so it stays the same across signing-key rotations and app releases.
     """
     path = INGEST_PATH_BY_SOURCE_KIND[kind]
-    return f"{config.TRACECAT__PUBLIC_API_URL}{path}/{endpoint_token}"
+    return f"{config.TRACECAT__PUBLIC_API_URL.rstrip('/')}{path}/{endpoint_token}"
 
 
 def build_occurrence_key(

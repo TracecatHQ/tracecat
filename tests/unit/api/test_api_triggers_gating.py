@@ -65,6 +65,7 @@ async def test_every_trigger_route_needs_the_entitlement(
 
     assert response.status_code == 403
     assert response.json()["type"] == "EntitlementRequired"
+    is_org_entitled.assert_awaited()
 
 
 @pytest.mark.anyio

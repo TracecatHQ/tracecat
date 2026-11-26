@@ -10216,6 +10216,37 @@ async def test_update_trigger_builds_the_update_and_reads_it_back(
 
 
 @pytest.mark.anyio
+async def test_execute_scope_denials_from_the_service_reach_the_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    denied = ScopeDeniedError(
+        required_scopes=["workflow:execute"], missing_scopes=["workflow:execute"]
+    )
+    _patch_triggers(
+        monkeypatch,
+        create_binding=AsyncMock(side_effect=denied),
+        update_trigger=AsyncMock(side_effect=denied),
+    )
+
+    for tool_name in ("create_trigger_binding", "update_trigger"):
+        with pytest.raises(
+            ToolError, match="^Missing required scope: workflow:execute$"
+        ):
+            await _call_trigger_tool(tool_name)
+
+
+@pytest.mark.anyio
+async def test_unexpected_trigger_tool_errors_hide_their_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret = RuntimeError("relation trigger: constraint uq_x, value 'internal'")
+    _patch_triggers(monkeypatch, get_trigger=AsyncMock(side_effect=secret))
+
+    with pytest.raises(ToolError, match="^Failed to get trigger$"):
+        await _call_trigger_tool("get_trigger")
+
+
+@pytest.mark.anyio
 async def test_trigger_tool_reports_service_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

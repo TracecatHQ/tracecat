@@ -258,13 +258,13 @@
 <ResponseField name="create_event_source" type="tool">
   Create an event source and get the endpoint URL to subscribe.
 
-  For `{"kind": "aws_sns", "topic_arn": "arn:aws:sns:..."}`, subscribe the topic to the returned `endpoint_url` over HTTPS with raw message delivery off. The source accepts messages from that topic only. A workspace has at most one source per topic.
+  For `{"kind": "aws_sns", "topic_arn": "arn:aws:sns:..."}`, subscribe the topic to the returned `endpoint_url` (null unless the caller also holds `trigger:update`) over HTTPS with raw message delivery off. The source accepts messages from that topic only. A workspace has at most one source per topic.
 </ResponseField>
 
 <ResponseField name="update_event_source" type="tool">
   Rename an event source, change its feed, or take it online or offline.
 
-  There is no delete: take a source offline instead. Changing where events come from (for `aws_sns`, the topic ARN) resets the subscription to pending. Turning a source online or changing its feed also needs `workflow:execute` or `agent:execute` for the targets its online triggers run. The kind cannot change. The endpoint URL never changes.
+  There is no delete: take a source offline instead. Changing where events come from (for `aws_sns`, the topic ARN) resets the subscription to pending. Turning a source online, or changing the feed of a source that stays or becomes online, also needs `workflow:execute` or `agent:execute` for the targets its online triggers run. The kind cannot change. The endpoint URL never changes.
 </ResponseField>
 
 <ResponseField name="list_triggers" type="tool">

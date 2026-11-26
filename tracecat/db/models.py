@@ -1438,6 +1438,8 @@ class Workflow(WorkspaceModel):
         UniqueConstraint(
             "alias", "workspace_id", name="uq_workflow_alias_workspace_id"
         ),
+        # Target of the trigger bindings' same-workspace foreign key.
+        UniqueConstraint("id", "workspace_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -2261,7 +2263,12 @@ class TriggerBinding(WorkspaceModel):
             ["trigger.id", "trigger.workspace_id"],
             ondelete="CASCADE",
         ),
-        # A binding never targets another workspace's preset.
+        # A binding never targets another workspace's workflow or preset.
+        ForeignKeyConstraint(
+            ["workflow_id", "workspace_id"],
+            ["workflow.id", "workflow.workspace_id"],
+            ondelete="CASCADE",
+        ),
         ForeignKeyConstraint(
             ["agent_preset_id", "workspace_id"],
             ["agent_preset.id", "agent_preset.workspace_id"],
@@ -2286,9 +2293,7 @@ class TriggerBinding(WorkspaceModel):
     )
     trigger_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
     target_type: Mapped[str] = mapped_column(String(16), nullable=False)
-    workflow_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID, ForeignKey("workflow.id", ondelete="CASCADE"), nullable=True
-    )
+    workflow_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
     agent_preset_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
     instruction: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(

@@ -251,12 +251,29 @@ def test_children_stay_in_their_parents_workspace(engine: Engine) -> None:
         _settings(foreign_trigger, source.id),
         "fk_object_storage_trigger_source_id_workspace_id_event_source",
     )
+    # The source is in other_ws, so only the trigger key can refuse this row.
+    foreign_source = _source(other_ws, "foreign")
+    _add(engine, foreign_source)
     _refused(
         engine,
         ObjectStorageTrigger(
-            trigger_id=trigger.id, workspace_id=other_ws, source_id=uuid.uuid4()
+            trigger_id=trigger.id, workspace_id=other_ws, source_id=foreign_source.id
         ),
         "fk_object_storage_trigger_trigger_id_workspace_id_trigger",
+    )
+    foreign_workflow = Workflow(
+        id=uuid.uuid4(), workspace_id=other_ws, title="theirs", description=""
+    )
+    _add(engine, foreign_workflow)
+    _refused(
+        engine,
+        TriggerBinding(
+            workspace_id=ws,
+            trigger_id=trigger.id,
+            target_type="workflow",
+            workflow_id=foreign_workflow.id,
+        ),
+        "fk_trigger_binding_workflow_id_workspace_id_workflow",
     )
     _refused(
         engine,

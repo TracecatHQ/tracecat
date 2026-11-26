@@ -144,9 +144,14 @@ stored config whole. Submissions are not exposed over MCP.
 ## Trigger tools
 
 These need the `object_triggers` entitlement, plus scopes: list and get tools
-need `trigger:read`, create tools `trigger:create`, update tools
-`trigger:update`. `create_trigger_binding` also needs `workflow:execute` for a
-workflow target or `agent:execute` for an agent target.
+need `trigger:read`; `create_event_source` and `create_trigger` need
+`trigger:create`; the update tools and `create_trigger_binding` need
+`trigger:update`. Anything that can make a target run also needs
+`workflow:execute` or `agent:execute` for that target: creating a binding,
+turning a binding, trigger or source online, changing an agent binding's
+instruction, or changing what an online trigger or source matches. Switching
+things off and renaming need only `trigger:update`. `endpoint_url` is null
+for callers without `trigger:update`.
 
 - `list_event_sources(workspace_id, limit=..., cursor=None)`
 - `get_event_source(workspace_id, source_id)`

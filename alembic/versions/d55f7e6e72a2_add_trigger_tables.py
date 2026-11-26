@@ -4,7 +4,8 @@ Revision ID: d55f7e6e72a2
 Revises: e573b3acd133
 Create Date: 2026-11-27 12:00:00.000000
 
-Additive: five new tables, nothing existing changes. ``trigger`` is a generic
+Additive: five new tables, and a unique ``(id, workspace_id)`` key on
+``workflow`` for the bindings' same-workspace foreign key. ``trigger`` is a generic
 header; each trigger kind with settings has its own detail table, here
 ``object_storage_trigger``. ``event_source`` is generic over the source kind
 (``aws_sns`` so far). The downgrade drops the tables with their rows,
@@ -151,6 +152,11 @@ def upgrade() -> None:
     )
     op.execute(enable_workspace_table_rls("object_storage_trigger"))
 
+    # Target of the bindings' same-workspace key. ``workflow.id`` is already
+    # unique, so every existing row satisfies it.
+    op.create_unique_constraint(
+        op.f("uq_workflow_id_workspace_id"), "workflow", ["id", "workspace_id"]
+    )
     _create_config_table(
         "trigger_binding",
         sa.Column("trigger_id", sa.UUID(), nullable=False),
@@ -160,13 +166,8 @@ def upgrade() -> None:
         sa.Column("instruction", sa.Text(), nullable=True),
         sa.Column("status", sa.String(length=16), nullable=False),
         _same_workspace_fk("trigger_binding", "trigger_id", "trigger"),
+        _same_workspace_fk("trigger_binding", "workflow_id", "workflow"),
         _same_workspace_fk("trigger_binding", "agent_preset_id", "agent_preset"),
-        sa.ForeignKeyConstraint(
-            ["workflow_id"],
-            ["workflow.id"],
-            name=op.f("fk_trigger_binding_workflow_id_workflow"),
-            ondelete="CASCADE",
-        ),
         sa.CheckConstraint(
             "(target_type = 'workflow' AND workflow_id IS NOT NULL"
             " AND agent_preset_id IS NULL AND instruction IS NULL)"
@@ -232,3 +233,4 @@ def downgrade() -> None:
     for table in reversed(_TABLES):
         op.execute(disable_workspace_table_rls(table))
         op.drop_table(table)
+    op.drop_constraint(op.f("uq_workflow_id_workspace_id"), "workflow", type_="unique")

@@ -6981,7 +6981,8 @@ async def create_event_source(
     """Create an event source and get the endpoint URL to subscribe.
 
     For `{"kind": "aws_sns", "topic_arn": "arn:aws:sns:..."}`, subscribe the
-    topic to the returned `endpoint_url` over HTTPS with raw message delivery
+    topic to the returned `endpoint_url` (null unless the caller also holds
+    `trigger:update`) over HTTPS with raw message delivery
     off. The source accepts messages from that topic only. A workspace has at
     most one source per topic.
 
@@ -7014,8 +7015,9 @@ async def update_event_source(
 
     There is no delete: take a source offline instead. Changing where events
     come from (for `aws_sns`, the topic ARN) resets the subscription to pending.
-    Turning a source online or changing its feed also needs `workflow:execute`
-    or `agent:execute` for the targets its online triggers run.
+    Turning a source online, or changing the feed of a source that stays or
+    becomes online, also needs `workflow:execute` or `agent:execute` for the
+    targets its online triggers run.
     The kind cannot change. The endpoint URL never changes.
 
     Args:
