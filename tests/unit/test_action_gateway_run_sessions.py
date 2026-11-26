@@ -190,3 +190,38 @@ async def test_run_holds_one_main_pool_connection(
     # when the start reaches Temporal.
     assert (counter.peak, counter.held_at_start) == (1, [1])
     assert counter.held == 0
+
+
+@pytest.mark.anyio
+async def test_authoring_context_holds_one_main_pool_connection(
+    monkeypatch: pytest.MonkeyPatch, svc_role: Role
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+    assert svc_role.workspace_id is not None
+    async with VariablesService.with_session(role=svc_role) as var_svc:
+        await var_svc.create_variable(
+            VariableCreate(name=_VARIABLE_NAME, values={"key": "value"})
+        )
+    # Unattributed, so the hint builders read with the executor's scopes.
+    token = mint_executor_token(
+        workspace_id=svc_role.workspace_id,
+        user_id=None,
+        wf_id="wf-gateway-sessions",
+        wf_exec_id="wf-gateway-sessions/exec-2",
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app()),
+        base_url="http://gateway",
+        headers={"Authorization": f"Bearer {token}"},
+    ) as client:
+        with _count_main_pool_checkouts() as counter:
+            response = await client.post(
+                "/internal/workflows/authoring-context", json={}
+            )
+
+    assert response.status_code == 200, response.text
+    assert [hint["name"] for hint in response.json()["variable_hints"]] == [
+        _VARIABLE_NAME
+    ]
+    assert counter.peak == 1
+    assert counter.held == 0

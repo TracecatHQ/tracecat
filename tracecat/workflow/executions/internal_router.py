@@ -802,10 +802,11 @@ async def get_authoring_context(
         role=context_role,
         action_names=params.action_names,
         query=params.query,
+        session=session,
     )
-    variable_hints = await build_variable_hints(role=context_role)
-    secret_hints = await build_secret_hints(role=context_role)
-    enabled_models = await build_enabled_models(role=context_role)
+    variable_hints = await build_variable_hints(role=context_role, session=session)
+    secret_hints = await build_secret_hints(role=context_role, session=session)
+    enabled_models = await build_enabled_models(role=context_role, session=session)
     return WorkflowAuthoringContextResponse(
         actions=actions,
         variable_hints=variable_hints,
