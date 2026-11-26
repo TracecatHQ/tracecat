@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 
 from tracecat.exceptions import TracecatException
 from tracecat.identifiers import OrganizationID, WorkspaceID
@@ -87,6 +88,24 @@ class SnsTopic:
         """The SNS API host for the topic's region, which also serves its certificates."""
         suffix = "amazonaws.com.cn" if self.partition == "aws-cn" else "amazonaws.com"
         return f"sns.{self.region}.{suffix}"
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedObjectEvent:
+    """One object event read from an S3 notification, ready to queue."""
+
+    occurrence_key: str
+    # JSON-ready ``ObjectCreatedEvent``, as stored in ``event_outbox.payload``
+    # (a JSONB column), so a plain dict rather than the model.
+    payload: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedS3Message:
+    """The object events in one S3 notification, and how many records were skipped."""
+
+    events: list[ParsedObjectEvent]
+    ignored: int
 
 
 @dataclass(frozen=True, slots=True)

@@ -36,13 +36,14 @@ from tracecat.triggers.ingest.rate_limit import (
     check_confirmation_rate,
     check_source_rate,
 )
-from tracecat.triggers.ingest.s3 import ParsedObjectEvent, parse_s3_message
+from tracecat.triggers.ingest.s3 import parse_s3_message
 from tracecat.triggers.ingest.schemas import SnsEnvelope, SnsMessageType
 from tracecat.triggers.ingest.sns import confirm_subscription, verify_envelope
 from tracecat.triggers.ingest.types import (
     IngestError,
     IngestErrorCode,
     IngestResult,
+    ParsedObjectEvent,
     SnsIngestSource,
     SnsTopic,
 )
@@ -127,7 +128,23 @@ async def _queue_events(
     """Insert one outbox row per event and commit. Returns the rows added.
 
     A redelivered event hits ``(source_id, occurrence_key)`` and adds nothing.
+
+    Raises:
+        IngestError: ``TOPIC_MISMATCH`` or ``SOURCE_OFFLINE`` if the source was
+            repointed or taken offline after the message was verified.
     """
+    # Recheck the pin in the insert's transaction. FOR SHARE waits for, and
+    # blocks, a concurrent source update, so no event from the old topic is
+    # queued after a repoint commits.
+    still_pinned = (
+        select(EventSource.status)
+        .where(
+            EventSource.id == source.id,
+            EventSource.workspace_id == source.workspace_id,
+            EventSource.config["topic_arn"].astext == source.topic_arn,
+        )
+        .with_for_update(read=True)
+    )
     stmt = (
         pg_insert(EventOutbox)
         .values(
@@ -146,6 +163,13 @@ async def _queue_events(
         .returning(EventOutbox.id)
     )
     async with get_async_session_bypass_rls_context_manager() as session:
+        status = (await session.execute(still_pinned)).scalar_one_or_none()
+        if status is None:
+            raise IngestError(
+                IngestErrorCode.TOPIC_MISMATCH, "Source no longer accepts this topic"
+            )
+        if status != TriggerStatus.ONLINE.value:
+            raise IngestError(IngestErrorCode.SOURCE_OFFLINE, "Event source is offline")
         inserted = (await session.execute(stmt)).scalars().all()
         await session.commit()
     return len(inserted)

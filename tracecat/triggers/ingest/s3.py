@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
 from urllib.parse import unquote_plus
 
 import orjson
@@ -15,7 +13,13 @@ from tracecat.triggers.ingest.schemas import (
     S3CreatedRecord,
     S3EventMessage,
 )
-from tracecat.triggers.ingest.types import IngestError, IngestErrorCode, SnsTopic
+from tracecat.triggers.ingest.types import (
+    IngestError,
+    IngestErrorCode,
+    ParsedObjectEvent,
+    ParsedS3Message,
+    SnsTopic,
+)
 from tracecat.triggers.types import build_occurrence_key
 
 # The longest object key S3 allows, in UTF-8 bytes.
@@ -25,19 +29,6 @@ MAX_OBJECT_KEY_BYTES = 1024
 MAX_EVENT_PAYLOAD_BYTES = 16 * 1024
 
 _CREATED_PREFIX = "ObjectCreated:"
-
-
-@dataclass(frozen=True, slots=True)
-class ParsedObjectEvent:
-    occurrence_key: str
-    payload: dict[str, Any]
-    """JSON-ready ``ObjectCreatedEvent``, as stored in ``event_outbox.payload``."""
-
-
-@dataclass(frozen=True, slots=True)
-class ParsedS3Message:
-    events: list[ParsedObjectEvent]
-    ignored: int
 
 
 def _malformed(message: str) -> IngestError:

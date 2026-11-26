@@ -917,6 +917,44 @@ async def test_offline_source_refuses_notifications(
     assert await _outbox(session, source) == []
 
 
+@pytest.mark.parametrize(
+    ("change", "code"),
+    [
+        ({"config": {"topic_arn": OTHER_TOPIC}}, "topic_mismatch"),
+        ({"status": TriggerStatus.OFFLINE.value}, "source_offline"),
+    ],
+    ids=["repointed", "taken-offline"],
+)
+async def test_source_changed_during_verification_queues_nothing(
+    client: httpx.AsyncClient,
+    session: AsyncSession,
+    source: EventSource,
+    sign: SignFn,
+    aws: respx.MockRouter,
+    monkeypatch: pytest.MonkeyPatch,
+    change: dict[str, Any],
+    code: str,
+) -> None:
+    verify = ingest_service.verify_envelope
+
+    async def _verify_then_change(*args: Any, **kwargs: Any) -> None:
+        await verify(*args, **kwargs)
+        # An editor changes the source while the message is in flight.
+        for name, value in change.items():
+            setattr(source, name, value)
+        await session.commit()
+
+    monkeypatch.setattr(ingest_service, "verify_envelope", _verify_then_change)
+
+    response = await _post(
+        client, source, sign("Notification", _s3_message(_s3_record()))
+    )
+
+    assert response.status_code in (403, 409)
+    assert _code(response) == code
+    assert await _outbox(session, source) == []
+
+
 async def test_rate_cap_answers_503_with_retry_after(
     client: httpx.AsyncClient,
     session: AsyncSession,
