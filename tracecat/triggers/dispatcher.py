@@ -30,6 +30,10 @@ TRIGGER_EVENT_DISPATCHER_ID = "trigger-event-dispatcher"
 _POLL_INTERVAL_SECONDS = 1.0
 _IDLE_RETURN_SECONDS = 300.0
 _STOPPED_COUNT_INTERVAL_SECONDS = 60.0
+# When this worker last counted stopped rows. Kept across activity calls: the
+# workflow calls the wait activity before every batch, so a per-call timer
+# would count on every batch while rows keep arriving.
+_stopped_counted_at: float | None = None
 _RECONCILE_TIMEOUT_SECONDS = 30
 _RETRY_DELAY_SECONDS = 30
 _RECONCILE_INTERVAL_SECONDS = 600
@@ -49,18 +53,18 @@ async def wait_for_trigger_events() -> bool:
     Each poll also records the oldest ready row's wait, and once a minute the
     stopped rows, so the alert inputs stay current while the outbox is idle.
     """
+    global _stopped_counted_at
     deadline = time.monotonic() + _IDLE_RETURN_SECONDS
-    stopped_counted_at: float | None = None
     while True:
         now = time.monotonic()
         count_stopped = (
-            stopped_counted_at is None
-            or now - stopped_counted_at >= _STOPPED_COUNT_INTERVAL_SECONDS
+            _stopped_counted_at is None
+            or now - _stopped_counted_at >= _STOPPED_COUNT_INTERVAL_SECONDS
         )
         async with get_async_session_bypass_rls_context_manager() as session:
             backlog = await read_backlog(session, count_stopped=count_stopped)
         if count_stopped:
-            stopped_counted_at = now
+            _stopped_counted_at = now
         record_backlog(backlog)
         if backlog.has_ready_rows:
             return True

@@ -22,12 +22,14 @@ import pytest
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.testing import ActivityEnvironment
 
 from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
     AgentPreset,
+    AgentSession,
     EventOutbox,
     EventSource,
     ObjectStorageTrigger,
@@ -38,7 +40,9 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.dsl.common import DSLInput
+from tracecat.exceptions import AgentProviderCredentialsNotFoundError
 from tracecat.triggers import dispatch
+from tracecat.triggers import dispatcher as dispatcher_module
 from tracecat.triggers.dispatch import (
     AGENT_EVENT_NOTICE,
     LEASE_EXPIRED_ERROR,
@@ -53,6 +57,7 @@ from tracecat.triggers.dispatch import (
     trigger_exec_id,
     trigger_run_uuid,
 )
+from tracecat.triggers.dispatcher import wait_for_trigger_events
 from tracecat.triggers.types import build_occurrence_key
 from tracecat.workflow.executions.enums import TriggerType
 
@@ -711,6 +716,93 @@ async def test_unpublished_workflows_and_deleted_presets_are_dropped(
         trigger_exec_id(live.id, row.occurrence_key, live.workflow_id)
     ]
     starts.agent.assert_not_awaited()
+
+
+async def test_missing_agent_credentials_keep_the_row_for_a_retry(
+    outbox: AsyncSession, svc_workspace: Workspace, starts: Starts
+) -> None:
+    """The workspace can add credentials, so the event is not thrown away."""
+    fx = await _source_and_trigger(outbox, svc_workspace.id)
+    await _bind_agent(outbox, fx)
+    row = await _enqueue(outbox, fx)
+    await outbox.commit()
+    starts.agent.side_effect = AgentProviderCredentialsNotFoundError("no openai key")
+
+    result = await TriggerOutboxDispatcher().dispatch_batch()
+
+    assert result.retrying == 1
+    kept = await _row(outbox, row.id)
+    assert kept is not None
+    assert kept.last_error is not None
+    assert "AgentProviderCredentialsNotFoundError" in kept.last_error
+
+
+async def test_a_session_someone_else_created_under_the_id_is_not_used(
+    outbox: AsyncSession, svc_workspace: Workspace, starts: Starts
+) -> None:
+    fx = await _source_and_trigger(outbox, svc_workspace.id)
+    binding = await _bind_agent(outbox, fx)
+    row = await _enqueue(outbox, fx)
+    await outbox.commit()
+    foreign = AgentSession(
+        id=trigger_run_uuid(binding.id, row.occurrence_key),
+        workspace_id=fx.workspace_id,
+        title="Not the trigger's",
+        created_by=uuid.uuid4(),
+        entity_type=AgentSessionEntity.AGENT_PRESET.value,
+        entity_id=binding.agent_preset_id,
+    )
+    starts.create_session.return_value = (foreign, False)
+
+    result = await TriggerOutboxDispatcher().dispatch_batch()
+
+    assert result.delivered == 1
+    starts.agent.assert_not_awaited()
+
+
+async def test_last_error_redacts_credentials(
+    outbox: AsyncSession, svc_workspace: Workspace, starts: Starts
+) -> None:
+    fx = await _source_and_trigger(outbox, svc_workspace.id)
+    await _bind_workflow(outbox, fx)
+    row = await _enqueue(outbox, fx)
+    await outbox.commit()
+    secret = "sk-proj-" + "a" * 40
+    starts.workflow.side_effect = RuntimeError(f"Authorization: Bearer {secret}")
+
+    await TriggerOutboxDispatcher().dispatch_batch()
+
+    kept = await _row(outbox, row.id)
+    assert kept is not None and kept.last_error is not None
+    assert secret not in kept.last_error
+
+
+async def test_stopped_rows_are_counted_at_most_once_a_minute_across_polls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The wait activity runs before every batch; the count must not."""
+    counted: list[bool] = []
+
+    async def read(_session: object, *, count_stopped: bool) -> dispatch.Backlog:
+        counted.append(count_stopped)
+        return dispatch.Backlog(
+            has_ready_rows=True, oldest_ready_age_seconds=1.0, stopped_rows=None
+        )
+
+    @contextlib.asynccontextmanager
+    async def _session() -> AsyncIterator[None]:
+        yield None
+
+    monkeypatch.setattr(dispatcher_module, "read_backlog", read)
+    monkeypatch.setattr(
+        dispatcher_module, "get_async_session_bypass_rls_context_manager", _session
+    )
+    monkeypatch.setattr(dispatcher_module, "_stopped_counted_at", None)
+
+    for _ in range(3):
+        assert await ActivityEnvironment().run(wait_for_trigger_events)
+
+    assert counted == [True, False, False]
 
 
 # ----- Two dispatchers -----

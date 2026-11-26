@@ -46,6 +46,7 @@ from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
     AgentPreset,
+    AgentSession,
     EventOutbox,
     EventSource,
     ObjectStorageTrigger,
@@ -57,6 +58,7 @@ from tracecat.db.models import (
 )
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import (
+    AgentProviderCredentialsNotFoundError,
     EntitlementRequired,
     TracecatDSLError,
     TracecatNotFoundError,
@@ -70,6 +72,7 @@ from tracecat.identifiers.workflow import (
 )
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.sanitization import redact_sensitive_text
 from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
 from tracecat.triggers.enums import TriggerKind, TriggerStatus, TriggerTargetType
@@ -102,6 +105,11 @@ PERMANENT_START_ERRORS: tuple[type[Exception], ...] = (
     ValueError,
     TypeError,
     ArithmeticError,
+)
+# Subclasses of a permanent error that the workspace can fix, such as adding
+# the agent's provider credentials. They fail the row so it retries.
+RETRYABLE_START_ERRORS: tuple[type[Exception], ...] = (
+    AgentProviderCredentialsNotFoundError,
 )
 
 TRIGGER_EVENT_TAG = "tracecat-trigger-event"
@@ -322,7 +330,11 @@ def build_agent_message(instruction: str, event: dict[str, Any]) -> str:
 
 
 def _error_text(error: BaseException) -> str:
-    return f"{type(error).__name__}: {error}"
+    """An error for logs and ``last_error``, with credentials redacted.
+
+    Provider and HTTP errors can echo part of an API key or a signed URL.
+    """
+    return redact_sensitive_text(f"{type(error).__name__}: {error}")
 
 
 async def pick_ready_rows(session: AsyncSession, limit: int = BATCH_SIZE) -> list[int]:
@@ -484,6 +496,15 @@ async def _matching_targets(
                 continue
         targets.setdefault(row_id, []).append(target)
     return targets
+
+
+def _is_trigger_session(agent_session: AgentSession, target: AgentTarget) -> bool:
+    """Whether an existing session is the one this dispatcher creates for a target."""
+    return (
+        agent_session.created_by is None
+        and agent_session.entity_type == AgentSessionEntity.AGENT_PRESET.value
+        and agent_session.entity_id == target.agent_preset_id
+    )
 
 
 def _service_role(workspace_id: uuid.UUID, organization_id: uuid.UUID) -> Role:
@@ -688,8 +709,7 @@ class TriggerOutboxDispatcher:
                     outbox_id=row.id,
                     binding_id=str(target.binding_id),
                     attempt=row.attempts,
-                    error_type=type(result).__name__,
-                    error=str(result),
+                    error=_error_text(result),
                 )
                 errors.append(f"binding {target.binding_id}: {_error_text(result)}")
             else:
@@ -716,11 +736,12 @@ class TriggerOutboxDispatcher:
                     if isinstance(target, WorkflowTarget):
                         return await self._start_workflow(row, target, context)
                     return await self._start_agent(row, target, role, context)
+            except RETRYABLE_START_ERRORS:
+                raise
             except PERMANENT_START_ERRORS as e:
                 log.error(
                     "Dropping trigger target that cannot start",
-                    error_type=type(e).__name__,
-                    error=str(e),
+                    error=_error_text(e),
                 )
                 return "dropped"
 
@@ -775,7 +796,7 @@ class TriggerOutboxDispatcher:
         refuse_channel_envelope(message)
         session_id = trigger_run_uuid(target.binding_id, row.occurrence_key)
         async with AgentSessionService.with_session(role=role) as service:
-            await service.get_or_create_session(
+            agent_session, created = await service.get_or_create_session(
                 AgentSessionCreate(
                     id=session_id,
                     title=target.trigger_name[:200],
@@ -787,6 +808,12 @@ class TriggerOutboxDispatcher:
                     ],
                 )
             )
+            # A session someone else created under this ID would get the event
+            # and the instruction instead of the preset's own session.
+            if not created and not _is_trigger_session(agent_session, target):
+                raise TracecatValidationError(
+                    f"Session {session_id} exists but is not this binding's session"
+                )
             # The run ID is derived from the session and the request ID, both
             # fixed, so a repeated start returns the run the first one started.
             await service.start_message(
