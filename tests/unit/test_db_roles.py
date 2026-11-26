@@ -277,6 +277,7 @@ def test_readonly_keyring_never_reads_credentials(topology: Topology) -> None:
         ("user", "hashed_password"),
         ("mfa_recovery_code", "code_hash"),
         ("agent_channel_token", "config"),
+        ("event_source", "endpoint_token"),
     }
     with psycopg.connect(topology.url(topology.admin)) as conn:
         for table, column in sorted(credential_columns):

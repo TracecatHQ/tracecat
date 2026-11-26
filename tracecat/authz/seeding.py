@@ -352,6 +352,11 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
         "schedule:update", "schedule", "update", "Modify existing schedules"
     ),
     ScopeDefinition("schedule:delete", "schedule", "delete", "Delete schedules"),
+    # Trigger scopes (object sources, triggers and their bindings)
+    ScopeDefinition("trigger:read", "trigger", "read", "View triggers"),
+    ScopeDefinition("trigger:create", "trigger", "create", "Create new triggers"),
+    ScopeDefinition("trigger:update", "trigger", "update", "Modify existing triggers"),
+    ScopeDefinition("trigger:delete", "trigger", "delete", "Delete triggers"),
     # Agent scopes
     ScopeDefinition("agent:read", "agent", "read", "View agents"),
     ScopeDefinition("agent:create", "agent", "create", "Create new agents"),

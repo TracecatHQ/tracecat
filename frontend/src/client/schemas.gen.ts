@@ -1389,6 +1389,33 @@ export const $AgentBackendRead = {
   description: "An enabled installed backend available for session creation.",
 } as const
 
+export const $AgentBindingTarget = {
+  properties: {
+    type: {
+      type: "string",
+      const: "agent",
+      title: "Type",
+    },
+    agent_preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Preset Id",
+    },
+    instruction: {
+      type: "string",
+      maxLength: 20000,
+      minLength: 1,
+      title: "Instruction",
+      description:
+        "What the agent should do with each event. The event itself is added to the first message as data, never as instructions.",
+    },
+  },
+  type: "object",
+  required: ["type", "agent_preset_id", "instruction"],
+  title: "AgentBindingTarget",
+  description: "Start a new session of the agent preset's current version.",
+} as const
+
 export const $AgentCancelControl = {
   properties: {
     type: {
@@ -7965,6 +7992,30 @@ export const $AwsSecretsManagerStoreUpdate = {
   title: "AwsSecretsManagerStoreUpdate",
   description:
     "Client-supplied fields when updating an AWS Secrets Manager store.",
+} as const
+
+export const $AwsSnsSourceConfig = {
+  properties: {
+    kind: {
+      type: "string",
+      const: "aws_sns",
+      title: "Kind",
+    },
+    topic_arn: {
+      type: "string",
+      pattern:
+        "^arn:aws(-cn|-us-gov)?:sns:[a-z]{2}(-[a-z]+)+-\\d:\\d{12}:[A-Za-z0-9_-]{1,256}$",
+      title: "Topic Arn",
+      description:
+        "ARN of the customer's SNS topic. The source accepts no other.",
+      examples: ["arn:aws:sns:us-east-1:123456789012:bucket-events"],
+    },
+  },
+  type: "object",
+  required: ["kind", "topic_arn"],
+  title: "AwsSnsSourceConfig",
+  description:
+    "Events pushed by a customer-owned SNS topic, pinned by its ARN.",
 } as const
 
 export const $AzureAICatalogCreate = {
@@ -17844,6 +17895,69 @@ export const $CursorPaginatedResponse_ChannelBotChannel_ = {
   title: "CursorPaginatedResponse[ChannelBotChannel]",
 } as const
 
+export const $CursorPaginatedResponse_EventSourceRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/EventSourceRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[EventSourceRead]",
+} as const
+
 export const $CursorPaginatedResponse_FormIntakeRead_ = {
   properties: {
     items: {
@@ -18850,6 +18964,69 @@ export const $CursorPaginatedResponse_TableRowRead_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[TableRowRead]",
+} as const
+
+export const $CursorPaginatedResponse_TriggerRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/TriggerRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[TriggerRead]",
 } as const
 
 export const $CursorPaginatedResponse_WorkflowReadMinimal_ = {
@@ -20290,6 +20467,13 @@ export const $EffectiveEntitlements = {
         "Whether the organization uses the channel bot API in place of legacy agent channels",
       default: false,
     },
+    object_triggers: {
+      type: "boolean",
+      title: "Object triggers",
+      description:
+        "Whether object storage events (S3 object created, over SNS) may start workflows and agents",
+      default: false,
+    },
   },
   type: "object",
   title: "EffectiveEntitlements",
@@ -20549,6 +20733,12 @@ export const $EntitlementsDict = {
       description:
         "Whether the organization uses the channel bot API in place of legacy agent channels",
     },
+    object_triggers: {
+      type: "boolean",
+      title: "Object triggers",
+      description:
+        "Whether object storage events (S3 object created, over SNS) may start workflows and agents",
+    },
   },
   type: "object",
   title: "EntitlementsDict",
@@ -20752,6 +20942,185 @@ export const $EventGroup_TypeVar_ = {
     "action_input",
   ],
   title: "EventGroup[TypeVar]",
+} as const
+
+export const $EventSourceCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Name",
+    },
+    config: {
+      oneOf: [
+        {
+          $ref: "#/components/schemas/AwsSnsSourceConfig",
+        },
+      ],
+      title: "Config",
+      discriminator: {
+        propertyName: "kind",
+        mapping: {
+          aws_sns: "#/components/schemas/AwsSnsSourceConfig",
+        },
+      },
+    },
+    status: {
+      $ref: "#/components/schemas/TriggerStatus",
+      default: "offline",
+    },
+  },
+  type: "object",
+  required: ["name", "config"],
+  title: "EventSourceCreate",
+} as const
+
+export const $EventSourceKind = {
+  type: "string",
+  enum: ["aws_sns"],
+  title: "EventSourceKind",
+  description: "How a source's events arrive and are verified.",
+} as const
+
+export const $EventSourceRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    kind: {
+      $ref: "#/components/schemas/EventSourceKind",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    config: {
+      oneOf: [
+        {
+          $ref: "#/components/schemas/AwsSnsSourceConfig",
+        },
+      ],
+      title: "Config",
+      discriminator: {
+        propertyName: "kind",
+        mapping: {
+          aws_sns: "#/components/schemas/AwsSnsSourceConfig",
+        },
+      },
+    },
+    status: {
+      $ref: "#/components/schemas/TriggerStatus",
+    },
+    subscription_status: {
+      $ref: "#/components/schemas/SubscriptionStatus",
+    },
+    subscription_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Subscription Ref",
+      description:
+        "The provider's subscription ID, e.g. the SNS subscription ARN",
+    },
+    endpoint_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Endpoint Url",
+      description:
+        "Point the feed (e.g. the SNS subscription) at this HTTPS URL. It does not change. Null for callers without trigger:update.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "kind",
+    "name",
+    "config",
+    "status",
+    "subscription_status",
+    "subscription_ref",
+    "endpoint_url",
+    "created_at",
+    "updated_at",
+  ],
+  title: "EventSourceRead",
+} as const
+
+export const $EventSourceUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    config: {
+      anyOf: [
+        {
+          oneOf: [
+            {
+              $ref: "#/components/schemas/AwsSnsSourceConfig",
+            },
+          ],
+          discriminator: {
+            propertyName: "kind",
+            mapping: {
+              aws_sns: "#/components/schemas/AwsSnsSourceConfig",
+            },
+          },
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Config",
+      description:
+        "Replaces the whole config. The kind cannot change. Changing where events come from resets the subscription to pending.",
+    },
+    status: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/TriggerStatus",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  title: "EventSourceUpdate",
 } as const
 
 export const $ExecutionContext = {
@@ -29437,6 +29806,67 @@ export const $ObjectRef = {
 
 This is a typed reference that replaces large payloads in workflow context.
 Only dereference ObjectRef instances created by Tracecat - never arbitrary URIs.`,
+} as const
+
+export const $ObjectStorageTriggerConfig = {
+  properties: {
+    kind: {
+      type: "string",
+      const: "object_storage",
+      title: "Kind",
+    },
+    source_id: {
+      type: "string",
+      format: "uuid",
+      title: "Source Id",
+      description: "The event source to read object events from",
+    },
+    key_prefix: {
+      type: "string",
+      maxLength: 1024,
+      title: "Key Prefix",
+      description:
+        "Only keys starting with this fire. Empty matches every key.",
+      default: "",
+    },
+  },
+  type: "object",
+  required: ["kind", "source_id"],
+  title: "ObjectStorageTriggerConfig",
+  description:
+    "Fire once for each object created in a source whose key matches.",
+} as const
+
+export const $ObjectStorageTriggerConfigRead = {
+  properties: {
+    kind: {
+      type: "string",
+      const: "object_storage",
+      title: "Kind",
+    },
+    source_id: {
+      type: "string",
+      format: "uuid",
+      title: "Source Id",
+      description: "The event source to read object events from",
+    },
+    key_prefix: {
+      type: "string",
+      maxLength: 1024,
+      title: "Key Prefix",
+      description:
+        "Only keys starting with this fire. Empty matches every key.",
+      default: "",
+    },
+    source_name: {
+      type: "string",
+      title: "Source Name",
+      description: "The event source's display name",
+    },
+  },
+  type: "object",
+  required: ["kind", "source_id", "source_name"],
+  title: "ObjectStorageTriggerConfigRead",
 } as const
 
 export const $OrClause_Input = {
@@ -40908,6 +41338,13 @@ export const $SubCasesRemovedEventRead = {
   description: "Event for when sub-cases are removed from this case.",
 } as const
 
+export const $SubscriptionStatus = {
+  type: "string",
+  enum: ["pending", "confirmed"],
+  title: "SubscriptionStatus",
+  description: "State of the provider subscription that feeds an event source.",
+} as const
+
 export const $SyncDiffPage = {
   properties: {
     items: {
@@ -44432,11 +44869,310 @@ export const $Trigger = {
   title: "Trigger",
 } as const
 
+export const $TriggerBindingCreate = {
+  properties: {
+    target: {
+      oneOf: [
+        {
+          $ref: "#/components/schemas/WorkflowBindingTarget",
+        },
+        {
+          $ref: "#/components/schemas/AgentBindingTarget",
+        },
+      ],
+      title: "Target",
+      discriminator: {
+        propertyName: "type",
+        mapping: {
+          agent: "#/components/schemas/AgentBindingTarget",
+          workflow: "#/components/schemas/WorkflowBindingTarget",
+        },
+      },
+    },
+    status: {
+      $ref: "#/components/schemas/TriggerStatus",
+      default: "online",
+    },
+  },
+  type: "object",
+  required: ["target"],
+  title: "TriggerBindingCreate",
+} as const
+
+export const $TriggerBindingRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    trigger_id: {
+      type: "string",
+      format: "uuid",
+      title: "Trigger Id",
+    },
+    target_type: {
+      $ref: "#/components/schemas/TriggerTargetType",
+    },
+    target_id: {
+      type: "string",
+      format: "uuid",
+      title: "Target Id",
+      description: "The workflow or agent preset ID",
+    },
+    target_name: {
+      type: "string",
+      title: "Target Name",
+      description: "The workflow title or agent preset name",
+    },
+    instruction: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Instruction",
+    },
+    status: {
+      $ref: "#/components/schemas/TriggerStatus",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "trigger_id",
+    "target_type",
+    "target_id",
+    "target_name",
+    "instruction",
+    "status",
+    "created_at",
+    "updated_at",
+  ],
+  title: "TriggerBindingRead",
+} as const
+
+export const $TriggerBindingUpdate = {
+  properties: {
+    status: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/TriggerStatus",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    instruction: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 20000,
+          minLength: 1,
+          description:
+            "What the agent should do with each event. The event itself is added to the first message as data, never as instructions.",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Instruction",
+      description: "Agent bindings only.",
+    },
+  },
+  type: "object",
+  title: "TriggerBindingUpdate",
+} as const
+
+export const $TriggerCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Name",
+    },
+    config: {
+      oneOf: [
+        {
+          $ref: "#/components/schemas/ObjectStorageTriggerConfig",
+        },
+      ],
+      title: "Config",
+      discriminator: {
+        propertyName: "kind",
+        mapping: {
+          object_storage: "#/components/schemas/ObjectStorageTriggerConfig",
+        },
+      },
+    },
+    status: {
+      $ref: "#/components/schemas/TriggerStatus",
+      default: "offline",
+    },
+  },
+  type: "object",
+  required: ["name", "config"],
+  title: "TriggerCreate",
+} as const
+
+export const $TriggerKind = {
+  type: "string",
+  enum: ["object_storage"],
+  title: "TriggerKind",
+  description:
+    "What a trigger listens to. Each kind has its own source and config.",
+} as const
+
+export const $TriggerRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    kind: {
+      $ref: "#/components/schemas/TriggerKind",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    status: {
+      $ref: "#/components/schemas/TriggerStatus",
+    },
+    config: {
+      oneOf: [
+        {
+          $ref: "#/components/schemas/ObjectStorageTriggerConfigRead",
+        },
+      ],
+      title: "Config",
+      discriminator: {
+        propertyName: "kind",
+        mapping: {
+          object_storage: "#/components/schemas/ObjectStorageTriggerConfigRead",
+        },
+      },
+    },
+    bindings: {
+      items: {
+        $ref: "#/components/schemas/TriggerBindingRead",
+      },
+      type: "array",
+      title: "Bindings",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "kind",
+    "name",
+    "status",
+    "config",
+    "bindings",
+    "created_at",
+    "updated_at",
+  ],
+  title: "TriggerRead",
+} as const
+
+export const $TriggerStatus = {
+  type: "string",
+  enum: ["online", "offline"],
+  title: "TriggerStatus",
+  description: "Whether a source, trigger or binding takes part in dispatch.",
+} as const
+
+export const $TriggerTargetType = {
+  type: "string",
+  enum: ["workflow", "agent"],
+  title: "TriggerTargetType",
+  description: "What a trigger binding starts.",
+} as const
+
 export const $TriggerType = {
   type: "string",
   enum: ["manual", "scheduled", "webhook", "case", "form"],
   title: "TriggerType",
   description: "Trigger type for a workflow execution.",
+} as const
+
+export const $TriggerUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    config: {
+      anyOf: [
+        {
+          oneOf: [
+            {
+              $ref: "#/components/schemas/ObjectStorageTriggerConfig",
+            },
+          ],
+          discriminator: {
+            propertyName: "kind",
+            mapping: {
+              object_storage: "#/components/schemas/ObjectStorageTriggerConfig",
+            },
+          },
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Config",
+      description:
+        "Replaces the whole config. Its kind must be the trigger's kind, which never changes after create.",
+    },
+    status: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/TriggerStatus",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  title: "TriggerUpdate",
 } as const
 
 export const $TunnelAvailabilityRead = {
@@ -47693,6 +48429,34 @@ export const $WorkflowArtifact = {
   required: ["id", "title", "color"],
   title: "WorkflowArtifact",
   description: "Workflow artifact shown in artifact-capable chat surfaces.",
+} as const
+
+export const $WorkflowBindingTarget = {
+  properties: {
+    type: {
+      type: "string",
+      const: "workflow",
+      title: "Type",
+    },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}",
+        },
+      ],
+      title: "Workflow Id",
+    },
+  },
+  type: "object",
+  required: ["type", "workflow_id"],
+  title: "WorkflowBindingTarget",
+  description:
+    "Start the workflow's published definition with the event as its input.",
 } as const
 
 export const $WorkflowCommitResponse = {

@@ -102,6 +102,7 @@ from tracecat.managed_resources.enums import (
 )
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.tiers.types import EntitlementsDict
+from tracecat.triggers.enums import SubscriptionStatus, TriggerStatus
 from tracecat.workspaces.schemas import WorkspaceSettings
 
 _UNSET = object()
@@ -1437,6 +1438,8 @@ class Workflow(WorkspaceModel):
         UniqueConstraint(
             "alias", "workspace_id", name="uq_workflow_alias_workspace_id"
         ),
+        # Target of the trigger bindings' same-workspace foreign key.
+        UniqueConstraint("id", "workspace_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -2120,6 +2123,238 @@ class FormFile(WorkspaceModel):
     content_type: Mapped[str] = mapped_column(String(255), nullable=False)
     size: Mapped[int] = mapped_column(Integer, nullable=False, doc="Size in bytes")
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class EventSource(WorkspaceModel):
+    """A configured inbound feed of events, such as a customer's SNS topic.
+
+    ``kind`` says how events arrive and are verified; ``config`` holds that
+    kind's settings, validated per kind in the service. For ``aws_sns`` it is
+    ``{"topic_arn": ...}``, the only topic the source accepts. Several triggers
+    can read one source, so a feed needs one subscription however many
+    triggers use it.
+    """
+
+    __tablename__ = "event_source"
+    __table_args__ = (
+        # Target of the composite keys that keep children in this workspace.
+        UniqueConstraint("id", "workspace_id"),
+        # One source per SNS topic per workspace.
+        Index(
+            "uq_event_source_aws_sns_topic",
+            "workspace_id",
+            text("(config ->> 'topic_arn')"),
+            unique=True,
+            postgresql_where=text("kind = 'aws_sns'"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    config: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
+        nullable=False,
+        doc="The kind's settings, e.g. the pinned topic of an SNS source",
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), default=TriggerStatus.OFFLINE.value, nullable=False
+    )
+    subscription_status: Mapped[str] = mapped_column(
+        String(16), default=SubscriptionStatus.PENDING.value, nullable=False
+    )
+    subscription_ref: Mapped[str | None] = mapped_column(
+        String(512),
+        nullable=True,
+        doc="The provider's subscription ID, e.g. the SNS subscription ARN",
+    )
+    endpoint_token: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        unique=True,
+        doc=(
+            "Random token in the endpoint URL handed to the customer. "
+            "Set once at creation; the URL must not change after that."
+        ),
+    )
+
+
+class Trigger(WorkspaceModel):
+    """A rule over events. v1 fires once per matching event.
+
+    The generic header. ``kind`` says what the trigger matches and never
+    changes after create. A kind with settings keeps them in its own detail
+    table, one row per trigger (``object_storage_trigger`` for
+    ``object_storage``); the service writes header and detail together.
+    """
+
+    __tablename__ = "trigger"
+    __table_args__ = (
+        # Target of the composite keys that keep detail rows and bindings in
+        # this workspace.
+        UniqueConstraint("id", "workspace_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), default=TriggerStatus.OFFLINE.value, nullable=False
+    )
+
+
+class ObjectStorageTrigger(Base):
+    """Settings of an ``object_storage`` trigger: which source, which keys.
+
+    One row per trigger of that kind, deleted with it. The dispatcher finds a
+    source's triggers here and joins ``trigger`` for the online ones.
+    """
+
+    __tablename__ = "object_storage_trigger"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["trigger_id", "workspace_id"],
+            ["trigger.id", "trigger.workspace_id"],
+            ondelete="CASCADE",
+        ),
+        # A trigger never reads another workspace's source. No cascade: a
+        # source with triggers is not deleted out from under them. NO ACTION
+        # (not RESTRICT) so a workspace delete, which cascades to both rows in
+        # one statement, still passes.
+        ForeignKeyConstraint(
+            ["source_id", "workspace_id"],
+            ["event_source.id", "event_source.workspace_id"],
+        ),
+        Index("ix_object_storage_trigger_source_id", "source_id"),
+    )
+
+    trigger_id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True)
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
+        UUID, ForeignKey("workspace.id", ondelete="CASCADE"), nullable=False
+    )
+    source_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    key_prefix: Mapped[str] = mapped_column(
+        String(1024),
+        default="",
+        server_default="",
+        nullable=False,
+        doc="Only object keys starting with this match. Empty matches every key.",
+    )
+
+
+class TriggerBinding(WorkspaceModel):
+    """Links a trigger to one target: a workflow or an agent preset.
+
+    The target's version is read when a run starts: the workflow's published
+    definition, or the preset's current version. An agent binding carries the
+    instruction its runs start with; agents take no input schema.
+    """
+
+    __tablename__ = "trigger_binding"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["trigger_id", "workspace_id"],
+            ["trigger.id", "trigger.workspace_id"],
+            ondelete="CASCADE",
+        ),
+        # A binding never targets another workspace's workflow or preset.
+        ForeignKeyConstraint(
+            ["workflow_id", "workspace_id"],
+            ["workflow.id", "workflow.workspace_id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["agent_preset_id", "workspace_id"],
+            ["agent_preset.id", "agent_preset.workspace_id"],
+            ondelete="CASCADE",
+        ),
+        CheckConstraint(
+            "(target_type = 'workflow' AND workflow_id IS NOT NULL"
+            " AND agent_preset_id IS NULL AND instruction IS NULL)"
+            " OR (target_type = 'agent' AND agent_preset_id IS NOT NULL"
+            " AND workflow_id IS NULL AND instruction IS NOT NULL)",
+            name="target",
+        ),
+        # A second binding to the same target would start it twice per event.
+        UniqueConstraint("trigger_id", "workflow_id"),
+        UniqueConstraint("trigger_id", "agent_preset_id"),
+        Index("ix_trigger_binding_workflow_id", "workflow_id"),
+        Index("ix_trigger_binding_agent_preset_id", "agent_preset_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    trigger_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    target_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    workflow_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
+    agent_preset_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
+    instruction: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(16), default=TriggerStatus.ONLINE.value, nullable=False
+    )
+
+
+class EventOutbox(Base):
+    """One received event (one object) that still has to start its targets.
+
+    Ingest writes the row and answers the sender only after the commit. The
+    dispatcher claims a row by moving ``next_attempt_at`` ahead (a lease),
+    starts its targets with fixed run IDs, and deletes the row once every
+    start is accepted.
+
+    ``next_attempt_at`` is when the row is next ready. New rows default to
+    now. NULL means the row stopped retrying: it hit the attempt cap and stays
+    with its ``attempts`` and ``last_error`` for inspection. The readiness
+    filter ``next_attempt_at <= now()`` skips such rows by itself.
+
+    Every event arrives through a source, so duplicates are caught per source
+    by ``(source_id, occurrence_key)``. ``kind`` is the trigger kind the event
+    is for.
+    """
+
+    __tablename__ = "event_outbox"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["source_id", "workspace_id"],
+            ["event_source.id", "event_source.workspace_id"],
+            ondelete="CASCADE",
+        ),
+        # A redelivered message hits this and is not queued twice. Per source,
+        # because two sources (in one workspace or two) may see the same object.
+        UniqueConstraint("source_id", "occurrence_key"),
+        # Each workspace's ready rows, oldest first.
+        Index("ix_event_outbox_dispatch", "workspace_id", "next_attempt_at", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
+        UUID, ForeignKey("workspace.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    occurrence_key: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        doc="sha256 hex of the event's identity (bucket, key, version, sequencer)",
+    )
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=True
+    )
+    attempts: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 class Schedule(WorkspaceModel):
