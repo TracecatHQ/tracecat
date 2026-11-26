@@ -8,6 +8,7 @@ import {
   workflowsCreateSyncOperation,
   workflowsGetSyncOperation,
 } from "@/client"
+import { toast } from "@/components/ui/use-toast"
 import {
   SyncOperationPollingError,
   SyncOperationWaitCancelled,
@@ -20,6 +21,8 @@ import {
   useWorkspaceSyncExportPreview,
 } from "@/hooks/use-workspace-sync"
 import { QueryClient, QueryClientProvider, useQueryClient } from "@/lib/query"
+
+jest.mock("@/components/ui/use-toast", () => ({ toast: jest.fn() }))
 
 jest.mock("@/client", () => ({
   ...jest.requireActual("@/client"),
@@ -558,4 +561,84 @@ it("detaches the local waiter during its sleep without cancelling the operation"
   })
   expect(await waiting).toBeInstanceOf(SyncOperationWaitCancelled)
   expect(workflowsGetSyncOperation).toHaveBeenCalledTimes(1)
+})
+
+describe("push mutation feedback", () => {
+  const ready: SyncOperationRead = {
+    ...operation,
+    direction: "push",
+    inputs: {
+      id: operation.id,
+      direction: "push",
+      push: { branch: "sync/demo", message: "Synthetic sync" },
+    },
+  }
+
+  function renderExport() {
+    const view = renderHook(
+      () => ({
+        ...useWorkspaceSyncExport("workspace-test"),
+        client: useQueryClient(),
+      }),
+      { wrapper }
+    )
+    view.result.current.client.setQueryData(
+      ["sync-operation", "workspace-test", ready.id],
+      ready
+    )
+    return view
+  }
+
+  it("reports a background continuation as an info toast", async () => {
+    let finish!: (operation: SyncOperationRead) => void
+    jest
+      .mocked(workflowsApplySyncOperation)
+      .mockResolvedValue({ ...ready, status: "applying" })
+    jest.mocked(workflowsGetSyncOperation).mockImplementationOnce(
+      () =>
+        new CancelablePromise((resolve) => {
+          finish = resolve
+        })
+    )
+    const view = renderExport()
+    let pushing!: Promise<unknown>
+    act(() => {
+      pushing = view.result.current
+        .exportWorkspace({ operationId: ready.id })
+        .catch((error: unknown) => error)
+    })
+    await waitFor(() => expect(workflowsGetSyncOperation).toHaveBeenCalled())
+    view.unmount()
+    await act(async () => {
+      finish({ ...ready, status: "applying" })
+    })
+    expect(await pushing).toBeInstanceOf(SyncOperationWaitCancelled)
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith({
+        title: "Sync continues in the background",
+        description: "Reopen Git sync to check its status.",
+      })
+    )
+    expect(toast).not.toHaveBeenCalledWith(
+      expect.objectContaining({ variant: "destructive" })
+    )
+  })
+
+  it("keeps the error toast for a failed push", async () => {
+    jest.mocked(workflowsApplySyncOperation).mockResolvedValue(ready)
+    jest.mocked(workflowsGetSyncOperation).mockResolvedValue({
+      ...ready,
+      status: "failed",
+      error: "Synthetic push failure",
+    })
+    const { result } = renderExport()
+    await act(async () => {
+      await expect(
+        result.current.exportWorkspace({ operationId: ready.id })
+      ).rejects.toThrow("Synthetic push failure")
+    })
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({ variant: "destructive" })
+    )
+  })
 })

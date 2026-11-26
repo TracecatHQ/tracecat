@@ -18,6 +18,7 @@ import {
   workflowsListWorkflowCommits,
 } from "@/client"
 import {
+  handleSyncMutationError,
   useSyncOperation,
   useSyncOperationWaiter,
 } from "@/hooks/use-sync-operation"
@@ -137,6 +138,7 @@ export function useWorkflowSync(workspaceId: string) {
         throw new Error(operation.error ?? "Sync did not complete")
       return response
     },
+    onError: handleSyncMutationError,
     onSuccess: (result) => {
       const importedCount = result.resource_counts
         ? Object.values(result.resource_counts).reduce(
@@ -197,6 +199,7 @@ export function useWorkspaceSyncExport(workspaceId: string) {
         throw new Error(operation.error ?? "Push did not complete")
       return operation.result
     },
+    onError: handleSyncMutationError,
   })
   return { exportWorkspace, exportWorkspaceIsPending, exportWorkspaceError }
 }
