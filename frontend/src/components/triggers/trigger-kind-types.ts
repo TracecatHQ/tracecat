@@ -9,13 +9,15 @@ export type TriggerConfig = TriggerCreate["config"]
 export interface TriggerKindFormProps {
   /** The dialog's submit button points at a `<form>` with this ID. */
   formId: string
-  /** Disables inputs while the dialog is submitting. */
+  /** True from submit until the trigger is created or fails. */
   pending: boolean
   /**
-   * Creates the trigger with this config. Throws on failure; the form shows
-   * the error and keeps its values.
+   * Runs one submission. `resolveConfig` does the kind's own requests first
+   * (such as creating a source) and returns the config; the dialog holds
+   * every control disabled until it and the trigger create finish. Throws on
+   * failure; the form shows the error and keeps its values.
    */
-  onSubmit: (config: TriggerConfig) => Promise<void>
+  onSubmit: (resolveConfig: () => Promise<TriggerConfig>) => Promise<void>
 }
 
 /** Props the trigger detail page passes to a trigger kind's settings view. */

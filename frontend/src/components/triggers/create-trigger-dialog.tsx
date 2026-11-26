@@ -2,8 +2,8 @@
 
 import { ChevronLeftIcon, ChevronRightIcon, PlusIcon } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { useState } from "react"
-import type { TriggerKind } from "@/client"
+import { useRef, useState } from "react"
+import type { TriggerKind, TriggerRead } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import type { TriggerConfig } from "@/components/triggers/trigger-kind-types"
 import {
@@ -71,14 +71,26 @@ export function CreateTriggerDialog({
   const { createTrigger } = useTriggerMutations(workspaceId)
   const [kind, setKind] = useState<TriggerKind | null>(null)
   const [name, setName] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+  // State lags a fast double submit by a render; the ref doesn't.
+  const submittingRef = useRef(false)
 
   const definition = kind ? TRIGGER_KINDS[kind] : null
 
-  async function handleCreate(config: TriggerConfig) {
-    const trigger = await createTrigger.mutateAsync({
-      name: name.trim(),
-      config,
-    })
+  async function handleCreate(resolveConfig: () => Promise<TriggerConfig>) {
+    if (submittingRef.current) return
+    submittingRef.current = true
+    setSubmitting(true)
+    let trigger: TriggerRead
+    try {
+      // Read the name now: the field is disabled from here on.
+      const triggerName = name.trim()
+      const config = await resolveConfig()
+      trigger = await createTrigger.mutateAsync({ name: triggerName, config })
+    } finally {
+      submittingRef.current = false
+      setSubmitting(false)
+    }
     onOpenChange(false)
     toast({
       title: "Trigger created",
@@ -117,13 +129,13 @@ export function CreateTriggerDialog({
                   value={name}
                   required
                   maxLength={255}
-                  disabled={createTrigger.isPending}
+                  disabled={submitting}
                   onChange={(event) => setName(event.target.value)}
                 />
               </div>
               <definition.CreateForm
                 formId={CREATE_TRIGGER_FORM_ID}
-                pending={createTrigger.isPending}
+                pending={submitting}
                 onSubmit={handleCreate}
               />
             </div>
@@ -156,7 +168,7 @@ export function CreateTriggerDialog({
               variant="ghost"
               type="button"
               onClick={() => setKind(null)}
-              disabled={createTrigger.isPending}
+              disabled={submitting}
             >
               <ChevronLeftIcon className="mr-1 size-3.5" />
               Kind
@@ -165,7 +177,7 @@ export function CreateTriggerDialog({
               size="sm"
               type="submit"
               form={CREATE_TRIGGER_FORM_ID}
-              disabled={createTrigger.isPending}
+              disabled={submitting}
             >
               Create trigger
             </Button>

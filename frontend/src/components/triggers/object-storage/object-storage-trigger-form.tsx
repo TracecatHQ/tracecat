@@ -40,36 +40,38 @@ export function ObjectStorageTriggerForm({
 
   const mode: SourceMode =
     chosenMode ?? (sources.length > 0 ? "existing" : "new")
-  const busy = pending || createEventSource.isPending
+  const busy = pending
+
+  async function resolveSourceId(): Promise<string> {
+    if (mode === "existing") {
+      return sourceId
+    }
+    const created = await createEventSource.mutateAsync({
+      name: sourceName.trim(),
+      config: { kind: "aws_sns", topic_arn: topicArn.trim() },
+      // A source starts nothing until a trigger reading it is online.
+      status: "online",
+    })
+    // If the trigger itself fails, a retry reuses this source instead of
+    // hitting the one-source-per-topic rule.
+    setChosenMode("existing")
+    setSourceId(created.id)
+    return created.id
+  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setFormError(null)
-    let resolvedSourceId = sourceId
+    if (mode === "existing" && !sourceId) {
+      setFormError("Pick an event source.")
+      return
+    }
     try {
-      if (mode === "existing") {
-        if (!resolvedSourceId) {
-          setFormError("Pick an event source.")
-          return
-        }
-      } else {
-        const created = await createEventSource.mutateAsync({
-          name: sourceName.trim(),
-          config: { kind: "aws_sns", topic_arn: topicArn.trim() },
-          // A source starts nothing until a trigger reading it is online.
-          status: "online",
-        })
-        resolvedSourceId = created.id
-        // If the trigger itself fails, a retry reuses this source instead of
-        // hitting the one-source-per-topic rule.
-        setChosenMode("existing")
-        setSourceId(created.id)
-      }
-      await onSubmit({
+      await onSubmit(async () => ({
         kind: "object_storage",
-        source_id: resolvedSourceId,
+        source_id: await resolveSourceId(),
         key_prefix: keyPrefix,
-      })
+      }))
     } catch (error) {
       setFormError(describeTriggerError(error))
     }

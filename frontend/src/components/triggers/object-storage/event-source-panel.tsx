@@ -50,7 +50,7 @@ export function EventSourcePanel({
 
   const topicArn = source.config.topic_arn
   const subscribeCommand = source.endpoint_url
-    ? `aws sns subscribe --topic-arn ${topicArn} --protocol https --notification-endpoint ${source.endpoint_url}`
+    ? `aws sns subscribe --topic-arn ${shellQuote(topicArn)} --protocol https --notification-endpoint ${shellQuote(source.endpoint_url)}`
     : null
 
   async function setOnline(online: boolean) {
@@ -94,10 +94,16 @@ export function EventSourcePanel({
       <div className="space-y-2">
         <p className="text-xs font-medium">Endpoint URL</p>
         {source.endpoint_url ? (
-          <CopyableValue
-            value={source.endpoint_url}
-            toastMessage="Endpoint URL copied"
-          />
+          <>
+            <CopyableValue
+              value={source.endpoint_url}
+              toastMessage="Endpoint URL copied"
+            />
+            <p className="text-xs text-muted-foreground">
+              Treat it like a secret: the URL is how events reach this source,
+              and it doesn't change.
+            </p>
+          </>
         ) : (
           <p className="text-xs text-muted-foreground">
             Hidden. Only members who can change triggers (trigger:update) can
@@ -155,6 +161,11 @@ export function EventSourcePanel({
       </Alert>
     </div>
   )
+}
+
+/** Single-quote a value for a POSIX shell command line. */
+export function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`
 }
 
 function CopyableValue({

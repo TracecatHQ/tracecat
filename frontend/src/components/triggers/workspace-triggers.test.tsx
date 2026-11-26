@@ -13,6 +13,7 @@ import {
   triggersUpdateTriggerBinding,
 } from "@/client"
 import { CreateTriggerDialog } from "@/components/triggers/create-trigger-dialog"
+import { shellQuote } from "@/components/triggers/object-storage/event-source-panel"
 import { TriggerDetail } from "@/components/triggers/trigger-detail"
 import { WorkspaceTriggers } from "@/components/triggers/workspace-triggers"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -173,6 +174,33 @@ describe("WorkspaceTriggers", () => {
     ).toBeInTheDocument()
   })
 
+  it("loads older triggers on request", async () => {
+    const user = userEvent.setup()
+    const older = { ...TRIGGER, id: "trigger-0", name: "Older trigger" }
+    jest
+      .mocked(triggersListTriggers)
+      .mockResolvedValueOnce({
+        items: [TRIGGER],
+        has_more: true,
+        next_cursor: "cursor-2",
+      })
+      .mockResolvedValueOnce({ items: [older], has_more: false })
+
+    renderWithClient(<WorkspaceTriggers />)
+
+    await user.click(await screen.findByRole("button", { name: "Load more" }))
+
+    expect(
+      await screen.findByRole("link", { name: /Older trigger/ })
+    ).toBeInTheDocument()
+    expect(triggersListTriggers).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cursor: "cursor-2" })
+    )
+    expect(
+      screen.queryByRole("button", { name: "Load more" })
+    ).not.toBeInTheDocument()
+  })
+
   it("shows the upgrade state and fetches nothing without the entitlement", () => {
     entitled = false
 
@@ -231,6 +259,82 @@ describe("CreateTriggerDialog", () => {
   })
 })
 
+describe("CreateTriggerDialog while submitting", () => {
+  it("locks the name until the inline source and the trigger are created", async () => {
+    const user = userEvent.setup()
+    let finishSource: (source: EventSourceRead) => void = () => {}
+    jest
+      .mocked(triggersListEventSources)
+      .mockResolvedValue({ items: [], has_more: false })
+    jest.mocked(triggersCreateEventSource).mockReturnValue(
+      new Promise<EventSourceRead>((resolve) => {
+        finishSource = resolve
+      }) as never
+    )
+    jest.mocked(triggersCreateTrigger).mockResolvedValue(TRIGGER)
+
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
+
+    await user.click(screen.getByRole("button", { name: /Object storage/ }))
+    await user.type(screen.getByLabelText("Name"), "New uploads")
+    await user.type(screen.getByLabelText("Event source name"), "Uploads")
+    await user.type(
+      screen.getByLabelText("SNS topic ARN"),
+      SOURCE.config.topic_arn
+    )
+    await user.click(screen.getByRole("button", { name: "Create trigger" }))
+
+    await waitFor(() => expect(screen.getByLabelText("Name")).toBeDisabled())
+    expect(
+      screen.getByRole("button", { name: "Create trigger" })
+    ).toBeDisabled()
+    expect(triggersCreateTrigger).not.toHaveBeenCalled()
+
+    finishSource(SOURCE)
+
+    await waitFor(() =>
+      expect(triggersCreateTrigger).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestBody: expect.objectContaining({ name: "New uploads" }),
+        })
+      )
+    )
+  })
+})
+
+describe("useEventSources via the form", () => {
+  it("offers sources from every page", async () => {
+    const user = userEvent.setup()
+    const second = {
+      ...SOURCE,
+      id: "source-2",
+      name: "Archive bucket",
+      config: {
+        kind: "aws_sns" as const,
+        topic_arn: "arn:aws:sns:us-east-1:123456789012:archive",
+      },
+    }
+    jest
+      .mocked(triggersListEventSources)
+      .mockResolvedValueOnce({
+        items: [SOURCE],
+        has_more: true,
+        next_cursor: "cursor-2",
+      })
+      .mockResolvedValueOnce({ items: [second], has_more: false })
+
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
+
+    await user.click(screen.getByRole("button", { name: /Object storage/ }))
+    await waitFor(() =>
+      expect(triggersListEventSources).toHaveBeenCalledTimes(2)
+    )
+    expect(triggersListEventSources).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cursor: "cursor-2" })
+    )
+  })
+})
+
 describe("TriggerDetail", () => {
   beforeEach(() => {
     jest.mocked(triggersGetTrigger).mockResolvedValue(TRIGGER)
@@ -254,6 +358,11 @@ describe("TriggerDetail", () => {
       await screen.findByText(SOURCE.endpoint_url ?? "")
     ).toBeInTheDocument()
     expect(screen.getByText("Subscription pending")).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        `aws sns subscribe --topic-arn '${SOURCE.config.topic_arn}' --protocol https --notification-endpoint '${SOURCE.endpoint_url}'`
+      )
+    ).toBeInTheDocument()
     expect(
       screen.getByText(/Leave raw message delivery off/)
     ).toBeInTheDocument()
@@ -321,5 +430,11 @@ describe("TriggerDetail", () => {
     expect(
       screen.getByRole("switch", { name: "New uploads online" })
     ).toBeDisabled()
+  })
+})
+
+describe("shellQuote", () => {
+  it("keeps a value with shell metacharacters as one literal word", () => {
+    expect(shellQuote("a b;$(x)'y")).toBe(`'a b;$(x)'"'"'y'`)
   })
 })

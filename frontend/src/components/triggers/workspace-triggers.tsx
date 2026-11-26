@@ -64,9 +64,14 @@ export function TriggersLockedState({ access }: { access: TriggersAccess }) {
 export function WorkspaceTriggers() {
   const workspaceId = useWorkspaceId()
   const access = useTriggersAccess()
-  const { triggers, hasMore, isLoading, error } = useTriggers(workspaceId, {
-    enabled: access === "enabled",
-  })
+  const {
+    triggers,
+    isLoading,
+    error,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  } = useTriggers(workspaceId, { enabled: access === "enabled" })
 
   if (access !== "enabled") {
     return <TriggersLockedState access={access} />
@@ -117,10 +122,18 @@ export function WorkspaceTriggers() {
             trigger={trigger}
           />
         ))}
-        {hasMore ? (
-          <p className="px-4 py-2 text-xs text-muted-foreground">
-            Showing the newest {triggers.length} triggers.
-          </p>
+        {hasNextPage ? (
+          <div className="px-4 py-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs"
+              disabled={isFetchingNextPage}
+              onClick={() => fetchNextPage()}
+            >
+              {isFetchingNextPage ? "Loading…" : "Load more"}
+            </Button>
+          </div>
         ) : null}
       </div>
     )

@@ -24,11 +24,16 @@ import {
   triggersUpdateTriggerBinding,
 } from "@/client"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
-import { useMutation, useQuery, useQueryClient } from "@/lib/query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@/lib/query"
 
-// The API caps a page at 200. A workspace with more triggers or sources than
-// that is not expected in v1; the list says so rather than paging.
-const PAGE_LIMIT = 200
+const TRIGGERS_PAGE_SIZE = 50
+// The API's page cap. Sources are one per SNS topic, so a workspace has few.
+const SOURCES_PAGE_SIZE = 200
 
 function triggersQueryKey(workspaceId: string) {
   return ["workspace-triggers", workspaceId] as const
@@ -38,26 +43,36 @@ function eventSourcesQueryKey(workspaceId: string) {
   return ["workspace-event-sources", workspaceId] as const
 }
 
-/** Lists a workspace's triggers, each with its config and targets. */
+/**
+ * Lists a workspace's triggers newest first, each with its config and
+ * targets, one page at a time.
+ */
 export function useTriggers(
   workspaceId: string,
   { enabled = true }: { enabled?: boolean } = {}
 ) {
-  const { data, isLoading, error } = useQuery<
-    Awaited<ReturnType<typeof triggersListTriggers>>,
-    TracecatApiError
-  >({
-    queryKey: triggersQueryKey(workspaceId),
-    queryFn: async () =>
-      await triggersListTriggers({ workspaceId, limit: PAGE_LIMIT }),
+  const query = useInfiniteQuery({
+    queryKey: [...triggersQueryKey(workspaceId), "list"],
+    queryFn: async ({ pageParam }) =>
+      await triggersListTriggers({
+        workspaceId,
+        limit: TRIGGERS_PAGE_SIZE,
+        cursor: pageParam,
+      }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) =>
+      page.has_more ? (page.next_cursor ?? undefined) : undefined,
     enabled: enabled && Boolean(workspaceId),
     retry: retryHandler,
+    meta: { suppressErrorToast: true },
   })
   return {
-    triggers: data?.items ?? [],
-    hasMore: data?.has_more ?? false,
-    isLoading,
-    error,
+    triggers: query.data?.pages.flatMap((page) => page.items) ?? [],
+    isLoading: query.isLoading,
+    error: query.error as TracecatApiError | null,
+    hasNextPage: query.hasNextPage,
+    isFetchingNextPage: query.isFetchingNextPage,
+    fetchNextPage: query.fetchNextPage,
   }
 }
 
@@ -76,22 +91,37 @@ export function useTrigger(
   })
 }
 
-/** Lists a workspace's event sources. */
+/**
+ * Lists every event source in a workspace, reading all pages: a picker that
+ * missed one would leave its topic unusable (one source per topic).
+ */
 export function useEventSources(
   workspaceId: string,
   { enabled = true }: { enabled?: boolean } = {}
 ) {
   const { data, isLoading, error } = useQuery<
-    Awaited<ReturnType<typeof triggersListEventSources>>,
+    EventSourceRead[],
     TracecatApiError
   >({
-    queryKey: eventSourcesQueryKey(workspaceId),
-    queryFn: async () =>
-      await triggersListEventSources({ workspaceId, limit: PAGE_LIMIT }),
+    queryKey: [...eventSourcesQueryKey(workspaceId), "all"],
+    queryFn: async () => {
+      const sources: EventSourceRead[] = []
+      let cursor: string | null = null
+      do {
+        const page = await triggersListEventSources({
+          workspaceId,
+          limit: SOURCES_PAGE_SIZE,
+          cursor,
+        })
+        sources.push(...page.items)
+        cursor = page.has_more ? (page.next_cursor ?? null) : null
+      } while (cursor)
+      return sources
+    },
     enabled: enabled && Boolean(workspaceId),
     retry: retryHandler,
   })
-  return { sources: data?.items ?? [], isLoading, error }
+  return { sources: data ?? [], isLoading, error }
 }
 
 /** Reads one event source, with its endpoint URL and subscription state. */
