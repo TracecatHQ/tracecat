@@ -7,9 +7,9 @@ are set before new pods start enforcing them.
 Only the fields declared for each named tier are written. Other tier fields,
 other tiers, and per-organization overrides are left alone. Every name must
 match exactly one tier (by display name, ignoring case) or nothing is written.
-Effective limits are cached in Redis for
-``TRACECAT__TIER_LIMITS_CACHE_TTL_SECONDS``, so new values take effect within
-that TTL.
+Admission reads limits through a per-process cache, so running pods pick up
+new values after ``TRACECAT__TIER_LIMITS_CACHE_TTL_SECONDS``, or up to twice
+that while a refresh fails.
 """
 
 from __future__ import annotations
@@ -18,14 +18,16 @@ import argparse
 import asyncio
 import sys
 from collections.abc import Sequence
+from dataclasses import asdict
 from pathlib import Path
 
 from pydantic import ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import Tier
+from tracecat.logger import logger
 from tracecat.tiers.enums import ConcurrencyLimitName
 from tracecat.tiers.exceptions import TierLimitsDeclarationError
 from tracecat.tiers.schemas import DeclaredTierLimitsFile
@@ -42,11 +44,13 @@ async def _resolve_tiers(
             "Tier names must be unique ignoring case: " + ", ".join(sorted(names))
         )
 
-    stmt = select(Tier).where(func.lower(Tier.display_name).in_(keys))
-    tiers = (await session.scalars(stmt)).all()
+    # Matched in Python, not with SQL lower(): the two can fold some Unicode
+    # names differently, and the tier table holds a handful of rows.
+    tiers = (await session.scalars(select(Tier))).all()
     matches: dict[str, list[Tier]] = {key: [] for key in keys}
     for tier in tiers:
-        matches[tier.display_name.lower()].append(tier)
+        if (key := tier.display_name.lower()) in matches:
+            matches[key].append(tier)
 
     missing = [name for name in names if not matches[name.lower()]]
     if missing:
@@ -105,6 +109,8 @@ async def reconcile_tier_limits(
 
     if changes and not dry_run:
         await session.commit()
+        # The record of a deploy-time write: there is no user to audit-log as.
+        logger.info("tier_limits.applied", changes=[asdict(c) for c in changes])
     return changes
 
 
@@ -132,7 +138,8 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 
 
 async def _run(declared: DeclaredTierLimitsFile, *, dry_run: bool) -> int:
-    async with get_async_session_bypass_rls_context_manager() as session:
+    # A normal session: tier is a global table with no RLS policy.
+    async with get_async_session_context_manager() as session:
         changes = await reconcile_tier_limits(session, declared, dry_run=dry_run)
 
     for change in changes:

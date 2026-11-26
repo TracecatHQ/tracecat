@@ -235,9 +235,7 @@ async def test_run_prints_field_diff(
     async def _session() -> AsyncGenerator[AsyncSession]:
         yield session
 
-    monkeypatch.setattr(
-        reconcile, "get_async_session_bypass_rls_context_manager", _session
-    )
+    monkeypatch.setattr(reconcile, "get_async_session_context_manager", _session)
     declared = _declared({tier.display_name: {"max_concurrent_actions": 40}})
 
     assert await reconcile._run(declared, dry_run=True) == 0
