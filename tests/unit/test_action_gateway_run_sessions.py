@@ -45,7 +45,13 @@ _REGISTRY_LOCK = RegistryLock(
 class _CheckoutCounter:
     held: int = 0
     peak: int = 0
-    held_at_start: list[int] = field(default_factory=list)
+    held_at_temporal_call: list[int] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class _FakeTemporal:
+    starts: list[dict[str, Any]] = field(default_factory=list)
+    counter: _CheckoutCounter | None = None
 
 
 @contextmanager
@@ -113,21 +119,21 @@ async def workflow_id(monkeypatch: pytest.MonkeyPatch, svc_role: Role) -> Workfl
 
 
 @pytest.fixture
-def temporal_starts(
-    monkeypatch: pytest.MonkeyPatch,
-) -> Iterator[list[dict[str, Any]]]:
-    """Replace the Temporal client; record each start's call."""
-    starts: list[dict[str, Any]] = []
+def temporal(monkeypatch: pytest.MonkeyPatch) -> Iterator[_FakeTemporal]:
+    """Replace the Temporal client; record each start and the connections held."""
+    fake = _FakeTemporal()
 
     async def start_workflow(*_: Any, **kwargs: Any) -> None:
-        starts.append(kwargs)
+        fake.starts.append(kwargs)
+        if fake.counter is not None:
+            fake.counter.held_at_temporal_call.append(fake.counter.held)
 
     client = AsyncMock()
     client.start_workflow = start_workflow
     monkeypatch.setattr(
         exec_service_module, "get_temporal_client", AsyncMock(return_value=client)
     )
-    yield starts
+    yield fake
 
 
 @pytest.fixture
@@ -156,7 +162,7 @@ async def test_run_holds_one_main_pool_connection(
     monkeypatch: pytest.MonkeyPatch,
     gateway: httpx.AsyncClient,
     workflow_id: WorkflowUUID,
-    temporal_starts: list[dict[str, Any]],
+    temporal: _FakeTemporal,
     use_draft: bool,
 ) -> None:
     # The audit-settings cache is warm from the fixture's audited writes; a cold
@@ -168,27 +174,17 @@ async def test_run_holds_one_main_pool_connection(
     )
 
     with _count_main_pool_checkouts() as counter:
-        original_start = exec_service_module.WorkflowExecutionsService._start_workflow
-
-        async def start_and_record(*args: Any, **kwargs: Any) -> None:
-            counter.held_at_start.append(counter.held)
-            await original_start(*args, **kwargs)
-
-        monkeypatch.setattr(
-            exec_service_module.WorkflowExecutionsService,
-            "_start_workflow",
-            start_and_record,
-        )
+        temporal.counter = counter
         response = await gateway.post(
             "/internal/workflows/run",
             json={"workflow_id": workflow_id.short(), "use_draft": use_draft},
         )
 
     assert response.status_code == 201, response.text
-    assert len(temporal_starts) == 1
+    assert len(temporal.starts) == 1
     # Only the request session is ever checked out, and it is still open
-    # when the start reaches Temporal.
-    assert (counter.peak, counter.held_at_start) == (1, [1])
+    # when the start reaches the Temporal client.
+    assert (counter.peak, counter.held_at_temporal_call) == (1, [1])
     assert counter.held == 0
 
 
