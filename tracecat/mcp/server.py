@@ -7196,9 +7196,9 @@ async def update_trigger(
     `schedule:read`); a config replaces every schedule setting, and its
     `workflow_id` must stay the same. A `webhook` trigger's name, config and
     status are written through its webhook (as `update_webhook` does), so
-    any change needs `workflow:update`; a config sets the methods,
-    allowlisted_cidrs and include_headers it names (the rest keep their
-    values), and its `workflow_id` must stay the same.
+    any change needs `workflow:update` on top of `trigger:update`; a config
+    sets the methods, allowlisted_cidrs and include_headers it names (the
+    rest keep their values), and its `workflow_id` must stay the same.
 
     Args:
         workspace_id: The workspace ID.
