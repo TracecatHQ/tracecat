@@ -64,7 +64,8 @@ interface ChangeMemberEmailDialogProps {
  * Lets an organization admin change a member's sign-in email.
  *
  * The new email takes effect immediately and signs the member out of every
- * session, so the admin confirms in an alert dialog before saving.
+ * session. Submitting the form swaps it for a confirmation alert dialog;
+ * cancelling returns to the form.
  */
 export function ChangeMemberEmailDialog({
   member,
@@ -140,62 +141,64 @@ export function ChangeMemberEmailDialog({
   }
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (!isPending) onOpenChange(next)
-      }}
-    >
-      <DialogContent size="md">
-        <DialogHeader>
-          <DialogTitle>Change email</DialogTitle>
-          <DialogDescription>
-            Change the email {member.email} uses to sign in.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogBody>
-          <form
-            id={FORM_ID}
-            noValidate
-            onSubmit={handleSubmit}
-            className="space-y-4"
-          >
-            <div className="space-y-2">
-              <Label htmlFor="member-new-email">New email</Label>
-              <Input
-                ref={inputRef}
-                id="member-new-email"
-                type="email"
-                autoComplete="off"
-                placeholder="name@example.com"
-                value={email}
-                disabled={isPending}
-                aria-invalid={showError}
-                aria-describedby={
-                  showError ? "member-new-email-error" : undefined
-                }
-                onChange={(event) => setEmail(event.target.value)}
-                onBlur={() => setTouched(true)}
-              />
-              {showError && (
-                <p
-                  id="member-new-email-error"
-                  className="text-xs text-destructive"
-                >
-                  {error}
-                </p>
-              )}
-            </div>
-          </form>
-        </DialogBody>
-        <DialogFooter>
-          <Button size="sm" type="submit" form={FORM_ID} disabled={isPending}>
-            Change email and sign out
-          </Button>
-        </DialogFooter>
-      </DialogContent>
+    <>
+      <Dialog
+        open={open && !confirming}
+        onOpenChange={(next) => {
+          if (!next) onOpenChange(false)
+        }}
+      >
+        <DialogContent size="md">
+          <DialogHeader>
+            <DialogTitle>Change email</DialogTitle>
+            <DialogDescription>
+              Change the email {member.email} uses to sign in.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody>
+            <form
+              id={FORM_ID}
+              noValidate
+              onSubmit={handleSubmit}
+              className="space-y-4"
+            >
+              <div className="space-y-2">
+                <Label htmlFor="member-new-email">New email</Label>
+                <Input
+                  ref={inputRef}
+                  id="member-new-email"
+                  type="email"
+                  autoComplete="off"
+                  placeholder="name@example.com"
+                  value={email}
+                  disabled={isPending}
+                  aria-invalid={showError}
+                  aria-describedby={
+                    showError ? "member-new-email-error" : undefined
+                  }
+                  onChange={(event) => setEmail(event.target.value)}
+                  onBlur={() => setTouched(true)}
+                />
+                {showError && (
+                  <p
+                    id="member-new-email-error"
+                    className="text-xs text-destructive"
+                  >
+                    {error}
+                  </p>
+                )}
+              </div>
+            </form>
+          </DialogBody>
+          <DialogFooter>
+            <Button size="sm" type="submit" form={FORM_ID} disabled={isPending}>
+              Change email and sign out
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <AlertDialog
-        open={confirming}
+        open={open && confirming}
         onOpenChange={(next) => {
           if (!isPending) setConfirming(next)
         }}
@@ -217,6 +220,6 @@ export function ChangeMemberEmailDialog({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Dialog>
+    </>
   )
 }
