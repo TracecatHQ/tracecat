@@ -41,8 +41,11 @@ def test_branding_update_rejects_invalid_hex(color: str) -> None:
         "https://example.com/logo.png",
         "data:text/html;base64,PGgxPmhpPC9oMT4=",
         "data:image/png;base64,not base64!",
-        "data:image/png;base64,"
-        + base64.b64encode(b"x" * (BRANDING_LOGO_MAX_BYTES + 1)).decode(),
+        pytest.param(
+            "data:image/png;base64,"
+            + base64.b64encode(b"x" * (BRANDING_LOGO_MAX_BYTES + 1)).decode(),
+            id="oversized-logo",
+        ),
     ],
 )
 def test_branding_update_rejects_invalid_logo(logo: str) -> None:
