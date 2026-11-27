@@ -187,6 +187,7 @@ export const SEVERITIES: Record<CaseSeverity, CaseBadgeProps<CaseSeverity>> = {
 }
 
 /** Case verdicts aligned with OCSF Incident Finding verdict IDs 0-6. */
+/** Verdicts are labels, not urgency, so they stay neutral and differ by icon. */
 export const VERDICTS: Record<CaseVerdict, CaseBadgeProps<CaseVerdict>> = {
   unknown: {
     label: "Unknown",
@@ -198,36 +199,36 @@ export const VERDICTS: Record<CaseVerdict, CaseBadgeProps<CaseVerdict>> = {
     label: "False positive",
     value: "false_positive",
     icon: ShieldCheckIcon,
-    color: palette.emerald,
+    color: palette.gray,
   },
   true_positive: {
     label: "True positive",
     value: "true_positive",
     icon: ShieldAlertIcon,
-    color: palette.red,
+    color: palette.gray,
   },
   disregard: {
     label: "Disregard",
     value: "disregard",
     icon: CircleSlashIcon,
-    color: palette.slate,
+    color: palette.gray,
   },
   suspicious: {
     label: "Suspicious",
     value: "suspicious",
     icon: EyeIcon,
-    color: palette.orange,
+    color: palette.gray,
   },
   benign: {
     label: "Benign",
     value: "benign",
     icon: ShieldIcon,
-    color: palette.sky,
+    color: palette.gray,
   },
   test: {
     label: "Test",
     value: "test",
     icon: FlaskConicalIcon,
-    color: palette.violet,
+    color: palette.gray,
   },
 }
