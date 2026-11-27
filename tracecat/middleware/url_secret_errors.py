@@ -5,12 +5,14 @@ from __future__ import annotations
 import traceback
 
 from fastapi import status
+from fastapi.dependencies.utils import get_flat_dependant
 from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from tracecat.contexts import ctx_role
 from tracecat.logger import logger
-from tracecat.logger.redaction import redact_url_secrets
+from tracecat.logger.redaction import SECRET_QUERY_KEYS, redact_url_secrets
 from tracecat.observability.sentry import capture_api_exception
 
 
@@ -19,11 +21,12 @@ class URLSecretErrorMiddleware:
 
     Starlette's ``ServerErrorMiddleware`` answers an unhandled error with the
     500 handler, then re-raises it so the server logs the traceback and OTel
-    records it on the span. For a path that carries a secret the error text can
+    records it on the span. For a URL that carries a secret the error text can
     contain it: a failed lookup echoes its bound parameters, the token among
-    them. This middleware sits inside that layer and, for those paths only,
-    logs the error type and stack frames, reports the error to Sentry (which
-    drops exception text) and answers the same 500 body without re-raising.
+    them. This middleware sits inside that layer. For routes with a secret in
+    the path or a credential query parameter, it logs the error type and stack
+    frames, reports the error to Sentry (which drops exception text) and
+    answers the same 500 body without re-raising. Other errors pass through.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -31,13 +34,6 @@ class URLSecretErrorMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
-            await self.app(scope, receive, send)
-            return
-        # Gate on the path, which the route fixes, not on the query, which any
-        # client can fill with a credential-shaped name.
-        path: str = scope["path"]
-        redacted_path = redact_url_secrets(path)
-        if redacted_path == path:
             await self.app(scope, receive, send)
             return
 
@@ -52,6 +48,8 @@ class URLSecretErrorMiddleware:
         try:
             await self.app(scope, receive, send_tracking_start)
         except Exception as exc:
+            if not _carries_url_secret(scope):
+                raise
             logger.error(
                 "Unexpected error",
                 error_type=type(exc).__name__,
@@ -59,7 +57,7 @@ class URLSecretErrorMiddleware:
                 # is left out because it can echo the secret.
                 frames="".join(traceback.format_tb(exc.__traceback__)),
                 role=ctx_role.get(),
-                path=redacted_path,
+                path=redact_url_secrets(scope["path"]),
             )
             capture_api_exception(exc)
             if response_started:
@@ -71,3 +69,22 @@ class URLSecretErrorMiddleware:
                 },
             )
             await response(scope, receive, send)
+
+
+def _carries_url_secret(scope: Scope) -> bool:
+    """Whether the request's route puts a secret in its URL.
+
+    Decided from the path, which the route fixes, and from the query
+    parameters the matched route declares, not from the raw query, which any
+    client can fill with a credential-shaped name.
+    """
+    path: str = scope["path"]
+    if redact_url_secrets(path) != path:
+        return True
+    route = scope.get("route")
+    if not isinstance(route, APIRoute):
+        return False
+    declared = {
+        param.alias for param in get_flat_dependant(route.dependant).query_params
+    }
+    return not declared.isdisjoint(SECRET_QUERY_KEYS)

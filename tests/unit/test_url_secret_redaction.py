@@ -160,6 +160,11 @@ def _captured_loguru() -> Generator[list[str]]:
         pytest.param(
             "/cases?postcode=12345", "/cases?postcode=12345", id="query-other"
         ),
+        pytest.param(
+            "/api/x\n2026 | ERROR forged",
+            "/api/x\\x0a2026 | ERROR forged",
+            id="newline",
+        ),
         pytest.param("/workflows/wf_1/webhook", "/workflows/wf_1/webhook", id="other"),
     ],
 )
@@ -384,6 +389,34 @@ def test_secret_url_errors_do_not_escape_the_app(
     # The 500 still passes through the outer layers (CORS here; the security
     # headers sit beside it outside development).
     assert "access-control-allow-origin" in response.headers
+
+
+async def _synthetic_callback(code: str, state: str) -> None:
+    raise RuntimeError(f"lookup failed for {state}")
+
+
+async def _synthetic_plain_route() -> None:
+    raise RuntimeError("plain failure")
+
+
+app.add_api_route("/synthetic/callback", _synthetic_callback)
+app.add_api_route("/synthetic/plain", _synthetic_plain_route)
+
+
+def test_errors_on_routes_with_credential_query_params_do_not_escape() -> None:
+    with _captured_loguru() as lines:
+        response = TestClient(app).get(
+            f"/synthetic/callback?code=synthetic-code&state={STATE_VALUE}"
+        )
+    assert response.status_code == 500
+    _assert_no_secret(lines)
+
+
+def test_other_errors_still_reach_the_server_error_layer() -> None:
+    # A credential-shaped query name on a route that declares none does not
+    # change how its error is handled.
+    with pytest.raises(RuntimeError, match="plain failure"):
+        TestClient(app).get(f"/synthetic/plain?token={STATE_VALUE}")
 
 
 def test_filter_redacts_mapping_args() -> None:

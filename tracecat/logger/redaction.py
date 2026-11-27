@@ -39,13 +39,14 @@ _URL_SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
 # Query parameters that carry a credential: OAuth codes and state (the
 # channel-link state embeds the link token), and bearer tokens. Names are
 # compared after URL-decoding, as the app binds them.
-_SECRET_QUERY_KEYS = frozenset(
+SECRET_QUERY_KEYS = frozenset(
     {"code", "state", "token", "access_token", "id_token", "refresh_token"}
 )
 # The query part of a URL or request line: up to the next space. A request
 # target never carries a fragment, and a raw query can contain `#` or quotes;
 # stopping at either would leave the parameters after it unredacted.
 _QUERY = re.compile(r"\?(\S*)")
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 
 UVICORN_LOGGER_NAMES = ("uvicorn.access", "uvicorn.error")
 
@@ -62,7 +63,10 @@ def redact_url_secrets(text: str) -> str:
     """
     for pattern in _URL_SECRET_PATTERNS:
         text = pattern.sub(rf"\g<1>{REDACTED_URL_SECRET}", text)
-    return _QUERY.sub(lambda match: f"?{redact_query_string(match[1])}", text)
+    text = _QUERY.sub(lambda match: f"?{redact_query_string(match[1])}", text)
+    # A decoded path can hold newlines; escape control characters so a
+    # request cannot write extra lines into a plain-text log.
+    return _CONTROL.sub(lambda match: f"\\x{ord(match[0]):02x}", text)
 
 
 def redact_query_string(query: str) -> str:
@@ -77,7 +81,7 @@ def redact_query_string(query: str) -> str:
     pairs: list[str] = []
     for pair in query.split("&"):
         name, sep, _value = pair.partition("=")
-        if sep and unquote_plus(name) in _SECRET_QUERY_KEYS:
+        if sep and unquote_plus(name) in SECRET_QUERY_KEYS:
             pair = f"{name}={REDACTED_URL_SECRET}"
         pairs.append(pair)
     return "&".join(pairs)
