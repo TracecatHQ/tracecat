@@ -11,6 +11,7 @@ from tracecat.db.models import CaseTrigger, Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.tags.schemas import TagCreate
 from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig, CaseTriggerUpdate
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 
@@ -195,6 +196,114 @@ async def test_case_trigger_create_missing_tags(session: AsyncSession, svc_role)
     tags_service = CaseTagsService(session, role=svc_role)
     created = await tags_service.get_tag_by_ref("phishing")
     assert created.ref == "phishing"
+
+
+@pytest.mark.anyio
+async def test_case_trigger_resolves_tag_names_to_existing_refs(
+    session: AsyncSession, svc_role
+):
+    workflow = Workflow(
+        title="Case Trigger Tag Names",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(workflow)
+    await session.commit()
+
+    tags_service = CaseTagsService(session, role=svc_role)
+    existing = await tags_service.create_tag(TagCreate(name="Suspicious Login"))
+    assert existing.ref == "suspicious-login"
+
+    service = CaseTriggersService(session, role=svc_role)
+    config = CaseTriggerConfig(
+        status="offline",
+        event_types=[],
+        tag_filters=[
+            "Suspicious Login",
+            "suspicious login",
+            "suspicious-login",
+            "New Tag",
+        ],
+    )
+    trigger = await service.upsert_case_trigger(
+        WorkflowUUID.new(workflow.id), config, create_missing_tags=True
+    )
+
+    assert trigger.tag_filters == ["suspicious-login", "new-tag"]
+    tags = await tags_service.list_workspace_tags()
+    assert sorted(tag.ref for tag in tags) == ["new-tag", "suspicious-login"]
+
+
+@pytest.mark.anyio
+async def test_case_trigger_exact_ref_beats_tag_id(session: AsyncSession, svc_role):
+    workflow = Workflow(
+        title="Case Trigger UUID Ref",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(workflow)
+    await session.commit()
+
+    tags_service = CaseTagsService(session, role=svc_role)
+    other = await tags_service.create_tag(TagCreate(name="Other Tag"))
+    uuid_ref = str(other.id)
+    uuid_named = await tags_service.create_tag(TagCreate(name=uuid_ref))
+    assert uuid_named.ref == uuid_ref
+
+    service = CaseTriggersService(session, role=svc_role)
+    config = CaseTriggerConfig(status="offline", event_types=[], tag_filters=[uuid_ref])
+    trigger = await service.upsert_case_trigger(WorkflowUUID.new(workflow.id), config)
+
+    assert trigger.tag_filters == [uuid_ref]
+
+
+@pytest.mark.anyio
+async def test_case_trigger_rejects_invalid_new_tag_name(
+    session: AsyncSession, svc_role
+):
+    workflow = Workflow(
+        title="Case Trigger Invalid Tag",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(workflow)
+    await session.commit()
+
+    service = CaseTriggersService(session, role=svc_role)
+    for tag_filter in ("Long Tag Name " * 4, "🔥"):
+        config = CaseTriggerConfig(
+            status="offline", event_types=[], tag_filters=[tag_filter]
+        )
+        with pytest.raises(TracecatValidationError):
+            await service.upsert_case_trigger(
+                WorkflowUUID.new(workflow.id), config, create_missing_tags=True
+            )
+
+
+@pytest.mark.anyio
+async def test_case_trigger_resolves_tag_id_to_ref(session: AsyncSession, svc_role):
+    workflow = Workflow(
+        title="Case Trigger Tag ID",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(workflow)
+    await session.commit()
+
+    tag = await CaseTagsService(session, role=svc_role).create_tag(
+        TagCreate(name="Malware")
+    )
+    service = CaseTriggersService(session, role=svc_role)
+    config = CaseTriggerConfig(
+        status="offline", event_types=[], tag_filters=[str(tag.id)]
+    )
+    trigger = await service.upsert_case_trigger(WorkflowUUID.new(workflow.id), config)
+
+    assert trigger.tag_filters == ["malware"]
 
 
 @pytest.mark.anyio
