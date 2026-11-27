@@ -90,12 +90,27 @@ async def test_body_limit_allows_exactly_maximum(chunked: bool) -> None:
         (b"Transfer-Encoding: chunked\r\n", b"1\r\naXX", 400),
         (b"Transfer-Encoding: chunked\r\n", b"0\r\nContent-Length: 5\r\n\r\n", 400),
         (b"Content-Length: 11\r\n", b"", 413),
-        (b"Content-Length: " + b"9" * 5000 + b"\r\n", b"", 413),
+        pytest.param(
+            b"Content-Length: " + b"9" * 5000 + b"\r\n",
+            b"",
+            413,
+            id="oversized-content-length",
+        ),
         (b"Transfer-Encoding: chunked\r\n", b"b\r\n", 413),
         (b"Transfer-Encoding: chunked\r\n", b"6\r\n123456\r\n5\r\n", 413),
-        (b"X-Fill: a\r\n" * 7000, b"", 431),
-        (b"X-Fill: " + b"a" * HTTP_HEADER_LIMIT + b"\r\n", b"", 431),
-        (b"Transfer-Encoding: chunked\r\n", b"0\r\n" + b"X-Fill: a\r\n" * 7000, 431),
+        pytest.param(b"X-Fill: a\r\n" * 7000, b"", 431, id="too-many-headers"),
+        pytest.param(
+            b"X-Fill: " + b"a" * HTTP_HEADER_LIMIT + b"\r\n",
+            b"",
+            431,
+            id="oversized-header",
+        ),
+        pytest.param(
+            b"Transfer-Encoding: chunked\r\n",
+            b"0\r\n" + b"X-Fill: a\r\n" * 7000,
+            431,
+            id="too-many-trailers",
+        ),
     ],
 )
 async def test_invalid_framing_is_rejected(

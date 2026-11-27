@@ -1246,8 +1246,11 @@ async def test_provider_quota_survives_litellm_request_and_serialization(
     [
         b"not-json",
         b'{"error":{"message":"insufficient_quota"}}',
-        b'{"error":{"code":"insufficient_quota"}}'.ljust(
-            MAX_LLM_ERROR_BODY_BYTES + 1, b" "
+        pytest.param(
+            b'{"error":{"code":"insufficient_quota"}}'.ljust(
+                MAX_LLM_ERROR_BODY_BYTES + 1, b" "
+            ),
+            id="oversized-body",
         ),
     ],
 )
