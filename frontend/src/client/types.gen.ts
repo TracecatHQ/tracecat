@@ -425,6 +425,18 @@ export type AgentBackendRead = {
 }
 
 /**
+ * Start a new session of the agent preset's current version.
+ */
+export type AgentBindingTarget = {
+  type: "agent"
+  agent_preset_id: string
+  /**
+   * What the agent should do with each event. The event itself is added to the first message as data, never as instructions.
+   */
+  instruction: string
+}
+
+/**
  * Cancel the running turn.
  */
 export type AgentCancelControl = {
@@ -1855,6 +1867,10 @@ export type AppSettingsUpdate = {
   app_unsafe_disable_secret_error_withholding_workspace_ids?: Array<string>
 }
 
+export type AppVersionRead = {
+  version: string
+}
+
 /**
  * Operator decision for a pending approval.
  */
@@ -2201,6 +2217,17 @@ export type AwsSecretsManagerStoreUpdate = {
 }
 
 /**
+ * Events pushed by a customer-owned SNS topic, pinned by its ARN.
+ */
+export type AwsSnsSourceConfig = {
+  kind: "aws_sns"
+  /**
+   * ARN of the customer's SNS topic. The source accepts no other.
+   */
+  topic_arn: string
+}
+
+/**
  * Azure AI catalog entry.
  */
 export type AzureAICatalogCreate = {
@@ -2453,6 +2480,63 @@ export type BooleanApprovalDecision = {
 }
 
 /**
+ * Effective branding for an organization, safe to show before sign-in.
+ *
+ * Unset fields mean the Tracecat default. Organizations without the
+ * ``custom_branding`` entitlement always get the defaults.
+ */
+export type BrandingRead = {
+  /**
+   * Logo as a data URL
+   */
+  logo?: string | null
+  /**
+   * Light mode primary color as #RRGGBB
+   */
+  primary_color_light?: string | null
+  /**
+   * Dark mode primary color as #RRGGBB
+   */
+  primary_color_dark?: string | null
+  /**
+   * Whether to show the terms notice on sign-in
+   */
+  terms_enabled?: boolean
+}
+
+/**
+ * Organization branding settings.
+ */
+export type BrandingSettingsRead = {
+  branding_logo?: string | null
+  branding_primary_color_light?: string | null
+  branding_primary_color_dark?: string | null
+  branding_terms_enabled?: boolean
+}
+
+/**
+ * Organization branding settings.
+ */
+export type BrandingSettingsUpdate = {
+  /**
+   * Logo as a base64 data URL (PNG, JPEG, WebP, or SVG, at most 256 KB). Null restores the Tracecat logo.
+   */
+  branding_logo?: string | null
+  /**
+   * Primary color in light mode as #RRGGBB. Null uses the default.
+   */
+  branding_primary_color_light?: string | null
+  /**
+   * Primary color in dark mode as #RRGGBB. Null uses the default.
+   */
+  branding_primary_color_dark?: string | null
+  /**
+   * Whether sign-in and sign-up pages show the terms notice.
+   */
+  branding_terms_enabled?: boolean
+}
+
+/**
  * Edition of the running deployment.
  */
 export type BuildEdition = "oss" | "ee"
@@ -2696,6 +2780,7 @@ export type CaseCreate = {
   status: CaseStatus
   priority: CasePriority
   severity: CaseSeverity
+  verdict?: CaseVerdict | null
   fields?: {
     [key: string]: unknown
   } | null
@@ -3136,6 +3221,7 @@ export type CaseEventRead =
   | StatusChangedEventRead
   | PriorityChangedEventRead
   | SeverityChangedEventRead
+  | VerdictChangedEventRead
   | FieldChangedEventRead
   | AssigneeChangedEventRead
   | AttachmentCreatedEventRead
@@ -3173,6 +3259,7 @@ export type CaseEventType =
   | "case_viewed"
   | "priority_changed"
   | "severity_changed"
+  | "verdict_changed"
   | "status_changed"
   | "fields_changed"
   | "assignee_changed"
@@ -3473,6 +3560,7 @@ export type CaseRead = {
   status: CaseStatus
   priority: CasePriority
   severity: CaseSeverity
+  verdict?: CaseVerdict | null
   description: string
   fields: Array<CaseFieldRead>
   assignee?: UserRead | null
@@ -3504,6 +3592,7 @@ export type CaseReadMinimal = {
   status: CaseStatus
   priority: CasePriority
   severity: CaseSeverity
+  verdict?: CaseVerdict | null
   assignee?: UserRead | null
   tags?: Array<CaseTagRead>
   dropdown_values: Array<CaseDropdownValueRead>
@@ -3559,6 +3648,7 @@ export type CaseSearchOrder =
   | "updated_at"
   | "priority"
   | "severity"
+  | "verdict"
   | "status"
   | "tasks"
   | "id"
@@ -3838,6 +3928,10 @@ export type CaseUpdate = {
   status?: CaseStatus | null
   priority?: CasePriority | null
   severity?: CaseSeverity | null
+  /**
+   * Set to null to clear the verdict.
+   */
+  verdict?: CaseVerdict | null
   fields?: {
     [key: string]: unknown
   } | null
@@ -3847,6 +3941,27 @@ export type CaseUpdate = {
     [key: string]: unknown
   } | null
 }
+
+/**
+ * Case verdict values aligned with OCSF Incident Finding verdict.
+ *
+ * Values:
+ * UNKNOWN (0): The type is unknown
+ * FALSE_POSITIVE (1): The incident is a false positive
+ * TRUE_POSITIVE (2): The incident is a true positive
+ * DISREGARD (3): The incident can be disregarded as it is unimportant, an error or accident
+ * SUSPICIOUS (4): The incident is suspicious
+ * BENIGN (5): The incident is benign
+ * TEST (6): The incident is a test
+ */
+export type CaseVerdict =
+  | "unknown"
+  | "false_positive"
+  | "true_positive"
+  | "disregard"
+  | "suspicious"
+  | "benign"
+  | "test"
 
 /**
  * Minimal user metadata for a case-version author.
@@ -5192,6 +5307,30 @@ export type CursorPaginatedResponse_ChannelBotChannel_ = {
   total_estimate?: number | null
 }
 
+export type CursorPaginatedResponse_EventSourceRead_ = {
+  items: Array<EventSourceRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 export type CursorPaginatedResponse_FormIntakeRead_ = {
   items: Array<FormIntakeRead>
   /**
@@ -5554,6 +5693,30 @@ export type CursorPaginatedResponse_TableFolderRead_ = {
 
 export type CursorPaginatedResponse_TableRowRead_ = {
   items: Array<TableRowRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_TriggerRead_ = {
+  items: Array<TriggerRead>
   /**
    * Cursor for next page
    */
@@ -6106,6 +6269,14 @@ export type EffectiveEntitlements = {
    * Whether the organization uses the channel bot API in place of legacy agent channels
    */
   agent_channels_preview?: boolean
+  /**
+   * Whether object storage events (S3 object created, over SNS) may start workflows and agents
+   */
+  object_triggers?: boolean
+  /**
+   * Whether the organization may set its own logo, primary colors, and sign-in page terms notice
+   */
+  custom_branding?: boolean
 }
 
 /**
@@ -6251,6 +6422,14 @@ export type EntitlementsDict = {
    * Whether the organization uses the channel bot API in place of legacy agent channels
    */
   agent_channels_preview?: boolean
+  /**
+   * Whether object storage events (S3 object created, over SNS) may start workflows and agents
+   */
+  object_triggers?: boolean
+  /**
+   * Whether the organization may set its own logo, primary colors, and sign-in page terms notice
+   */
+  custom_branding?: boolean
 }
 
 export type ErrorModel = {
@@ -6289,6 +6468,45 @@ export type EventGroup_TypeVar_ = {
   start_delay?: number
   join_strategy?: JoinStrategy
   related_wf_exec_id?: string | null
+}
+
+export type EventSourceCreate = {
+  name: string
+  config: AwsSnsSourceConfig
+  status?: TriggerStatus
+}
+
+/**
+ * How a source's events arrive and are verified.
+ */
+export type EventSourceKind = "aws_sns"
+
+export type EventSourceRead = {
+  id: string
+  kind: EventSourceKind
+  name: string
+  config: AwsSnsSourceConfig
+  status: TriggerStatus
+  subscription_status: SubscriptionStatus
+  /**
+   * The provider's subscription ID, e.g. the SNS subscription ARN. Null for callers without trigger:update.
+   */
+  subscription_ref: string | null
+  /**
+   * Point the feed (e.g. the SNS subscription) at this HTTPS URL. It does not change. Null for callers without trigger:update.
+   */
+  endpoint_url: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type EventSourceUpdate = {
+  name?: string | null
+  /**
+   * Replaces the whole config. The kind cannot change. Changing where events come from resets the subscription to pending.
+   */
+  config?: AwsSnsSourceConfig | null
+  status?: TriggerStatus | null
 }
 
 /**
@@ -8048,6 +8266,16 @@ export type LibrarySkillSourceRead = {
 export type kind3 = "upstream" | "local"
 
 /**
+ * Sign-in methods the current user can manage from their account settings.
+ */
+export type LoginMethodsRead = {
+  /**
+   * Whether the user can sign in with, and change, a local password
+   */
+  password: boolean
+}
+
+/**
  * Authentication type for MCP integrations.
  */
 export type MCPAuthType = "OAUTH2" | "CUSTOM" | "NONE"
@@ -9134,6 +9362,37 @@ export type ObjectRef = {
 export type encoding2 = "json" | "json+zstd" | "json+gzip"
 
 /**
+ * Fire once for each object created in a source whose key matches.
+ */
+export type ObjectStorageTriggerConfig = {
+  kind: "object_storage"
+  /**
+   * The event source to read object events from
+   */
+  source_id: string
+  /**
+   * Only keys starting with this fire. Empty matches every key.
+   */
+  key_prefix?: string
+}
+
+export type ObjectStorageTriggerConfigRead = {
+  kind: "object_storage"
+  /**
+   * The event source to read object events from
+   */
+  source_id: string
+  /**
+   * Only keys starting with this fire. Empty matches every key.
+   */
+  key_prefix?: string
+  /**
+   * The event source's display name
+   */
+  source_name: string
+}
+
+/**
  * A disjunction of one or more filters.
  */
 export type OrClause_Input = {
@@ -9185,6 +9444,13 @@ export type OrgMemberDetail = {
   last_login_at: string | null
 }
 
+/**
+ * New sign-in email for an organization member.
+ */
+export type OrgMemberEmailUpdate = {
+  email: string
+}
+
 export type OrgMemberGroupRead = {
   id: string
   name: string
@@ -9217,6 +9483,18 @@ export type OrgMemberRoleRead = {
 }
 
 export type OrgMemberStatus = "active" | "inactive" | "invited"
+
+/**
+ * Member fields an organization admin may update.
+ *
+ * Email has its own endpoint because changing it signs the member out.
+ * Passwords are never set by an admin.
+ */
+export type OrgMemberUpdate = {
+  role?: UserRole | null
+  first_name?: string | null
+  last_name?: string | null
+}
 
 export type OrgMemberWorkspaceRead = {
   id: string
@@ -9587,6 +9865,11 @@ export type ParentChangedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+export type PasswordChange = {
+  current_password: string
+  new_password: string
 }
 
 /**
@@ -10585,6 +10868,7 @@ export type Role = {
     | "tracecat-runner"
     | "tracecat-schedule-runner"
     | "tracecat-service"
+    | "tracecat-triggers"
     | "tracecat-ui"
   is_platform_superuser?: boolean
   scopes?: Array<string> | null
@@ -10606,6 +10890,7 @@ export type service_id =
   | "tracecat-runner"
   | "tracecat-schedule-runner"
   | "tracecat-service"
+  | "tracecat-triggers"
   | "tracecat-ui"
 
 /**
@@ -10978,6 +11263,93 @@ export type ScheduleSearch = {
   query?: string | null
   group_by?: Array<string> | null
   agg?: string | null
+}
+
+/**
+ * Run a workflow on a cron expression or a fixed interval.
+ *
+ * The settings of the workflow's schedule (``/schedules``), which the
+ * trigger shows and edits. Until schedules start their targets through
+ * bindings, the trigger's one target is this workflow and cannot change.
+ */
+export type ScheduleTriggerConfig = {
+  /**
+   * A cron expression. Set this or `every`.
+   */
+  cron?: string | null
+  /**
+   * ISO 8601 interval. Set this or `cron`.
+   */
+  every?: string | null
+  /**
+   * ISO 8601 delay before the first interval run. Interval only.
+   */
+  offset?: string | null
+  /**
+   * ISO 8601 datetime before which it does not run
+   */
+  start_at?: string | null
+  /**
+   * ISO 8601 datetime after which it stops
+   */
+  end_at?: string | null
+  /**
+   * Most seconds each run may take. 0 means no timeout.
+   */
+  timeout?: number
+  /**
+   * The workflow's trigger inputs for each run
+   */
+  inputs?: {
+    [key: string]: unknown
+  } | null
+  kind: "schedule"
+  /**
+   * The workflow the schedule runs. Fixed after create.
+   */
+  workflow_id: string
+}
+
+export type ScheduleTriggerConfigRead = {
+  /**
+   * A cron expression. Set this or `every`.
+   */
+  cron?: string | null
+  /**
+   * ISO 8601 interval. Set this or `cron`.
+   */
+  every?: string | null
+  /**
+   * ISO 8601 delay before the first interval run. Interval only.
+   */
+  offset?: string | null
+  /**
+   * ISO 8601 datetime before which it does not run
+   */
+  start_at?: string | null
+  /**
+   * ISO 8601 datetime after which it stops
+   */
+  end_at?: string | null
+  /**
+   * Most seconds each run may take. 0 means no timeout.
+   */
+  timeout?: number
+  /**
+   * The workflow's trigger inputs for each run
+   */
+  inputs?: {
+    [key: string]: unknown
+  } | null
+  kind: "schedule"
+  /**
+   * The workflow the schedule runs
+   */
+  workflow_id: string
+  /**
+   * The schedule's ID in `/schedules`, which does not change
+   */
+  schedule_id: string
 }
 
 export type ScheduleUpdate = {
@@ -12544,6 +12916,11 @@ export type SubCasesRemovedEventRead = {
 }
 
 /**
+ * State of the provider subscription that feeds an event source.
+ */
+export type SubscriptionStatus = "pending" | "confirmed"
+
+/**
  * A stable page of diff metadata; file text is fetched separately.
  */
 export type SyncDiffPage = {
@@ -13626,10 +14003,88 @@ export type Trigger = {
 
 export type type6 = "schedule" | "webhook"
 
+export type TriggerBindingCreate = {
+  target: WorkflowBindingTarget | AgentBindingTarget
+  status?: TriggerStatus
+}
+
+export type TriggerBindingRead = {
+  id: string
+  trigger_id: string
+  target_type: TriggerTargetType
+  /**
+   * The workflow or agent preset ID
+   */
+  target_id: string
+  /**
+   * The workflow title or agent preset name
+   */
+  target_name: string
+  instruction: string | null
+  status: TriggerStatus
+  created_at: string
+  updated_at: string
+}
+
+export type TriggerBindingUpdate = {
+  status?: TriggerStatus | null
+  /**
+   * Agent bindings only.
+   */
+  instruction?: string | null
+}
+
+export type TriggerCreate = {
+  name: string
+  config: ObjectStorageTriggerConfig | ScheduleTriggerConfig
+  status?: TriggerStatus
+}
+
+/**
+ * What a trigger listens to. Each kind has its own source and config.
+ */
+export type TriggerKind = "object_storage" | "schedule"
+
+export type TriggerRead = {
+  id: string
+  kind: TriggerKind
+  name: string
+  status: TriggerStatus
+  config: ObjectStorageTriggerConfigRead | ScheduleTriggerConfigRead
+  bindings: Array<TriggerBindingRead>
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Whether a source, trigger or binding takes part in dispatch.
+ */
+export type TriggerStatus = "online" | "offline"
+
+/**
+ * What a trigger binding starts.
+ */
+export type TriggerTargetType = "workflow" | "agent"
+
 /**
  * Trigger type for a workflow execution.
  */
-export type TriggerType = "manual" | "scheduled" | "webhook" | "case" | "form"
+export type TriggerType =
+  | "manual"
+  | "scheduled"
+  | "webhook"
+  | "case"
+  | "form"
+  | "object_storage"
+
+export type TriggerUpdate = {
+  name?: string | null
+  /**
+   * Replaces the whole config. Its kind must be the trigger's kind, which never changes after create.
+   */
+  config?: ObjectStorageTriggerConfig | ScheduleTriggerConfig | null
+  status?: TriggerStatus | null
+}
 
 /**
  * Whether this deployment can run tunnel gateways.
@@ -13967,6 +14422,21 @@ export type UserSearchRead = {
 }
 
 /**
+ * Profile fields a user may change on their own account.
+ *
+ * Password changes go through the dedicated endpoint, which requires the
+ * current password. Email changes are admin-only because the new address
+ * isn't verified.
+ */
+export type UserSelfUpdate = {
+  first_name?: string | null
+  last_name?: string | null
+  settings?: {
+    [key: string]: unknown
+  } | null
+}
+
+/**
  * Summary of a user for inbox item context.
  */
 export type UserSummary = {
@@ -14109,6 +14579,27 @@ export type VercelChatRequest = {
    * The page the chat is docked on. Only Workspace chat uses it.
    */
   page_context?: ChatPageContext | null
+}
+
+/**
+ * Event for when a case verdict is set, changed, or cleared.
+ */
+export type VerdictChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "verdict_changed"
+  old: CaseVerdict | null
+  new: CaseVerdict | null
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
 }
 
 /**
@@ -14459,6 +14950,14 @@ export type WorkflowArtifact = {
   type?: "workflow"
   color: string
   isPublished?: boolean | null
+}
+
+/**
+ * Start the workflow's published definition with the event as its input.
+ */
+export type WorkflowBindingTarget = {
+  type: "workflow"
+  workflow_id: string
 }
 
 export type WorkflowCommitResponse = {
@@ -17201,6 +17700,22 @@ export type TagsDeleteTagData = {
 
 export type TagsDeleteTagResponse = unknown
 
+export type UsersUsersCurrentUserResponse = UserRead
+
+export type UsersUsersPatchCurrentUserData = {
+  requestBody: UserSelfUpdate
+}
+
+export type UsersUsersPatchCurrentUserResponse = UserRead
+
+export type UsersGetCurrentUserLoginMethodsResponse = LoginMethodsRead
+
+export type UsersChangeCurrentUserPasswordData = {
+  requestBody: PasswordChange
+}
+
+export type UsersChangeCurrentUserPasswordResponse = void
+
 export type UsersSearchUserData = {
   email?: string | null
   workspaceId?: string | null
@@ -17248,11 +17763,18 @@ export type OrganizationDeleteOrgMemberData = {
 export type OrganizationDeleteOrgMemberResponse = void
 
 export type OrganizationUpdateOrgMemberData = {
-  requestBody: UserUpdate
+  requestBody: OrgMemberUpdate
   userId: string
 }
 
 export type OrganizationUpdateOrgMemberResponse = OrgMemberDetail
+
+export type OrganizationChangeOrgMemberEmailData = {
+  requestBody: OrgMemberEmailUpdate
+  userId: string
+}
+
+export type OrganizationChangeOrgMemberEmailResponse = void
 
 export type OrganizationListSessionsResponse = Array<SessionRead>
 
@@ -19290,6 +19812,14 @@ export type SettingsUpdateAppSettingsData = {
 
 export type SettingsUpdateAppSettingsResponse = void
 
+export type SettingsGetBrandingSettingsResponse = BrandingSettingsRead
+
+export type SettingsUpdateBrandingSettingsData = {
+  requestBody: BrandingSettingsUpdate
+}
+
+export type SettingsUpdateBrandingSettingsResponse = void
+
 export type SettingsGetAuditSettingsResponse = AuditSettingsRead
 
 export type SettingsUpdateAuditSettingsData = {
@@ -19812,6 +20342,103 @@ export type FormsDeleteFormSubmissionData = {
 }
 
 export type FormsDeleteFormSubmissionResponse = void
+
+export type TriggersListEventSourcesData = {
+  cursor?: string | null
+  limit?: number
+  workspaceId: string
+}
+
+export type TriggersListEventSourcesResponse =
+  CursorPaginatedResponse_EventSourceRead_
+
+export type TriggersCreateEventSourceData = {
+  requestBody: EventSourceCreate
+  workspaceId: string
+}
+
+export type TriggersCreateEventSourceResponse = EventSourceRead
+
+export type TriggersGetEventSourceData = {
+  sourceId: string
+  workspaceId: string
+}
+
+export type TriggersGetEventSourceResponse = EventSourceRead
+
+export type TriggersUpdateEventSourceData = {
+  requestBody: EventSourceUpdate
+  sourceId: string
+  workspaceId: string
+}
+
+export type TriggersUpdateEventSourceResponse = EventSourceRead
+
+export type TriggersListTriggersData = {
+  agentPresetId?: string | null
+  cursor?: string | null
+  kind?: TriggerKind | null
+  limit?: number
+  sourceId?: string | null
+  workflowId?: string | null
+  workspaceId: string
+}
+
+export type TriggersListTriggersResponse = CursorPaginatedResponse_TriggerRead_
+
+export type TriggersCreateTriggerData = {
+  requestBody: TriggerCreate
+  workspaceId: string
+}
+
+export type TriggersCreateTriggerResponse = TriggerRead
+
+export type TriggersGetTriggerData = {
+  triggerId: string
+  workspaceId: string
+}
+
+export type TriggersGetTriggerResponse = TriggerRead
+
+export type TriggersUpdateTriggerData = {
+  requestBody: TriggerUpdate
+  triggerId: string
+  workspaceId: string
+}
+
+export type TriggersUpdateTriggerResponse = TriggerRead
+
+export type TriggersDeleteTriggerData = {
+  triggerId: string
+  workspaceId: string
+}
+
+export type TriggersDeleteTriggerResponse = void
+
+export type TriggersCreateTriggerBindingData = {
+  requestBody: TriggerBindingCreate
+  triggerId: string
+  workspaceId: string
+}
+
+export type TriggersCreateTriggerBindingResponse = TriggerBindingRead
+
+export type TriggersUpdateTriggerBindingData = {
+  bindingId: string
+  requestBody: TriggerBindingUpdate
+  triggerId: string
+  workspaceId: string
+}
+
+export type TriggersUpdateTriggerBindingResponse = TriggerBindingRead
+
+export type TriggersDeleteTriggerBindingData = {
+  bindingId: string
+  triggerId: string
+  workspaceId: string
+}
+
+export type TriggersDeleteTriggerBindingResponse = void
 
 export type FormsListIntakeFormsData = {
   cursor?: string | null
@@ -20393,6 +21020,7 @@ export type CasesListLinkedCasesData = {
     | "updated_at"
     | "priority"
     | "severity"
+    | "verdict"
     | "status"
     | "tasks"
     | "assignee"
@@ -21439,14 +22067,6 @@ export type ScimResourceTypesResponse = ScimListResponse
 
 export type ScimSchemasDocumentResponse = ScimListResponse
 
-export type UsersUsersCurrentUserResponse = UserRead
-
-export type UsersUsersPatchCurrentUserData = {
-  requestBody: UserUpdate
-}
-
-export type UsersUsersPatchCurrentUserResponse = UserRead
-
 export type UsersUsersUserData = {
   id: string
 }
@@ -21576,7 +22196,17 @@ export type AuthDiscoverAuthMethodData = {
 
 export type AuthDiscoverAuthMethodResponse = AuthDiscoverResponse
 
+export type AuthGetPublicBrandingData = {
+  org?: string | null
+}
+
+export type AuthGetPublicBrandingResponse = BrandingRead
+
+export type OrganizationGetOrganizationBrandingResponse = BrandingRead
+
 export type PublicCheckHealthResponse = HealthResponse
+
+export type InfoGetAppVersionResponse = AppVersionRead
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
@@ -23872,6 +24502,58 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/users/me": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: UserRead
+        /**
+         * Missing token or inactive user.
+         */
+        401: unknown
+      }
+    }
+    patch: {
+      req: UsersUsersPatchCurrentUserData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: UserRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/users/me/login-methods": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: LoginMethodsRead
+      }
+    }
+  }
+  "/users/me/password": {
+    post: {
+      req: UsersChangeCurrentUserPasswordData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/users/search": {
     get: {
       req: UsersSearchUserData
@@ -24010,6 +24692,29 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: OrgMemberDetail
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/members/{user_id}/email": {
+    patch: {
+      req: OrganizationChangeOrgMemberEmailData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * The email can't be used.
+         */
+        400: unknown
+        /**
+         * The member is a superuser or belongs to another organization.
+         */
+        403: unknown
         /**
          * Validation Error
          */
@@ -27990,6 +28695,29 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/settings/branding": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: BrandingSettingsRead
+      }
+    }
+    patch: {
+      req: SettingsUpdateBrandingSettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/settings/audit": {
     get: {
       res: {
@@ -29016,6 +29744,250 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/event-sources": {
+    get: {
+      req: TriggersListEventSourcesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_EventSourceRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: TriggersCreateEventSourceData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: EventSourceRead
+        /**
+         * See detail.code
+         */
+        409: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/event-sources/{source_id}": {
+    get: {
+      req: TriggersGetEventSourceData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: EventSourceRead
+        /**
+         * See detail.code
+         */
+        404: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: TriggersUpdateEventSourceData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: EventSourceRead
+        /**
+         * See detail.code
+         */
+        400: unknown
+        /**
+         * See detail.code
+         */
+        404: unknown
+        /**
+         * See detail.code
+         */
+        409: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/triggers": {
+    get: {
+      req: TriggersListTriggersData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_TriggerRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: TriggersCreateTriggerData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: TriggerRead
+        /**
+         * See detail.code
+         */
+        400: unknown
+        /**
+         * See detail.code
+         */
+        404: unknown
+        /**
+         * See detail.code
+         */
+        409: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/triggers/{trigger_id}": {
+    get: {
+      req: TriggersGetTriggerData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TriggerRead
+        /**
+         * See detail.code
+         */
+        404: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: TriggersUpdateTriggerData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TriggerRead
+        /**
+         * See detail.code
+         */
+        400: unknown
+        /**
+         * See detail.code
+         */
+        404: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: TriggersDeleteTriggerData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * See detail.code
+         */
+        404: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/triggers/{trigger_id}/bindings": {
+    post: {
+      req: TriggersCreateTriggerBindingData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: TriggerBindingRead
+        /**
+         * See detail.code
+         */
+        400: unknown
+        /**
+         * See detail.code
+         */
+        404: unknown
+        /**
+         * See detail.code
+         */
+        409: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/triggers/{trigger_id}/bindings/{binding_id}": {
+    patch: {
+      req: TriggersUpdateTriggerBindingData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TriggerBindingRead
+        /**
+         * See detail.code
+         */
+        400: unknown
+        /**
+         * See detail.code
+         */
+        404: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: TriggersDeleteTriggerBindingData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * See detail.code
+         */
+        400: unknown
+        /**
+         * See detail.code
+         */
+        404: unknown
         /**
          * Validation Error
          */
@@ -31678,41 +32650,6 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/users/me": {
-    get: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: UserRead
-        /**
-         * Missing token or inactive user.
-         */
-        401: unknown
-      }
-    }
-    patch: {
-      req: UsersUsersPatchCurrentUserData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: UserRead
-        /**
-         * Bad Request
-         */
-        400: ErrorModel
-        /**
-         * Missing token or inactive user.
-         */
-        401: unknown
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
   "/users/{id}": {
     get: {
       req: UsersUsersUserData
@@ -32129,6 +33066,31 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/auth/branding": {
+    get: {
+      req: AuthGetPublicBrandingData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: BrandingRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/branding": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: BrandingRead
+      }
+    }
+  }
   "/health": {
     get: {
       res: {
@@ -32136,6 +33098,16 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: HealthResponse
+      }
+    }
+  }
+  "/version": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AppVersionRead
       }
     }
   }

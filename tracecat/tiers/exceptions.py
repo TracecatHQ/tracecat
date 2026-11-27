@@ -73,3 +73,7 @@ class ActionExecutionLimitExceeded(TierLimitExceeded):
 
     def __init__(self, current: int, limit: int):
         super().__init__("max_action_executions_per_workflow", current, limit)
+
+
+class TierLimitsDeclarationError(TierError):
+    """Raised when declared tier limits cannot be applied as written."""

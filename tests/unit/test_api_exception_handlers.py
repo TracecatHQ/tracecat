@@ -273,8 +273,10 @@ def test_refused_approver_gets_the_reason_in_a_403() -> None:
         app.exception_handlers[ApproverNotAllowedError]
         is approver_not_allowed_exception_handler
     )
+    request = Mock()
+    request.url.path = "/approvals/decision"
     response = approver_not_allowed_exception_handler(
-        Mock(), ApproverNotAllowedError(UNLINKED_APPROVER_MESSAGE)
+        request, ApproverNotAllowedError(UNLINKED_APPROVER_MESSAGE)
     )
 
     assert response.status_code == 403

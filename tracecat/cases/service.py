@@ -75,6 +75,7 @@ from tracecat.cases.event_schemas import (
     TaskStatusChangedEvent,
     TaskWorkflowChangedEvent,
     UpdatedEvent,
+    VerdictChangedEvent,
 )
 from tracecat.cases.events import CaseEventsService
 from tracecat.cases.exact_search import MAX_CASE_NUMBER
@@ -741,6 +742,7 @@ class CasesService(BaseWorkspaceService):
                 description=params.description,
                 priority=params.priority,
                 severity=params.severity,
+                verdict=params.verdict,
                 status=params.status,
                 assignee_id=params.assignee_id,
                 payload=params.payload,
@@ -1048,6 +1050,19 @@ class CasesService(BaseWorkspaceService):
                     case=case,
                     event=SeverityChangedEvent(
                         old=old_severity, new=new_severity, wf_exec_id=wf_exec_id
+                    ),
+                )
+
+        # Verdict is nullable, so an explicit null clears it.
+        if "verdict" in set_fields:
+            new_verdict = set_fields.pop("verdict")
+            old_verdict = case.verdict
+            if old_verdict != new_verdict:
+                case.verdict = new_verdict
+                await self.events.create_event(
+                    case=case,
+                    event=VerdictChangedEvent(
+                        old=old_verdict, new=new_verdict, wf_exec_id=wf_exec_id
                     ),
                 )
 

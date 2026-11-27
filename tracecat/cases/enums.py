@@ -45,6 +45,28 @@ class CaseSeverity(StrEnum):
     OTHER = "other"
 
 
+class CaseVerdict(StrEnum):
+    """Case verdict values aligned with OCSF Incident Finding verdict.
+
+    Values:
+        UNKNOWN (0): The type is unknown
+        FALSE_POSITIVE (1): The incident is a false positive
+        TRUE_POSITIVE (2): The incident is a true positive
+        DISREGARD (3): The incident can be disregarded as it is unimportant, an error or accident
+        SUSPICIOUS (4): The incident is suspicious
+        BENIGN (5): The incident is benign
+        TEST (6): The incident is a test
+    """
+
+    UNKNOWN = "unknown"
+    FALSE_POSITIVE = "false_positive"
+    TRUE_POSITIVE = "true_positive"
+    DISREGARD = "disregard"
+    SUSPICIOUS = "suspicious"
+    BENIGN = "benign"
+    TEST = "test"
+
+
 class CaseStatus(StrEnum):
     """Case status values aligned with OCSF Incident Finding status."""
 
@@ -81,6 +103,7 @@ class CaseEventType(StrEnum):
     CASE_VIEWED = "case_viewed"
     PRIORITY_CHANGED = "priority_changed"
     SEVERITY_CHANGED = "severity_changed"
+    VERDICT_CHANGED = "verdict_changed"
     STATUS_CHANGED = "status_changed"
     FIELDS_CHANGED = "fields_changed"
     ASSIGNEE_CHANGED = "assignee_changed"

@@ -226,7 +226,10 @@ async def test_out_of_range_diff_cursor_is_http_bad_request(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("cursor,status", [("invalid!", 400), ("a" * 8193, 422)])
+@pytest.mark.parametrize(
+    "cursor,status",
+    [("invalid!", 400), pytest.param("a" * 8193, 422, id="oversized-cursor")],
+)
 async def test_operation_cursor_is_http_client_error(session, svc_role, cursor, status):
     app = FastAPI()
     app.include_router(router.router)

@@ -141,6 +141,49 @@ when it creates the form.
 `update_form` creates the form if the workflow has none. `config` replaces the
 stored config whole. Submissions are not exposed over MCP.
 
+## Trigger tools
+
+The event source tools need the `object_triggers` entitlement. The trigger
+tools are open to every plan; reading, creating or changing a trigger needs its
+kind's entitlement (`object_triggers` for `object_storage`, none for
+`schedule`), and `list_triggers` leaves out the kinds the plan lacks. A
+`schedule` trigger also needs `schedule:read` to be read or listed.
+Scopes: list and get tools need `trigger:read`; `create_event_source` and
+`create_trigger` need `trigger:create`; the update tools and
+`create_trigger_binding` need `trigger:update`. Anything that can make a target run also needs
+`workflow:execute` or `agent:execute` for that target: creating a binding,
+turning a binding, trigger or source online, changing an agent binding's
+instruction, or changing what an online trigger or source matches. Switching
+things off and renaming need only `trigger:update`. `endpoint_url` is null
+for callers without `trigger:update`.
+
+- `list_event_sources(workspace_id, limit=..., cursor=None)`
+- `get_event_source(workspace_id, source_id)`
+- `create_event_source(workspace_id, name, config, status="offline")`
+- `update_event_source(workspace_id, source_id, name=None, config=None, status=None)`
+- `list_triggers(workspace_id, kind=None, source_id=None, workflow_id=None, agent_preset_id=None, limit=..., cursor=None)`
+- `get_trigger(workspace_id, trigger_id)`
+- `create_trigger(workspace_id, name, config, status="offline")`
+- `update_trigger(workspace_id, trigger_id, name=None, config=None, status=None)`
+- `create_trigger_binding(workspace_id, trigger_id, target, status="online")`
+- `update_trigger_binding(workspace_id, trigger_id, binding_id, status=None, instruction=None)`
+
+An event source is an inbound feed (kind `aws_sns`: a customer SNS topic). A
+trigger is a rule over a source's events (kind `object_storage`) or a workflow
+schedule (kind `schedule`). A binding starts a workflow or an agent preset for
+each matching event. Each `config` is discriminated by `kind`. There are no
+delete tools: take a source, trigger or binding offline instead. The API
+deletes triggers and bindings.
+
+A `schedule` trigger is the same schedule a workflow's `schedules` holds, so a
+schedule made either way shows in both. Creating one needs `schedule:create`,
+`schedule:read` and `workflow:execute` and binds it to its workflow. Renaming
+it or updating its config or status needs `schedule:update` (which grants
+`schedule:read`) on top of `trigger:update`, and a config replaces every
+schedule setting.
+Its one binding is fixed: `create_trigger_binding` and `update_trigger_binding`
+refuse it.
+
 ## Workflow tag tools
 
 - `list_workflow_tags(workspace_id, limit=20, cursor=None)`
@@ -154,6 +197,11 @@ stored config whole. Submissions are not exposed over MCP.
 ## Case search
 
 - `search_cases(..., search_mode="full_text", cap_broad_matches=True, include_count=False)` ranks only the 10,000 newest matches when a keyword matches more cases than that, in relevance order. Broad keywords then return in milliseconds instead of seconds at large case counts, but older matches are left out. Pass `order_by` (for example `created_at`) to page through every match, and pass the flag again with each cursor. `include_count`'s `total_estimate` stays exact, so it still reads every match.
+
+## Case verdict
+
+- `create_case(..., verdict=None)` and `update_case(..., verdict=None)` take an OCSF Incident Finding verdict: `unknown`, `false_positive`, `true_positive`, `disregard`, `suspicious`, `benign`, or `test`. Cases have no verdict until one is set; pass `verdict="none"` to `update_case` to clear it.
+- `search_cases(filters=...)` and `order_by="verdict"` filter and sort by verdict. Use `{"field": "verdict", "op": "is_null"}` for cases without a verdict.
 
 ## Sub-case tools
 

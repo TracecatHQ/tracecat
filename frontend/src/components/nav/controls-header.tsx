@@ -59,6 +59,7 @@ import { AddCaseTag } from "@/components/cases/add-case-tag"
 import { AddCustomField } from "@/components/cases/add-custom-field"
 import { CaseAgentRunsAction } from "@/components/cases/case-agent-runs-action"
 import {
+  getCategoryTextClass,
   PRIORITIES,
   SEVERITIES,
   STATUSES,
@@ -107,6 +108,7 @@ import { TableInsertButton } from "@/components/tables/table-insert-button"
 import { TableSearchBadge } from "@/components/tables/table-search-badge"
 import { TableSearchProvider } from "@/components/tables/table-search-context"
 import { CreateTagDialog } from "@/components/tags/create-tag-dialog"
+import { CreateTriggerButton } from "@/components/triggers/create-trigger-dialog"
 import { CreateTunnelButton } from "@/components/tunnels/workspace-tunnels"
 import { useQueryClient } from "@/lib/query"
 import { groupLibraryProviders } from "@/lib/skill-library"
@@ -187,6 +189,7 @@ import { useFormsAccess } from "@/hooks/use-forms-access"
 import { useSkillLibrary } from "@/hooks/use-skill-library"
 import { useSkillTagCatalog } from "@/hooks/use-skill-tags"
 import { useSkill } from "@/hooks/use-skills"
+import { useTrigger } from "@/hooks/use-triggers"
 import { holdDoubleTapKey } from "@/hooks/use-type-to-focus"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
 import { getFormErrorDetail } from "@/lib/forms/errors"
@@ -1341,7 +1344,10 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
                   >
                     {status.icon && (
                       <status.icon
-                        className="size-3 text-muted-foreground"
+                        className={cn(
+                          "size-3",
+                          getCategoryTextClass(status.color)
+                        )}
                         aria-hidden
                       />
                     )}
@@ -1381,7 +1387,10 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
                   >
                     {priority.icon && (
                       <priority.icon
-                        className="size-3 text-muted-foreground"
+                        className={cn(
+                          "size-3",
+                          getCategoryTextClass(priority.color)
+                        )}
                         aria-hidden
                       />
                     )}
@@ -1418,7 +1427,10 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
                   >
                     {severity.icon && (
                       <severity.icon
-                        className="size-3 text-muted-foreground"
+                        className={cn(
+                          "size-3",
+                          getCategoryTextClass(severity.color)
+                        )}
                         aria-hidden
                       />
                     )}
@@ -2348,6 +2360,45 @@ function FormDetailActions({
   )
 }
 
+function TriggerBreadcrumb({
+  triggerId,
+  workspaceId,
+}: {
+  triggerId: string
+  workspaceId: string
+}) {
+  const canRead = useScopeCheck("trigger:read")
+  const canLoad = canRead === true
+  const { data: trigger } = useTrigger(workspaceId, triggerId, {
+    enabled: canLoad,
+  })
+
+  if (!canLoad) {
+    return <h1 className="text-sm font-semibold">Triggers</h1>
+  }
+
+  return (
+    <Breadcrumb>
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
+        <BreadcrumbItem>
+          <BreadcrumbLink asChild className="font-semibold hover:no-underline">
+            <Link href={`/workspaces/${workspaceId}/triggers`}>Triggers</Link>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator className="shrink-0">
+          <span className="text-muted-foreground">/</span>
+        </BreadcrumbSeparator>
+        <BreadcrumbItem>
+          <BreadcrumbEntityPage
+            label={trigger?.name}
+            skeletonClassName="h-4 w-28"
+          />
+        </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
+  )
+}
+
 function TableBreadcrumb({
   tableId,
   workspaceId,
@@ -2726,6 +2777,24 @@ function getPageConfig(
     return {
       title: "MCP access",
       actions: <McpAccessActions />,
+    }
+  }
+
+  if (pagePath.startsWith("/triggers")) {
+    const triggerMatch = pagePath.match(/^\/triggers\/([^/]+)$/)
+    if (triggerMatch) {
+      return {
+        title: (
+          <TriggerBreadcrumb
+            triggerId={triggerMatch[1]}
+            workspaceId={workspaceId}
+          />
+        ),
+      }
+    }
+    return {
+      title: "Triggers",
+      actions: <CreateTriggerButton />,
     }
   }
 

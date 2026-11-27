@@ -308,6 +308,7 @@ TRACECAT__SERVICE_ROLES_WHITELIST = [
     "tracecat-schedule-runner",
     "tracecat-case-triggers",
     "tracecat-case-duration-sync",
+    "tracecat-triggers",
     "tracecat-ui",
 ]
 TRACECAT__DEFAULT_USER_ID = uuid.UUID(int=0)
@@ -521,16 +522,25 @@ TRACECAT__DB_ORG_SESSION_CAP = (
 )
 """Concurrent action gateway operations one organization may run per process.
 
-Unset (the default) means no limit. A unit is one gateway operation; budget up
-to 3 connections per operation (a published workflow start holds the request
-session, a management session and a workspace-settings session at once), and
-leave headroom for other orgs:
+Unset (the default) means no limit. A unit is one gateway operation. Leave
+headroom for other orgs:
 
-    cap x peak executor processes (including surge and draining) x 3
-        <= PgDog backends - headroom
+    cap x peak executor processes (including surge and draining)
+        x connections per operation <= PgDog backends - headroom
+
+Every gateway route runs on its request session, so an operation usually holds
+1 connection. Some hold more for a short time:
+
+- 2: table semantic search opens its own sessions one at a time; a cold
+  per-process cache (audit settings, start-rate limits) reads on its own
+  session; case batch updates and failed audited operations write their audit
+  events on their own session, so an audit error cannot abort the operation's
+  transaction; case comment agent dispatch runs after commit on its own session.
+- 3: one of those own-session audit events while the audit-settings cache is
+  cold (30 s TTL per org), because the cache read opens a session inside it.
 
 Sessions outside the gateway are not counted. Regions differ: EU is tightest
-(PgDog 2 x 30 = 60 backends).
+(PgDog 2 x 60 = 120 backends).
 """
 if TRACECAT__DB_ORG_SESSION_CAP is not None and TRACECAT__DB_ORG_SESSION_CAP < 1:
     raise ValueError(
@@ -1728,6 +1738,15 @@ TRACECAT__CASE_TRIGGERS_LOCK_TTL_SECONDS = int(
     os.environ.get("TRACECAT__CASE_TRIGGERS_LOCK_TTL_SECONDS") or 300
 )
 """TTL for case trigger lock keys in seconds."""
+
+TRACECAT__TRIGGERS_INGEST_RATE_LIMIT_PER_MINUTE = max(
+    1, int(os.environ.get("TRACECAT__TRIGGERS_INGEST_RATE_LIMIT_PER_MINUTE") or 6000)
+)
+"""Notifications one event source may deliver per minute. Defaults to 6000.
+
+Past the cap, ingest answers 503 so SNS retries later. It is the loop guard for
+a workflow that writes under the prefix it watches.
+"""
 
 TRACECAT__CASE_DURATION_SYNC_STREAM_KEY = os.environ.get(
     "TRACECAT__CASE_DURATION_SYNC_STREAM_KEY", "case-duration-sync"

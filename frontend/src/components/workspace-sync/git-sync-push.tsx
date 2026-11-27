@@ -59,7 +59,6 @@ import {
   useWorkspacePackage,
   WORKSPACE_SYNC_PACKAGE_QUERY_KEY,
 } from "@/components/workspace-sync/use-workspace-package"
-import { WorkspacePushExplanation } from "@/components/workspace-sync/workspace-push-explanation"
 import { SyncOperationWaitCancelled } from "@/hooks/use-sync-operation"
 import {
   useWorkspaceSyncExport,
@@ -272,8 +271,8 @@ export function GitSyncPushTab({
   return (
     <>
       <div className="flex flex-1 flex-col">
-        <div className="px-4 py-3">
-          {sourcePackage ? (
+        {sourcePackage && (
+          <div className="px-4 py-3">
             <PackageSummary
               workspacePackage={sourcePackage}
               selected={packageSelection}
@@ -281,10 +280,8 @@ export function GitSyncPushTab({
               disabled={exportWorkspaceIsPending}
               onApply={setPackageSelection}
             />
-          ) : (
-            <WorkspacePushExplanation />
-          )}
-        </div>
+          </div>
+        )}
         {workspacePackageError && (
           <GitSyncNotice tone="error">
             Could not read the managed resources package:{" "}

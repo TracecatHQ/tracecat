@@ -130,7 +130,7 @@ constraint-dependencies = [
 admin = ["tracecat-admin"]
 lint = [
     "basedpyright==1.37.1",
-    "types-aioboto3[sts,s3,secretsmanager]==15.5.0",
+    "types-aioboto3[sts,s3,secretsmanager,sns]==15.5.0",
     "types-boto3[bedrock,sts,s3,secretsmanager]==1.42.25",
 ]
 dev = [

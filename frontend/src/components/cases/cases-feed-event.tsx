@@ -1,5 +1,6 @@
 import {
   BracesIcon,
+  CircleDashedIcon,
   EyeIcon,
   ListTreeIcon,
   type LucideIcon,
@@ -13,7 +14,7 @@ import {
   UserXIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { Fragment } from "react"
+import { Fragment, type ReactNode } from "react"
 import type {
   AssigneeChangedEventRead,
   AttachmentCreatedEventRead,
@@ -46,11 +47,13 @@ import type {
   TaskStatusChangedEventRead,
   TaskWorkflowChangedEventRead,
   UpdatedEventRead,
+  VerdictChangedEventRead,
 } from "@/client"
 import {
   PRIORITIES,
   SEVERITIES,
   STATUSES,
+  VERDICTS,
 } from "@/components/cases/case-categories"
 import { UserHoverCard } from "@/components/cases/case-panel-common"
 import { InlineDotSeparator } from "@/components/separator"
@@ -204,6 +207,46 @@ export function SeverityChangedEvent({
       <span>
         <EventActor user={actor} /> changed severity from {oldSeverity.label} to{" "}
         {newSeverity.label}
+      </span>
+    </div>
+  )
+}
+
+/** Feed entry for a case verdict being set, changed, or cleared. */
+export function VerdictChangedEvent({
+  event,
+  actor,
+}: {
+  event: VerdictChangedEventRead
+  actor: User
+}) {
+  if (event.old === event.new) {
+    return null
+  }
+  const oldVerdict = event.old ? VERDICTS[event.old] : null
+  const newVerdict = event.new ? VERDICTS[event.new] : null
+
+  let description: ReactNode
+  if (!newVerdict) {
+    description = <>cleared verdict {oldVerdict?.label}</>
+  } else if (!oldVerdict) {
+    description = <>set verdict to {newVerdict.label}</>
+  } else {
+    description = (
+      <>
+        changed verdict from {oldVerdict.label} to {newVerdict.label}
+      </>
+    )
+  }
+
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon
+        icon={newVerdict?.icon ?? CircleDashedIcon}
+        className={newVerdict?.color}
+      />
+      <span>
+        <EventActor user={actor} /> {description}
       </span>
     </div>
   )

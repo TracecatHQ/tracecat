@@ -72,6 +72,8 @@ def resolve_oss_default_entitlements(
     on whenever a backend is
     installed, since installing a backend is how a deployment opts in. The
     channel bot API also needs ``agent_channels_preview``, off on both paths.
+    Object storage triggers are gated by ``object_triggers``, off on both paths.
+    Custom branding is gated by ``custom_branding``, off on both paths.
 
     Multi-workspace is disabled on both paths. Existing workspaces remain
     accessible; the entitlement only gates creation beyond the first workspace.
@@ -96,6 +98,8 @@ def resolve_oss_default_entitlements(
             agent_runtime_preview=agent_backend_installed,
             agent_runtime_workflows=agent_backend_installed,
             agent_channels_preview=False,
+            object_triggers=False,
+            custom_branding=False,
         )
 
     # Existing install path: map legacy feature flags to entitlement groups.
@@ -140,6 +144,8 @@ def resolve_oss_default_entitlements(
         agent_runtime_preview=agent_backend_installed,
         agent_runtime_workflows=agent_backend_installed,
         agent_channels_preview=False,
+        object_triggers=False,
+        custom_branding=False,
     )
 
 

@@ -55,7 +55,7 @@ from tracecat.agent.skill.schemas import (
 )
 from tracecat.agent.stream.events import StreamDelta, StreamEnd
 from tracecat.auth.types import Role
-from tracecat.cases.enums import CaseFieldReadType, CaseViewVisibility
+from tracecat.cases.enums import CaseFieldReadType, CaseVerdict, CaseViewVisibility
 from tracecat.cases.schemas import CaseFieldRead
 from tracecat.cases.search_schemas import CaseCriteria, CaseQuery, CaseSearchRequest
 from tracecat.db.models import Schedule, Workflow
@@ -149,7 +149,9 @@ class _AsyncContext:
         return None
 
 
-async def _empty_oauth_inventory(_role: Any) -> set[ProviderKey]:
+async def _empty_oauth_inventory(
+    _role: Any, *, session: Any = None
+) -> set[ProviderKey]:
     """Default OAuth inventory stub: no workspace integrations configured."""
     return set()
 
@@ -3575,7 +3577,7 @@ async def test_load_oauth_inventory_includes_only_connected(monkeypatch):
     monkeypatch.setattr(
         mcp_server.IntegrationService,
         "with_session",
-        lambda role: _AsyncContext(_IntegrationService()),
+        lambda role, session=None: _AsyncContext(_IntegrationService()),
     )
 
     inventory = await authoring_context.load_oauth_inventory(
@@ -3793,6 +3795,105 @@ async def test_create_case_passes_tags_into_the_create(monkeypatch):
         "create_missing_tags": True,
     }
     assert _payload(result)["id"] == str(case_id)
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("resolved_workspace")
+async def test_create_case_passes_verdict(monkeypatch):
+    captured: dict[str, Any] = {}
+
+    async def _create_case(params, *, tags, create_missing_tags):
+        captured["verdict"] = params.verdict
+        return SimpleNamespace(id=uuid.uuid4(), short_id="CASE-0001")
+
+    case_service = SimpleNamespace(create_case=_create_case)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(case_service)),
+    )
+
+    await _tool(mcp_server.create_case)(
+        workspace_id=str(uuid.uuid4()),
+        summary="Verdict",
+        description="Created with a verdict",
+        status="new",
+        priority="medium",
+        severity="low",
+        verdict="false_positive",
+    )
+    assert captured["verdict"] == CaseVerdict.FALSE_POSITIVE
+
+    await _tool(mcp_server.create_case)(
+        workspace_id=str(uuid.uuid4()),
+        summary="No verdict",
+        description="Created without a verdict",
+        status="new",
+        priority="medium",
+        severity="low",
+    )
+    assert captured["verdict"] is None
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.parametrize(
+    ("verdict", "expected_fields", "expected_verdict"),
+    [
+        ("true_positive", {"verdict"}, CaseVerdict.TRUE_POSITIVE),
+        ("none", {"verdict"}, None),
+        (None, set(), None),
+    ],
+)
+async def test_update_case_sets_or_clears_verdict(
+    monkeypatch,
+    verdict: str | None,
+    expected_fields: set[str],
+    expected_verdict: CaseVerdict | None,
+):
+    captured: dict[str, Any] = {}
+
+    async def _update_case(case, params):
+        captured["params"] = params
+
+    case_service = SimpleNamespace(
+        get_case=AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4())),
+        update_case=_update_case,
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(case_service)),
+    )
+
+    await _tool(mcp_server.update_case)(
+        workspace_id=str(uuid.uuid4()),
+        case_id=str(uuid.uuid4()),
+        verdict=verdict,
+    )
+
+    params = captured["params"]
+    assert params.model_fields_set == expected_fields
+    assert params.verdict == expected_verdict
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("resolved_workspace")
+async def test_update_case_rejects_invalid_verdict(monkeypatch):
+    case_service = SimpleNamespace(get_case=AsyncMock(), update_case=AsyncMock())
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(case_service)),
+    )
+
+    with pytest.raises(ToolError):
+        await _tool(mcp_server.update_case)(
+            workspace_id=str(uuid.uuid4()),
+            case_id=str(uuid.uuid4()),
+            verdict="malicious",
+        )
+    case_service.update_case.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -4495,6 +4596,7 @@ async def test_get_case(monkeypatch):
         status=SimpleNamespace(value="new"),
         priority=SimpleNamespace(value="high"),
         severity=SimpleNamespace(value="medium"),
+        verdict=None,
         description="Detailed description",
         assignee=None,
         payload={"key": "value"},
@@ -4559,6 +4661,7 @@ async def test_get_case(monkeypatch):
     assert payload["fields"][0]["value"] == "hello"
     assert payload["parent"] is None
     assert payload["num_sub_cases"] == 0
+    assert payload["verdict"] is None
 
 
 @pytest.mark.anyio
@@ -4578,6 +4681,7 @@ async def test_get_case_includes_hierarchy(monkeypatch):
         status=SimpleNamespace(value="new"),
         priority=SimpleNamespace(value="low"),
         severity=SimpleNamespace(value="low"),
+        verdict=SimpleNamespace(value="benign"),
         description="",
         assignee=None,
         payload=None,
@@ -4631,6 +4735,7 @@ async def test_get_case_includes_hierarchy(monkeypatch):
     )
     assert payload["parent"]["short_id"] == "CASE-0001"
     assert payload["num_sub_cases"] == 0
+    assert payload["verdict"] == "benign"
 
 
 @pytest.mark.anyio
@@ -7221,7 +7326,9 @@ async def test_get_workflow_authoring_context_truncates_embedded_collections(
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
         return workspace_id, role
 
-    async def _secret_inventory(_role: Any) -> dict[str, set[str]]:
+    async def _secret_inventory(
+        _role: Any, *, session: Any = None
+    ) -> dict[str, set[str]]:
         return {"alpha": {"TOKEN"}, "beta": {"TOKEN"}}
 
     class _IndexEntry:
@@ -7275,11 +7382,11 @@ async def test_get_workflow_authoring_context_truncates_embedded_collections(
     monkeypatch.setattr(mcp_server, "create_tool_from_registry", _create_tool)
     monkeypatch.setattr(
         "tracecat.registry.actions.service.RegistryActionsService.with_session",
-        lambda role: _AsyncContext(_RegistryService()),
+        lambda role, session=None: _AsyncContext(_RegistryService()),
     )
     monkeypatch.setattr(
         "tracecat.agent.authoring_context.VariablesService.with_session",
-        lambda role: _AsyncContext(_VariablesService()),
+        lambda role, session=None: _AsyncContext(_VariablesService()),
     )
     monkeypatch.setattr(
         "tracecat.agent.authoring_context.load_secret_inventory",
@@ -10012,6 +10119,315 @@ async def test_form_tool_reports_config_issues(
         "The form config has errors: "
         "layout.0.field: The workflow has no input named 'laptop'"
     )
+
+
+# ---------------------------------------------------------------------------
+# Trigger tools
+# ---------------------------------------------------------------------------
+
+_TRIGGER_SCOPES = frozenset(
+    {
+        "trigger:read",
+        "trigger:create",
+        "trigger:update",
+        "workflow:execute",
+        "agent:execute",
+    }
+)
+_SNS_CONFIG = {
+    "kind": "aws_sns",
+    "topic_arn": "arn:aws:sns:us-east-1:123456789012:bucket-events",
+}
+_TRIGGER_TOOL_ARGUMENTS: dict[str, tuple[dict[str, Any], str]] = {
+    "list_event_sources": ({}, "trigger:read"),
+    "get_event_source": ({"source_id": str(uuid.uuid4())}, "trigger:read"),
+    "create_event_source": (
+        {
+            "name": "bucket",
+            "config": mcp_server.EventSourceCreate.model_validate(
+                {"name": "x", "config": _SNS_CONFIG}
+            ).config,
+        },
+        "trigger:create",
+    ),
+    "update_event_source": ({"source_id": str(uuid.uuid4())}, "trigger:update"),
+    "list_triggers": ({}, "trigger:read"),
+    "get_trigger": ({"trigger_id": str(uuid.uuid4())}, "trigger:read"),
+    "create_trigger": (
+        {
+            "name": "uploads",
+            "config": mcp_server.TriggerCreate.model_validate(
+                {
+                    "name": "x",
+                    "config": {
+                        "kind": "object_storage",
+                        "source_id": str(uuid.uuid4()),
+                    },
+                }
+            ).config,
+        },
+        "trigger:create",
+    ),
+    "update_trigger": ({"trigger_id": str(uuid.uuid4())}, "trigger:update"),
+    "create_trigger_binding": (
+        {
+            "trigger_id": str(uuid.uuid4()),
+            "target": mcp_server.TriggerBindingCreate.model_validate(
+                {"target": {"type": "workflow", "workflow_id": str(uuid.uuid4())}}
+            ).target,
+        },
+        "trigger:update",
+    ),
+    "update_trigger_binding": (
+        {"trigger_id": str(uuid.uuid4()), "binding_id": str(uuid.uuid4())},
+        "trigger:update",
+    ),
+}
+
+
+def _patch_triggers(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    scopes: frozenset[str] = _TRIGGER_SCOPES,
+    entitled: bool = True,
+    **methods: Any,
+) -> SimpleNamespace:
+    """Stand in for the triggers service behind the MCP trigger tools."""
+    role = Role(
+        type="user",
+        service_id="tracecat-mcp",
+        organization_id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=scopes,
+    )
+
+    async def _resolve(workspace_id):
+        return workspace_id, role
+
+    async def _has_entitlement(entitlement):
+        return entitled and entitlement is mcp_server.Entitlement.OBJECT_TRIGGERS
+
+    service = SimpleNamespace(
+        role=role, has_entitlement=_has_entitlement, opened=False, **methods
+    )
+
+    def _with_session(role):
+        service.opened = True
+        return _AsyncContext(service)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server.TriggersService, "with_session", _with_session)
+    return service
+
+
+async def _call_trigger_tool(tool_name: str, /, **arguments: Any) -> Any:
+    defaults, _ = _TRIGGER_TOOL_ARGUMENTS[tool_name]
+    return await _tool(getattr(mcp_server, tool_name))(
+        workspace_id=str(uuid.uuid4()), **(defaults | arguments)
+    )
+
+
+@pytest.mark.anyio
+async def test_trigger_tools_are_registered_without_delete_tools() -> None:
+    tools = {tool.name for tool in await mcp_server.mcp.list_tools()}
+
+    assert set(_TRIGGER_TOOL_ARGUMENTS) <= tools
+    # Removing a source, trigger or binding stays off MCP: take it offline.
+    assert not [
+        name
+        for name in tools
+        if name.startswith("delete_") and ("trigger" in name or "event_source" in name)
+    ]
+
+
+_EVENT_SOURCE_TOOLS = [
+    name for name in _TRIGGER_TOOL_ARGUMENTS if "event_source" in name
+]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("tool_name", _EVENT_SOURCE_TOOLS)
+async def test_event_source_tools_need_the_entitlement(
+    monkeypatch: pytest.MonkeyPatch, tool_name: str
+) -> None:
+    # The stand-in service has no methods: a call that got past the gate
+    # would fail with a different message.
+    service = _patch_triggers(monkeypatch, entitled=False)
+
+    with pytest.raises(ToolError, match="Feature 'object_triggers' requires"):
+        await _call_trigger_tool(tool_name)
+
+    assert service.opened
+
+
+@pytest.mark.anyio
+async def test_trigger_tools_leave_the_entitlement_to_the_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Schedules need no plan feature; the service checks each kind's."""
+    page = mcp_server.CursorPaginatedResponse(items=[])
+    _patch_triggers(
+        monkeypatch, entitled=False, list_triggers=AsyncMock(return_value=page)
+    )
+
+    result = await _call_trigger_tool("list_triggers", kind="schedule")
+
+    assert result.items == []
+
+    denied = mcp_server.EntitlementRequired("object_triggers")
+    _patch_triggers(
+        monkeypatch, entitled=False, create_trigger=AsyncMock(side_effect=denied)
+    )
+    with pytest.raises(ToolError, match="Feature 'object_triggers' requires"):
+        await _call_trigger_tool("create_trigger")
+
+
+@pytest.mark.anyio
+async def test_create_trigger_accepts_a_schedule_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trigger_id, read = uuid.uuid4(), object()
+    create_trigger = AsyncMock(return_value=SimpleNamespace(id=trigger_id))
+    _patch_triggers(
+        monkeypatch,
+        create_trigger=create_trigger,
+        get_trigger=AsyncMock(return_value=read),
+    )
+    workflow_id = uuid.uuid4()
+    config = mcp_server.TriggerCreate.model_validate(
+        {
+            "name": "x",
+            "config": {
+                "kind": "schedule",
+                "workflow_id": str(workflow_id),
+                "cron": "0 9 * * *",
+            },
+        }
+    ).config
+
+    result = await _call_trigger_tool(
+        "create_trigger", name="Nightly", config=config, status="online"
+    )
+
+    assert result is read
+    [call] = create_trigger.await_args_list
+    params = call.args[0]
+    assert params.name == "Nightly"
+    assert params.status is mcp_server.TriggerStatus.ONLINE
+    assert params.config.kind is mcp_server.TriggerKind.SCHEDULE
+    assert params.config.workflow_id == workflow_id
+    assert params.config.cron == "0 9 * * *"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("tool_name", list(_TRIGGER_TOOL_ARGUMENTS))
+async def test_trigger_tools_need_their_scope(
+    monkeypatch: pytest.MonkeyPatch, tool_name: str
+) -> None:
+    _, scope = _TRIGGER_TOOL_ARGUMENTS[tool_name]
+    # `trigger:update` also grants `trigger:read`.
+    implied_by = {"trigger:update"} if scope == "trigger:read" else set()
+    _patch_triggers(monkeypatch, scopes=_TRIGGER_SCOPES - {scope} - implied_by)
+
+    with pytest.raises(ToolError, match=f"Missing required scope: .*{scope}"):
+        await _call_trigger_tool(tool_name)
+
+
+@pytest.mark.anyio
+async def test_list_triggers_passes_its_filters_to_the_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    page = mcp_server.CursorPaginatedResponse(items=[])
+    list_triggers = AsyncMock(return_value=page)
+    _patch_triggers(monkeypatch, list_triggers=list_triggers)
+    workflow_id, preset_id, source_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+    result = await _call_trigger_tool(
+        "list_triggers",
+        kind="object_storage",
+        source_id=source_id,
+        workflow_id=str(workflow_id),
+        agent_preset_id=preset_id,
+        limit=5,
+    )
+
+    assert result.items == []
+    [call] = list_triggers.await_args_list
+    assert call.args[0].limit == 5
+    assert call.kwargs == {
+        "kind": mcp_server.TriggerKind.OBJECT_STORAGE,
+        "source_id": source_id,
+        "workflow_id": mcp_server.WorkflowUUID.new(workflow_id),
+        "agent_preset_id": preset_id,
+    }
+
+
+@pytest.mark.anyio
+async def test_update_trigger_builds_the_update_and_reads_it_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trigger_id, read = uuid.uuid4(), object()
+    update_trigger = AsyncMock()
+    _patch_triggers(
+        monkeypatch,
+        update_trigger=update_trigger,
+        get_trigger=AsyncMock(return_value=read),
+    )
+
+    result = await _call_trigger_tool(
+        "update_trigger", trigger_id=str(trigger_id), status="offline"
+    )
+
+    assert result is read
+    update_trigger.assert_awaited_once_with(
+        trigger_id,
+        mcp_server.TriggerUpdate(status=mcp_server.TriggerStatus.OFFLINE),
+    )
+
+
+@pytest.mark.anyio
+async def test_execute_scope_denials_from_the_service_reach_the_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    denied = ScopeDeniedError(
+        required_scopes=["workflow:execute"], missing_scopes=["workflow:execute"]
+    )
+    _patch_triggers(
+        monkeypatch,
+        create_binding=AsyncMock(side_effect=denied),
+        update_trigger=AsyncMock(side_effect=denied),
+    )
+
+    for tool_name in ("create_trigger_binding", "update_trigger"):
+        with pytest.raises(
+            ToolError, match="^Missing required scope: workflow:execute$"
+        ):
+            await _call_trigger_tool(tool_name)
+
+
+@pytest.mark.anyio
+async def test_unexpected_trigger_tool_errors_hide_their_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret = RuntimeError("relation trigger: constraint uq_x, value 'internal'")
+    _patch_triggers(monkeypatch, get_trigger=AsyncMock(side_effect=secret))
+
+    with pytest.raises(ToolError, match="^Failed to get trigger$"):
+        await _call_trigger_tool("get_trigger")
+
+
+@pytest.mark.anyio
+async def test_trigger_tool_reports_service_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.triggers.enums import TriggerErrorCode
+
+    error = mcp_server.TriggerError(TriggerErrorCode.NOT_FOUND, "Trigger not found")
+    _patch_triggers(monkeypatch, get_trigger=AsyncMock(side_effect=error))
+
+    with pytest.raises(ToolError, match="^Trigger not found$"):
+        await _call_trigger_tool("get_trigger")
 
 
 @pytest.mark.anyio

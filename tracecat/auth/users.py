@@ -4,7 +4,7 @@ import os
 import uuid
 from collections.abc import AsyncGenerator, Iterable, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -35,14 +35,15 @@ from fastapi_users.exceptions import (
 from fastapi_users.openapi import OpenAPIResponseType
 from fastapi_users_db_sqlalchemy.access_token import SQLAlchemyAccessTokenDatabase
 from pydantic import EmailStr
-from sqlalchemy import or_, select, update
+from sqlalchemy import delete, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.cases.views.ownership import delete_personal_case_views
 
 from tracecat import config
 from tracecat.audit.service import AuditService
 from tracecat.auth.domain_policy import is_domain_allowed_for_org, is_org_saml_enforced
-from tracecat.auth.enums import AuthErrorCode, AuthType
+from tracecat.auth.enums import AuthErrorCode, AuthType, CredentialChangeErrorCode
 from tracecat.auth.ip_allowlist import IP_ALLOWLIST_DENIED_DETAIL
 from tracecat.auth.ip_allowlist_enforcement import (
     current_client_ip,
@@ -95,6 +96,31 @@ class InvalidEmailException(FastAPIUsersException):
 
 class PermissionsException(FastAPIUsersException):
     """Exception raised on permissions error."""
+
+
+_CREDENTIAL_CHANGE_ERROR_MESSAGES: dict[CredentialChangeErrorCode, str] = {
+    CredentialChangeErrorCode.PASSWORD_LOGIN_NOT_ALLOWED: (
+        "Your account signs in through your organization's identity provider."
+    ),
+    CredentialChangeErrorCode.INVALID_CURRENT_PASSWORD: (
+        "Current password is incorrect."
+    ),
+    # Deliberately generic: also covers an email already in use, so the
+    # endpoint cannot be used to enumerate accounts.
+    CredentialChangeErrorCode.INVALID_EMAIL: "This email address can't be used.",
+    CredentialChangeErrorCode.MEMBER_OF_OTHER_ORGANIZATION: (
+        "This user also belongs to another organization. "
+        "Ask a platform admin to change their email."
+    ),
+}
+
+
+class CredentialChangeError(FastAPIUsersException):
+    """An email or password change was refused."""
+
+    def __init__(self, code: CredentialChangeErrorCode) -> None:
+        self.code = code
+        super().__init__(_CREDENTIAL_CHANGE_ERROR_MESSAGES[code])
 
 
 class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
@@ -184,6 +210,185 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         allowed_domains = list(config.TRACECAT__AUTH_ALLOWED_DOMAINS)
         self.logger.debug("Allowed domains", allowed_domains=allowed_domains)
         validate_email(email=email, allowed_domains=allowed_domains)
+
+    async def can_change_password(self, user: User) -> bool:
+        """Return whether the user may sign in with, and so change, a local password."""
+        return await self._is_local_password_login_allowed(user)
+
+    async def change_password(
+        self,
+        user: User,
+        *,
+        current_password: str,
+        new_password: str,
+        current_token: str,
+    ) -> User:
+        """Change the user's password and sign out their other sessions.
+
+        Raises:
+            CredentialChangeError: If local password login is not allowed or
+                the current password is wrong.
+            InvalidPasswordException: If the new password fails validation.
+        """
+        await self._verify_current_password(user, current_password)
+        await self.validate_password(new_password, user)
+        # user_db.update commits, so the session revocation lands atomically
+        # with the new hash.
+        await self._user_db.session.execute(
+            delete(AccessToken).where(
+                cast(Any, AccessToken.user_id) == user.id,
+                cast(Any, AccessToken.token) != current_token,
+            )
+        )
+        user = await self.user_db.update(
+            user, {"hashed_password": self.password_helper.hash(new_password)}
+        )
+        self.logger.info("User changed their password", user_id=str(user.id))
+        await self._emit_credential_change_audit(user=user, changed_field="password")
+        return user
+
+    async def set_email(
+        self,
+        user: User,
+        *,
+        new_email: str,
+        organization_id: OrganizationID | None = None,
+    ) -> User:
+        """Change a user's sign-in email on an admin's behalf and sign them out.
+
+        There is no mailbox verification, so this is not self-service. The new
+        email must pass registration validation, sit on a verified domain of
+        every member organization that has domains, and not sit on a domain
+        claimed by an organization the user is not a member of.
+
+        Args:
+            user: The user whose email changes.
+            new_email: The new sign-in email.
+            organization_id: The acting admin's organization. When set, the
+                user must belong to no other organization, so one tenant's
+                admin can't change another tenant's login.
+
+        Raises:
+            CredentialChangeError: If the user belongs to another organization
+                or the new email can't be used.
+        """
+        if organization_id is not None:
+            org_ids = await self._list_user_org_ids(user.id)
+            if org_ids - {organization_id}:
+                raise CredentialChangeError(
+                    CredentialChangeErrorCode.MEMBER_OF_OTHER_ORGANIZATION
+                )
+        if new_email == user.email:
+            return user
+        await self._validate_new_email(user, new_email)
+        # user_db.update commits, so the session revocation lands atomically
+        # with the new email.
+        await self._user_db.session.execute(
+            delete(AccessToken).where(cast(Any, AccessToken.user_id) == user.id)
+        )
+        email_taken = False
+        try:
+            user = await self.user_db.update(
+                user, {"email": new_email, "is_verified": False}
+            )
+        except IntegrityError:
+            # Lost a race with another account claiming the same email.
+            await self._user_db.session.rollback()
+            email_taken = True
+        # Raised outside the handler so the database error isn't chained on.
+        if email_taken:
+            raise CredentialChangeError(CredentialChangeErrorCode.INVALID_EMAIL)
+        self.logger.info("User email changed by an admin", user_id=str(user.id))
+        return user
+
+    async def _verify_current_password(self, user: User, password: str) -> None:
+        if not await self._is_local_password_login_allowed(user):
+            raise CredentialChangeError(
+                CredentialChangeErrorCode.PASSWORD_LOGIN_NOT_ALLOWED
+            )
+        verified, _ = self.password_helper.verify_and_update(
+            password, user.hashed_password
+        )
+        if not verified:
+            raise CredentialChangeError(
+                CredentialChangeErrorCode.INVALID_CURRENT_PASSWORD
+            )
+
+    async def _validate_new_email(self, user: User, email: str) -> None:
+        invalid = CredentialChangeError(CredentialChangeErrorCode.INVALID_EMAIL)
+        # Registering with the superadmin email grants platform admin, so the
+        # bootstrap account can't give it up and no one else can take it.
+        if superadmin_email := config.TRACECAT__AUTH_SUPERADMIN_EMAIL:
+            reserved = superadmin_email.lower()
+            if reserved in (user.email.lower(), email.lower()):
+                raise invalid
+        try:
+            await self.validate_email(email)
+        except InvalidEmailException:
+            raise invalid from None
+
+        try:
+            normalized_domain = normalize_domain(
+                email.rpartition("@")[2]
+            ).normalized_domain
+        except ValueError:
+            raise invalid from None
+
+        # An organization that has verified domains keeps its members' emails
+        # on them. Organizations without domains don't restrict basic-auth
+        # emails, matching registration.
+        org_ids = await self._list_user_org_ids(user.id)
+        statement = select(
+            OrganizationDomain.organization_id, OrganizationDomain.normalized_domain
+        ).where(
+            OrganizationDomain.organization_id.in_(org_ids),
+            OrganizationDomain.is_active.is_(True),
+        )
+        async with get_async_session_auth_context_manager() as session:
+            rows = (await session.execute(statement)).tuples().all()
+        domains_by_org: dict[OrganizationID, set[str]] = {}
+        for org_id, domain in rows:
+            domains_by_org.setdefault(org_id, set()).add(domain)
+        if any(normalized_domain not in d for d in domains_by_org.values()):
+            raise invalid
+
+        domain_org_id = await self._get_org_id_for_email_domain(email)
+        if domain_org_id is not None and domain_org_id not in org_ids:
+            raise invalid
+
+        existing = await self.user_db.get_by_email(email)
+        if existing is not None and existing.id != user.id:
+            raise invalid
+
+    async def _emit_credential_change_audit(
+        self, *, user: User, changed_field: str
+    ) -> None:
+        """Emit a platform-scoped event for a self-service credential change."""
+        audit_role = PlatformRole(
+            type="user",
+            user_id=user.id,
+            service_id="tracecat-api",
+        )
+        try:
+            async with AuditService.with_session(
+                role=audit_role,
+                audit_sink="platform",
+            ) as audit_svc:
+                await audit_svc.create_event(
+                    resource_type="user",
+                    action="update",
+                    resource_id=user.id,
+                    data={"changed_fields": [changed_field]},
+                    include_actor_label=False,
+                )
+        except Exception as exc:
+            self.logger.warning(
+                "Failed to emit credential change audit event",
+                user_id=str(user.id),
+                changed_field=changed_field,
+                audit_sink="platform",
+                error=str(exc),
+            )
 
     async def authenticate(self, credentials: OAuth2PasswordRequestForm) -> User | None:
         """Authenticate local email/password and enforce platform/org policy."""

@@ -391,6 +391,8 @@ import type {
   AuthDiscoverAuthMethodData,
   AuthDiscoverAuthMethodResponse,
   AuthGetMfaStatusResponse,
+  AuthGetPublicBrandingData,
+  AuthGetPublicBrandingResponse,
   AuthListCredentialsResponse,
   AuthOauthOidcDatabaseAuthorizeData,
   AuthOauthOidcDatabaseAuthorizeResponse,
@@ -662,6 +664,7 @@ import type {
   InboxGetPendingCountResponse,
   InboxListItemsData,
   InboxListItemsResponse,
+  InfoGetAppVersionResponse,
   IntegrationsConnectProviderData,
   IntegrationsConnectProviderResponse,
   IntegrationsDeleteIntegrationData,
@@ -735,6 +738,8 @@ import type {
   McpPersonalAccessTokensListMcpPersonalAccessTokensResponse,
   McpPersonalAccessTokensRevokeMcpPersonalAccessTokenData,
   McpPersonalAccessTokensRevokeMcpPersonalAccessTokenResponse,
+  OrganizationChangeOrgMemberEmailData,
+  OrganizationChangeOrgMemberEmailResponse,
   OrganizationDeleteOrganizationData,
   OrganizationDeleteOrganizationResponse,
   OrganizationDeleteOrgMemberData,
@@ -742,6 +747,7 @@ import type {
   OrganizationDeleteSessionData,
   OrganizationDeleteSessionResponse,
   OrganizationGetCurrentOrgMemberResponse,
+  OrganizationGetOrganizationBrandingResponse,
   OrganizationGetOrganizationEntitlementsResponse,
   OrganizationGetOrganizationLimitsResponse,
   OrganizationGetOrganizationResponse,
@@ -1011,6 +1017,7 @@ import type {
   SettingsGetAgentSettingsResponse,
   SettingsGetAppSettingsResponse,
   SettingsGetAuditSettingsResponse,
+  SettingsGetBrandingSettingsResponse,
   SettingsGetGitSettingsResponse,
   SettingsGetMfaPolicyResponse,
   SettingsGetSamlSettingsResponse,
@@ -1025,6 +1032,8 @@ import type {
   SettingsUpdateAppSettingsResponse,
   SettingsUpdateAuditSettingsData,
   SettingsUpdateAuditSettingsResponse,
+  SettingsUpdateBrandingSettingsData,
+  SettingsUpdateBrandingSettingsResponse,
   SettingsUpdateGitSettingsData,
   SettingsUpdateGitSettingsResponse,
   SettingsUpdateMfaPolicyData,
@@ -1143,20 +1152,44 @@ import type {
   TagsUpdateTagResponse,
   TriggersCreateCaseTriggerData,
   TriggersCreateCaseTriggerResponse,
+  TriggersCreateEventSourceData,
+  TriggersCreateEventSourceResponse,
+  TriggersCreateTriggerBindingData,
+  TriggersCreateTriggerBindingResponse,
+  TriggersCreateTriggerData,
+  TriggersCreateTriggerResponse,
   TriggersCreateWebhookData,
   TriggersCreateWebhookResponse,
+  TriggersDeleteTriggerBindingData,
+  TriggersDeleteTriggerBindingResponse,
+  TriggersDeleteTriggerData,
+  TriggersDeleteTriggerResponse,
   TriggersDeleteWebhookApiKeyData,
   TriggersDeleteWebhookApiKeyResponse,
   TriggersGenerateWebhookApiKeyData,
   TriggersGenerateWebhookApiKeyResponse,
   TriggersGetCaseTriggerData,
   TriggersGetCaseTriggerResponse,
+  TriggersGetEventSourceData,
+  TriggersGetEventSourceResponse,
+  TriggersGetTriggerData,
+  TriggersGetTriggerResponse,
   TriggersGetWebhookData,
   TriggersGetWebhookResponse,
+  TriggersListEventSourcesData,
+  TriggersListEventSourcesResponse,
+  TriggersListTriggersData,
+  TriggersListTriggersResponse,
   TriggersRevokeWebhookApiKeyData,
   TriggersRevokeWebhookApiKeyResponse,
   TriggersUpdateCaseTriggerData,
   TriggersUpdateCaseTriggerResponse,
+  TriggersUpdateEventSourceData,
+  TriggersUpdateEventSourceResponse,
+  TriggersUpdateTriggerBindingData,
+  TriggersUpdateTriggerBindingResponse,
+  TriggersUpdateTriggerData,
+  TriggersUpdateTriggerResponse,
   TriggersUpdateWebhookData,
   TriggersUpdateWebhookResponse,
   TunnelsCreateManagedTunnelData,
@@ -1183,6 +1216,9 @@ import type {
   UpdateCustomProviderResponse,
   UpdateWorkspaceModelAccessData,
   UpdateWorkspaceModelAccessResponse,
+  UsersChangeCurrentUserPasswordData,
+  UsersChangeCurrentUserPasswordResponse,
+  UsersGetCurrentUserLoginMethodsResponse,
   UsersGetMyScopesData,
   UsersGetMyScopesResponse,
   UsersSearchUserData,
@@ -5451,6 +5487,83 @@ export const tagsDeleteTag = (
 }
 
 /**
+ * Users:Current User
+ * @returns UserRead Successful Response
+ * @throws ApiError
+ */
+export const usersUsersCurrentUser =
+  (): CancelablePromise<UsersUsersCurrentUserResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/users/me",
+      errors: {
+        401: "Missing token or inactive user.",
+      },
+    })
+  }
+
+/**
+ * Users:Patch Current User
+ * Update the current user's profile.
+ *
+ * Replaces the fastapi-users route, which also accepted email and password
+ * without the current password.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns UserRead Successful Response
+ * @throws ApiError
+ */
+export const usersUsersPatchCurrentUser = (
+  data: UsersUsersPatchCurrentUserData
+): CancelablePromise<UsersUsersPatchCurrentUserResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/users/me",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Current User Login Methods
+ * Report which sign-in credentials the current user can change.
+ * @returns LoginMethodsRead Successful Response
+ * @throws ApiError
+ */
+export const usersGetCurrentUserLoginMethods =
+  (): CancelablePromise<UsersGetCurrentUserLoginMethodsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/users/me/login-methods",
+    })
+  }
+
+/**
+ * Change Current User Password
+ * Change the current user's password and sign out their other sessions.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const usersChangeCurrentUserPassword = (
+  data: UsersChangeCurrentUserPasswordData
+): CancelablePromise<UsersChangeCurrentUserPasswordResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/users/me/password",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Search User
  * Find a member of the caller's organization by email.
  *
@@ -5675,6 +5788,34 @@ export const organizationUpdateOrgMember = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Change Org Member Email
+ * Change a member's sign-in email and sign them out of every session.
+ * @param data The data for the request.
+ * @param data.userId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const organizationChangeOrgMemberEmail = (
+  data: OrganizationChangeOrgMemberEmailData
+): CancelablePromise<OrganizationChangeOrgMemberEmailResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/organization/members/{user_id}/email",
+    path: {
+      user_id: data.userId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      400: "The email can't be used.",
+      403: "The member is a superuser or belongs to another organization.",
       422: "Validation Error",
     },
   })
@@ -12554,6 +12695,40 @@ export const settingsUpdateAppSettings = (
 }
 
 /**
+ * Get Branding Settings
+ * @returns BrandingSettingsRead Successful Response
+ * @throws ApiError
+ */
+export const settingsGetBrandingSettings =
+  (): CancelablePromise<SettingsGetBrandingSettingsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/settings/branding",
+    })
+  }
+
+/**
+ * Update Branding Settings
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const settingsUpdateBrandingSettings = (
+  data: SettingsUpdateBrandingSettingsData
+): CancelablePromise<SettingsUpdateBrandingSettingsResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/settings/branding",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Get Audit Settings
  * @returns AuditSettingsRead Successful Response
  * @throws ApiError
@@ -14332,6 +14507,376 @@ export const formsDeleteFormSubmission = (
       workspace_id: data.workspaceId,
     },
     errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Event Sources
+ * List event sources, newest first.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_EventSourceRead_ Successful Response
+ * @throws ApiError
+ */
+export const triggersListEventSources = (
+  data: TriggersListEventSourcesData
+): CancelablePromise<TriggersListEventSourcesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/event-sources",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Event Source
+ * Create an event source. Its endpoint URL is fixed from now on.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns EventSourceRead Successful Response
+ * @throws ApiError
+ */
+export const triggersCreateEventSource = (
+  data: TriggersCreateEventSourceData
+): CancelablePromise<TriggersCreateEventSourceResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/event-sources",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      409: "See detail.code",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Event Source
+ * Get an event source with its endpoint URL and subscription state.
+ * @param data The data for the request.
+ * @param data.sourceId
+ * @param data.workspaceId
+ * @returns EventSourceRead Successful Response
+ * @throws ApiError
+ */
+export const triggersGetEventSource = (
+  data: TriggersGetEventSourceData
+): CancelablePromise<TriggersGetEventSourceResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/event-sources/{source_id}",
+    path: {
+      source_id: data.sourceId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      404: "See detail.code",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Event Source
+ * Rename a source, change its feed, or take it online or offline.
+ * @param data The data for the request.
+ * @param data.sourceId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns EventSourceRead Successful Response
+ * @throws ApiError
+ */
+export const triggersUpdateEventSource = (
+  data: TriggersUpdateEventSourceData
+): CancelablePromise<TriggersUpdateEventSourceResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/workspaces/{workspace_id}/event-sources/{source_id}",
+    path: {
+      source_id: data.sourceId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      400: "See detail.code",
+      404: "See detail.code",
+      409: "See detail.code",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Triggers
+ * List triggers newest first, each with its config and bindings.
+ *
+ * ``workflow_id`` or ``agent_preset_id`` keeps the triggers bound to that
+ * target.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.kind
+ * @param data.sourceId
+ * @param data.agentPresetId
+ * @param data.limit
+ * @param data.cursor
+ * @param data.workflowId
+ * @returns CursorPaginatedResponse_TriggerRead_ Successful Response
+ * @throws ApiError
+ */
+export const triggersListTriggers = (
+  data: TriggersListTriggersData
+): CancelablePromise<TriggersListTriggersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/triggers",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      kind: data.kind,
+      source_id: data.sourceId,
+      agent_preset_id: data.agentPresetId,
+      limit: data.limit,
+      cursor: data.cursor,
+      workflow_id: data.workflowId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Trigger
+ * Create a trigger.
+ *
+ * An ``object_storage`` trigger starts with no bindings. A ``schedule``
+ * trigger creates the workflow's schedule (as ``POST /schedules`` does) and
+ * comes bound to that workflow; it also needs ``schedule:create``,
+ * ``schedule:read`` and ``workflow:execute``.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns TriggerRead Successful Response
+ * @throws ApiError
+ */
+export const triggersCreateTrigger = (
+  data: TriggersCreateTriggerData
+): CancelablePromise<TriggersCreateTriggerResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/triggers",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      400: "See detail.code",
+      404: "See detail.code",
+      409: "See detail.code",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Trigger
+ * Get a trigger with its config and bindings.
+ * @param data The data for the request.
+ * @param data.triggerId
+ * @param data.workspaceId
+ * @returns TriggerRead Successful Response
+ * @throws ApiError
+ */
+export const triggersGetTrigger = (
+  data: TriggersGetTriggerData
+): CancelablePromise<TriggersGetTriggerResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/triggers/{trigger_id}",
+    path: {
+      trigger_id: data.triggerId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      404: "See detail.code",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Trigger
+ * Rename a trigger, replace its config, or take it online or offline.
+ * @param data The data for the request.
+ * @param data.triggerId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns TriggerRead Successful Response
+ * @throws ApiError
+ */
+export const triggersUpdateTrigger = (
+  data: TriggersUpdateTriggerData
+): CancelablePromise<TriggersUpdateTriggerResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/workspaces/{workspace_id}/triggers/{trigger_id}",
+    path: {
+      trigger_id: data.triggerId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      400: "See detail.code",
+      404: "See detail.code",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Trigger
+ * Delete a trigger and its bindings.
+ *
+ * For a ``schedule`` trigger this deletes the schedule, and needs
+ * ``schedule:delete``.
+ * @param data The data for the request.
+ * @param data.triggerId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const triggersDeleteTrigger = (
+  data: TriggersDeleteTriggerData
+): CancelablePromise<TriggersDeleteTriggerResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/triggers/{trigger_id}",
+    path: {
+      trigger_id: data.triggerId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      404: "See detail.code",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Trigger Binding
+ * Bind a trigger to a workflow or an agent preset.
+ *
+ * Also needs ``workflow:execute`` for a workflow or ``agent:execute`` for an
+ * agent: every matching event will run the target.
+ * @param data The data for the request.
+ * @param data.triggerId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns TriggerBindingRead Successful Response
+ * @throws ApiError
+ */
+export const triggersCreateTriggerBinding = (
+  data: TriggersCreateTriggerBindingData
+): CancelablePromise<TriggersCreateTriggerBindingResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/triggers/{trigger_id}/bindings",
+    path: {
+      trigger_id: data.triggerId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      400: "See detail.code",
+      404: "See detail.code",
+      409: "See detail.code",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Trigger Binding
+ * Take a binding online or offline, or change an agent's instruction.
+ *
+ * Turning it online or changing the instruction also needs the target's
+ * execute scope, as for create.
+ * @param data The data for the request.
+ * @param data.triggerId
+ * @param data.bindingId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns TriggerBindingRead Successful Response
+ * @throws ApiError
+ */
+export const triggersUpdateTriggerBinding = (
+  data: TriggersUpdateTriggerBindingData
+): CancelablePromise<TriggersUpdateTriggerBindingResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/workspaces/{workspace_id}/triggers/{trigger_id}/bindings/{binding_id}",
+    path: {
+      trigger_id: data.triggerId,
+      binding_id: data.bindingId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      400: "See detail.code",
+      404: "See detail.code",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Trigger Binding
+ * Delete one binding of a trigger.
+ * @param data The data for the request.
+ * @param data.triggerId
+ * @param data.bindingId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const triggersDeleteTriggerBinding = (
+  data: TriggersDeleteTriggerBindingData
+): CancelablePromise<TriggersDeleteTriggerBindingResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/triggers/{trigger_id}/bindings/{binding_id}",
+    path: {
+      trigger_id: data.triggerId,
+      binding_id: data.bindingId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      400: "See detail.code",
+      404: "See detail.code",
       422: "Validation Error",
     },
   })
@@ -19138,45 +19683,6 @@ export const scimSchemasDocument =
   }
 
 /**
- * Users:Current User
- * @returns UserRead Successful Response
- * @throws ApiError
- */
-export const usersUsersCurrentUser =
-  (): CancelablePromise<UsersUsersCurrentUserResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/users/me",
-      errors: {
-        401: "Missing token or inactive user.",
-      },
-    })
-  }
-
-/**
- * Users:Patch Current User
- * @param data The data for the request.
- * @param data.requestBody
- * @returns UserRead Successful Response
- * @throws ApiError
- */
-export const usersUsersPatchCurrentUser = (
-  data: UsersUsersPatchCurrentUserData
-): CancelablePromise<UsersUsersPatchCurrentUserResponse> => {
-  return __request(OpenAPI, {
-    method: "PATCH",
-    url: "/users/me",
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      400: "Bad Request",
-      401: "Missing token or inactive user.",
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
  * Users:User
  * @param data The data for the request.
  * @param data.id
@@ -19706,6 +20212,46 @@ export const authDiscoverAuthMethod = (
 }
 
 /**
+ * Get Public Branding
+ * Branding for the sign-in and sign-up pages.
+ *
+ * Multi-tenant deployments only brand pages opened with ``?org=<slug>``;
+ * single-tenant deployments use the default organization.
+ * @param data The data for the request.
+ * @param data.org
+ * @returns BrandingRead Successful Response
+ * @throws ApiError
+ */
+export const authGetPublicBranding = (
+  data: AuthGetPublicBrandingData = {}
+): CancelablePromise<AuthGetPublicBrandingResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/auth/branding",
+    query: {
+      org: data.org,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Organization Branding
+ * Branding for the current organization, for any member.
+ * @returns BrandingRead Successful Response
+ * @throws ApiError
+ */
+export const organizationGetOrganizationBranding =
+  (): CancelablePromise<OrganizationGetOrganizationBrandingResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/branding",
+    })
+  }
+
+/**
  * Check Health
  * @returns HealthResponse Successful Response
  * @throws ApiError
@@ -19715,5 +20261,19 @@ export const publicCheckHealth =
     return __request(OpenAPI, {
       method: "GET",
       url: "/health",
+    })
+  }
+
+/**
+ * Get App Version
+ * Platform version, for signed-in users only.
+ * @returns AppVersionRead Successful Response
+ * @throws ApiError
+ */
+export const infoGetAppVersion =
+  (): CancelablePromise<InfoGetAppVersionResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/version",
     })
   }

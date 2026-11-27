@@ -1,0 +1,100 @@
+---
+title: "Object storage triggers"
+description: "Start Tracecat workflows and agents when files land in an S3 bucket: route S3 event notifications through your SNS topic to a Tracecat HTTPS endpoint."
+icon: "lock"
+---
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+## Overview
+
+Object storage triggers start a workflow or an agent when an object is created in an S3 bucket. S3 publishes each event to an SNS topic in your AWS account, and the topic delivers it to a Tracecat HTTPS endpoint. Tracecat stores one event per object, then starts the triggers bound to it.
+
+```
+S3 bucket ──event notification──► your SNS topic ──HTTPS──► Tracecat endpoint
+```
+
+Tracecat never reads your bucket on ingest. The triggered workflow or agent fetches the object with your workspace's AWS credentials.
+
+## Set up the event source
+
+1. Create an SNS event source in Tracecat with your topic ARN, such as `arn:aws:sns:us-east-1:123456789012:bucket-events`. Tracecat accepts messages from that topic only.
+2. Copy the source's endpoint URL from the source panel. It is your Tracecat public API URL followed by `/ingest/sns/<token>`. On Tracecat Cloud and on the default Docker Compose, Fargate and Kubernetes deployments, the public API URL ends in `/api`, so the endpoint is `https://<your-tracecat-domain>/api/ingest/sns/<token>`. Only members with the `trigger:update` scope see it; for others the field is empty. Treat the URL as a secret: anyone who holds it can send events to the source.
+3. Allow only your bucket to publish to the topic. Add this statement to the topic's access policy, with your topic ARN, bucket name and account ID:
+
+   ```json
+   {
+     "Effect": "Allow",
+     "Principal": { "Service": "s3.amazonaws.com" },
+     "Action": "sns:Publish",
+     "Resource": "arn:aws:sns:us-east-1:123456789012:bucket-events",
+     "Condition": {
+       "ArnLike": { "aws:SourceArn": "arn:aws:s3:::your-bucket" },
+       "StringEquals": { "aws:SourceAccount": "123456789012" }
+     }
+   }
+   ```
+
+   Keep both conditions. Without them, any S3 bucket in any AWS account can publish to your topic, and Tracecat accepts its events because SNS signs them for your topic.
+4. In S3, add an event notification on the bucket for `s3:ObjectCreated:*` events with your SNS topic as the destination. Set a key prefix to limit which objects send events. S3 checks that it may publish to the topic, so add the topic policy first.
+5. Subscribe the endpoint URL to the topic with the `HTTPS` protocol. Leave raw message delivery off.
+6. Set the subscription's delivery retry policy to retry for one hour, and attach a dead-letter queue (an SQS queue) to the subscription. The dead-letter queue is required to keep events that Tracecat refuses, including every event sent while the source is offline. If you also throttle delivery (`maxReceivesPerSecond`), keep the limit high enough that a backlog drains within 24 hours: Tracecat refuses messages older than that.
+
+Tracecat confirms the subscription by itself through the SNS `ConfirmSubscription` API. The source shows the subscription as `confirmed` when it is done.
+
+A source created from the Triggers tab starts online, so it queues events as soon as the subscription is confirmed. A source created through the API or the MCP server starts offline unless you create it online; turn it online to start queuing events. Turning a source online when it already has online workflow or agent triggers also needs the `workflow:execute` or `agent:execute` scope for their targets.
+
+`confirmed` reflects the last confirmation message SNS sent to Tracecat. It is not a live check of the subscription. If you delete the subscription in AWS, SNS may not notify Tracecat, and the source keeps showing `confirmed` until a new subscription is confirmed.
+
+## Delivery rules
+
+Tracecat checks every message before it stores anything:
+
+- The message must be signed by SNS. Tracecat verifies the signature against the SNS signing certificate for your topic's region.
+- The message must come from the source's topic.
+- The message must be less than 24 hours old.
+- Raw message delivery is refused, because raw messages carry no signature.
+
+Only `ObjectCreated:*` records become events. Tracecat acknowledges the S3 test event and other event types without storing them. A redelivered message for an object already queued is stored once.
+
+| Response | When | What SNS does |
+| -- | -- | -- |
+| `200` | Every event is stored | Marks the message delivered |
+| `400`, `403`, `404`, `409`, `413` | The message is malformed, unsigned, from another topic, older than 24 hours, or too large; the source is unknown or offline; or your organization does not have object storage triggers | Stops retrying and moves the message to your dead-letter queue |
+| `500`, `503` | Tracecat could not store the events, the source is over its rate cap, or a dependency is briefly unavailable | Retries under your retry policy |
+
+An offline source refuses notifications with `409`. SNS treats `409` as final and does not retry, so an event sent while the source is offline is kept only if the subscription has a dead-letter queue; without one, it is lost. Subscription confirmations work while the source is offline, so you can confirm the subscription before you turn the source online.
+
+An offline trigger is different: its source still accepts and stores the event, and the trigger does not start anything for it. The event is dropped for that trigger, not held until the trigger is turned online again.
+
+Each source accepts up to 6,000 new notifications per minute by default; redeliveries of events still queued do not count. Past that, Tracecat answers `503` and SNS retries later. Messages that are still refused when your retry policy runs out go to your dead-letter queue.
+
+<Warning>
+A workflow or agent that writes objects under the prefix it watches triggers itself in a loop. Write outputs under a different prefix or to a different bucket. The per-source rate cap slows a loop but does not stop it.
+</Warning>
+
+## Event payload
+
+Each event has the same shape:
+
+| Field | Value |
+| -- | -- |
+| `type` | `object.created` |
+| `provider` | `aws` |
+| `account` | AWS account that owns the SNS topic |
+| `region` | Bucket region |
+| `bucket` | Bucket name |
+| `key` | Object key, URL-decoded |
+| `version_id` | Object version, or `null` if the bucket is unversioned |
+| `etag` | Object ETag |
+| `size` | Object size in bytes |
+| `sequencer` | S3 sequencer for ordering events on one key |
+| `occurred_at` | When S3 recorded the event |
+| `received_at` | When Tracecat received the message |
+| `event_id` | Stable ID for the event: the same when SNS delivers it again |
+
+Object keys come from whoever writes to the bucket. Treat them as untrusted data in your workflow.
+
+## Endpoint URLs in logs
+
+The endpoint URL is a secret, like an incoming webhook URL. From this version, Tracecat writes `/ingest/sns/[redacted]` in place of the token in its API access log, request logs and error logs, and webhook URLs appear as `/webhooks/<workflow-id>/[redacted]`. A load balancer or proxy in front of Tracecat that keeps its own access log, such as AWS ALB access logs, still records the full URL; restrict who can read those logs.

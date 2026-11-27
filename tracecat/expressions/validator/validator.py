@@ -1,12 +1,12 @@
 import re
-from collections.abc import Iterator, Mapping
+from collections.abc import Coroutine, Iterator, Mapping
 from types import TracebackType
 from typing import Any, Literal, Self, TypeVar, override
 
 from lark import Token, Tree
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.concurrency import GatheringTaskGroup
 from tracecat.dsl.schemas import TaskResult
 from tracecat.expressions.common import MAX_VARS_PATH_DEPTH, ExprContext, ExprType
 from tracecat.expressions.expectations import ExpectedField
@@ -44,17 +44,29 @@ class ExprValidator(BaseExprValidator[ValidationDetail]):
         self,
         validation_context: ExprValidationContext,
         keep_success: bool = False,
+        *,
+        session: AsyncSession | None = None,
         **kwargs: Any,
     ) -> None:
+        """Create a validator.
+
+        Args:
+            validation_context: The workflow's action refs and trigger context.
+            keep_success: Keep success results as well as errors.
+            session: An open session for the secret, variable and integration
+                lookups. ``None`` opens a short session per lookup.
+            **kwargs: Passed to ``BaseExprValidator``.
+        """
         super().__init__(**kwargs)
         self._context = validation_context
-        self._task_group = GatheringTaskGroup()
+        self._session = session
+        # Lookups run one at a time on exit: a shared session cannot run two
+        # queries at once, and without one each lookup would hold a connection.
+        self._pending: list[Coroutine[Any, Any, None]] = []
         self._validation_details: list[ValidationDetail] = []
         self._keep_success = keep_success
 
     async def __aenter__(self) -> Self:
-        """Initialize the validator with a task group."""
-        await self._task_group.__aenter__()
         return self
 
     async def __aexit__(
@@ -63,14 +75,21 @@ class ExprValidator(BaseExprValidator[ValidationDetail]):
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> None:
-        """Clean up the task group."""
-        await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
+        """Run the lookups queued while visiting expressions."""
+        pending, self._pending = self._pending, []
+        try:
+            if exc_type is None:
+                while pending:
+                    await pending.pop(0)
+        finally:
+            for coro in pending:
+                coro.close()
 
     async def _secret_validator(
         self, *, name: str, key: str, loc: tuple[str | int, ...], environment: str
     ) -> None:
         # (1) Check if the secret is defined
-        async with SecretsService.with_session() as service:
+        async with SecretsService.with_session(session=self._session) as service:
             defined_secret = await service.search_secrets(
                 SecretSearch(names={name}, environment=environment)
             )
@@ -121,7 +140,7 @@ class ExprValidator(BaseExprValidator[ValidationDetail]):
         loc: tuple[str | int, ...],
         environment: str,
     ) -> None:
-        async with VariablesService.with_session() as service:
+        async with VariablesService.with_session(session=self._session) as service:
             defined_variables = await service.search_variables(
                 VariableSearch(names={name}, environment=environment)
             )
@@ -200,7 +219,9 @@ class ExprValidator(BaseExprValidator[ValidationDetail]):
     ) -> None:
         provider_key = ProviderKey(id=provider, grant_type=grant_type)
         try:
-            async with IntegrationService.with_session() as service:
+            async with IntegrationService.with_session(
+                session=self._session
+            ) as service:
                 integration = await service.get_integration(provider_key=provider_key)
         except Exception as exc:
             self.logger.warning(
@@ -330,16 +351,18 @@ class ExprValidator(BaseExprValidator[ValidationDetail]):
                     loc=self._loc,
                 )
                 return
-            coro = self._oauth_validator(
-                provider=provider_id, key=key, grant_type=grant_type, loc=self._loc
+            self._pending.append(
+                self._oauth_validator(
+                    provider=provider_id, key=key, grant_type=grant_type, loc=self._loc
+                )
             )
-            self._task_group.create_task(coro)
         else:
             # Check that we've defined the secret in the SM
-            coro = self._secret_validator(
-                name=name, key=key, environment=self._environment, loc=self._loc
+            self._pending.append(
+                self._secret_validator(
+                    name=name, key=key, environment=self._environment, loc=self._loc
+                )
             )
-            self._task_group.create_task(coro)
 
     def vars(self, node: Tree[Token]):
         name_key = super().vars(node)
@@ -350,7 +373,7 @@ class ExprValidator(BaseExprValidator[ValidationDetail]):
         expr = ExprContext.VARS.value + "." + name
         if key_path:
             expr = f"{expr}.{key_path}"
-        self._task_group.create_task(
+        self._pending.append(
             self._variable_validator(
                 name=name,
                 key_path=key_path,

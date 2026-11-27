@@ -59,7 +59,7 @@ export function GitSyncView({
   if (!gitRepoUrl || !canSync) {
     return (
       <div className="flex h-full flex-col">
-        <GitSyncHeader workspaceName={workspace.name} />
+        <GitSyncHeader />
         {canSync && <SyncOperationStatus workspaceId={workspace.id} />}
         {canManageConnection ? (
           <GitSyncConnectionPanel workspace={workspace} canSync={canSync} />
@@ -149,7 +149,7 @@ function GitSyncConnectedView({
       onValueChange={(value) => setDirection(value as SyncDirection)}
       className="flex h-full flex-col"
     >
-      <GitSyncHeader workspaceName={workspace.name}>
+      <GitSyncHeader>
         {!showConnection && (
           <div className="ml-auto flex min-w-0 items-center gap-3">
             <GitSyncRepoStatus
@@ -266,27 +266,13 @@ const DIRECTION_TAB_CLASS_NAME =
  * Page header in the controls-header shape. ControlsHeader has no config for
  * this route, so the page owns its header and the direction state.
  */
-export function GitSyncHeader({
-  workspaceName,
-  children,
-}: {
-  workspaceName?: string
-  children?: ReactNode
-}) {
+export function GitSyncHeader({ children }: { children?: ReactNode }) {
   return (
     <header className="flex h-10 shrink-0 items-center gap-3 overflow-hidden border-b px-3">
       <SidebarTrigger className="h-7 w-7 flex-shrink-0" />
-      <div className="flex shrink-0 items-center gap-2 text-sm">
-        {workspaceName && (
-          <>
-            <span className="max-w-40 truncate text-muted-foreground">
-              {workspaceName}
-            </span>
-            <span className="text-muted-foreground/60">/</span>
-          </>
-        )}
-        <h1 className="font-medium">Git sync</h1>
-      </div>
+      <h1 className="shrink-0 text-sm font-semibold text-muted-foreground">
+        Git sync
+      </h1>
       {children}
     </header>
   )

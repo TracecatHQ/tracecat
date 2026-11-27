@@ -24,7 +24,9 @@ from tracecat.managed_resources.workflows import (
     managed_rollout_run,
 )
 from tracecat.observability.otel import (
+    initialize_platform_metrics,
     initialize_platform_tracing,
+    shutdown_platform_metrics,
     shutdown_platform_tracing,
 )
 from tracecat.observability.sentry import initialize_worker_sentry_from_environment
@@ -36,6 +38,12 @@ from tracecat.search.indexing_workflow import (
 )
 from tracecat.storage.blob import close_storage_client_cache
 from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
+from tracecat.triggers.dispatcher import (
+    TriggerEventDispatcher,
+    dispatch_trigger_event_batch,
+    trigger_event_dispatcher_lifespan,
+    wait_for_trigger_events,
+)
 from tracecat.workspace_sync.operations.activities import (
     workspace_sync_apply,
     workspace_sync_fail,
@@ -57,10 +65,13 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     """Poll the shared background queue with bounded activity concurrency."""
     shutdown_event = shutdown_event or asyncio.Event()
     initialize_platform_tracing("tracecat-background-worker")
+    initialize_platform_metrics()
     initialize_worker_sentry_from_environment()
     await verify_rls_enforceable_login()
     async with AsyncExitStack() as cleanup:
         cleanup.callback(shutdown_platform_tracing)
+        # Runs before tracing shuts down: callbacks unwind in reverse.
+        cleanup.callback(shutdown_platform_metrics)
         cleanup.push_async_callback(close_storage_client_cache)
         client = await get_temporal_client()
         async with (
@@ -73,6 +84,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                     ManagedRolloutWorkflow,
                     SearchIndexDispatcher,
                     CaseTriggerDispatcher,
+                    TriggerEventDispatcher,
                 ],
                 workflow_runner=new_sandbox_runner(),
                 activities=[
@@ -91,6 +103,8 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                     index_search_collection,
                     wait_for_case_trigger_outbox,
                     dispatch_case_trigger_outbox_batch,
+                    wait_for_trigger_events,
+                    dispatch_trigger_event_batch,
                 ],
                 max_concurrent_activities=config.TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES,
                 disable_eager_activity_execution=True,
@@ -98,6 +112,9 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
             ),
             search_schedule_lifespan(client, config.TRACECAT__BACKGROUND_QUEUE),
             case_trigger_dispatcher_lifespan(client, config.TRACECAT__BACKGROUND_QUEUE),
+            trigger_event_dispatcher_lifespan(
+                client, config.TRACECAT__BACKGROUND_QUEUE
+            ),
         ):
             logger.info("Background worker started")
             await shutdown_event.wait()

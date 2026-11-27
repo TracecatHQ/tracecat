@@ -111,6 +111,7 @@ from tracecat.api.extensions import (
 )
 from tracecat.api.lifespan import LifespanTaskSupervisor
 from tracecat.auth.credentials import (
+    AuthenticatedUserOnly,
     authenticated_user_only,
     require_superuser,
     require_superuser_step_up,
@@ -140,6 +141,8 @@ from tracecat.authz.rbac.router import (
 )
 from tracecat.authz.rbac.router import user_scopes_router
 from tracecat.authz.seeding import seed_all_system_data
+from tracecat.branding.router import public_router as public_branding_router
+from tracecat.branding.router import router as branding_router
 from tracecat.cases.attachments.router import router as case_attachments_router
 from tracecat.cases.dropdowns.router import definitions_router as case_dropdowns_router
 from tracecat.cases.dropdowns.router import values_router as case_dropdown_values_router
@@ -195,6 +198,11 @@ from tracecat.integrations.router import (
 from tracecat.invitations.consumer import start_invitation_email_consumer
 from tracecat.invitations.router import router as invitations_router
 from tracecat.logger import logger
+from tracecat.logger.redaction import (
+    install_uvicorn_url_secret_redaction,
+    redact_query_string,
+    redact_url_secrets,
+)
 from tracecat.managed_resources.guard import (
     LOCKED_MESSAGE,
     ManagedResourceLockedError,
@@ -209,6 +217,7 @@ from tracecat.middleware import (
 )
 from tracecat.middleware.disconnect import CancelOnDisconnectMiddleware
 from tracecat.middleware.security import SecurityHeadersMiddleware
+from tracecat.middleware.url_secret_errors import URLSecretErrorMiddleware
 from tracecat.observability.otel import (
     TRACE_ID_HEADER,
     TRACE_SAMPLED_HEADER,
@@ -248,6 +257,9 @@ from tracecat.tables.exceptions import TableRowError
 from tracecat.tables.folders.router import router as table_folders_router
 from tracecat.tables.router import router as tables_router
 from tracecat.tags.router import router as tags_router
+from tracecat.triggers.exceptions import TriggerError, trigger_error_handler
+from tracecat.triggers.ingest.aws_sns.router import router as trigger_ingest_router
+from tracecat.triggers.router import event_sources_router, triggers_router
 from tracecat.variables.router import router as variables_router
 from tracecat.vcs.router import org_router as vcs_router
 from tracecat.webhooks.router import router as webhook_router
@@ -461,7 +473,7 @@ def _install_scim_exception_handlers(app: FastAPI) -> None:
             "Unexpected SCIM error",
             error_type=type(exc).__name__,
             role=ctx_role.get(),
-            path=request.url.path,
+            path=redact_url_secrets(request.url.path),
         )
         return scim_error_response(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -506,7 +518,7 @@ def validation_exception_handler(request: Request, exc: Exception) -> Response:
     logger.error(
         "API Model Validation error",
         method=request.method,
-        path=request.url.path,
+        path=redact_url_secrets(request.url.path),
         errors=without_inputs(ser_errors),
     )
     return response
@@ -518,8 +530,8 @@ def fastapi_users_auth_exception_handler(request: Request, exc: Exception) -> Re
         "Handling FastAPI Users exception",
         msg=msg,
         role=ctx_role.get(),
-        params=request.query_params,
-        path=request.url.path,
+        params=redact_query_string(str(request.query_params)),
+        path=redact_url_secrets(request.url.path),
     )
     match exc:
         case InvalidEmailException():
@@ -539,7 +551,7 @@ def entitlement_exception_handler(request: Request, exc: Exception) -> Response:
     logger.warning(
         "Entitlement required",
         entitlement=exc.entitlement,
-        path=request.url.path,
+        path=redact_url_secrets(request.url.path),
     )
     return ORJSONResponse(
         status_code=status.HTTP_403_FORBIDDEN,
@@ -566,7 +578,7 @@ def authorization_exception_handler(request: Request, exc: Exception) -> Respons
     """
     logger.warning(
         "Authorization denied",
-        path=request.url.path,
+        path=redact_url_secrets(request.url.path),
         role=ctx_role.get(),
         exception_type=type(exc).__name__,
         detail=exc.detail if isinstance(exc, TracecatException) else None,
@@ -585,7 +597,11 @@ def approver_not_allowed_exception_handler(
     The messages are fixed text naming no ids, matching the fixed-body rule.
     """
     message = str(exc) if isinstance(exc, ApproverNotAllowedError) else "Forbidden"
-    logger.info("Refused approval decision", path=request.url.path, role=ctx_role.get())
+    logger.info(
+        "Refused approval decision",
+        path=redact_url_secrets(request.url.path),
+        role=ctx_role.get(),
+    )
     return ORJSONResponse(
         status_code=status.HTTP_403_FORBIDDEN,
         content=ApproverNotAllowedResponse(
@@ -608,7 +624,7 @@ def managed_resource_locked_exception_handler(
     )
     logger.info(
         "Refused change to managed resource",
-        path=request.url.path,
+        path=redact_url_secrets(request.url.path),
         role=ctx_role.get(),
         resource_type=resource_type,
     )
@@ -643,7 +659,7 @@ def scope_denied_exception_handler(request: Request, exc: Exception) -> Response
         "Scope denied",
         required_scopes=exc.required_scopes,
         missing_scopes=exc.missing_scopes,
-        path=request.url.path,
+        path=redact_url_secrets(request.url.path),
         role=ctx_role.get(),
     )
     return ORJSONResponse(
@@ -695,6 +711,15 @@ def _users_router() -> APIRouter:
     verification, like the other privileged platform admin actions.
     """
     users_router = fastapi_users.get_users_router(UserRead, UserUpdate)
+    # PATCH /users/me lives in tracecat.auth.router: the fastapi-users version
+    # accepts email and password changes without the current password.
+    users_router.routes = [
+        route
+        for route in users_router.routes
+        if not (
+            isinstance(route, APIRoute) and route.name == "users:patch_current_user"
+        )
+    ]
     for route in users_router.routes:
         if not isinstance(route, APIRoute):
             continue
@@ -714,7 +739,6 @@ def root() -> HealthResponse:
 
 
 class AppInfo(BaseModel):
-    version: str
     public_app_url: str
     auth_allowed_types: list[AuthType]
     saml_enabled: bool
@@ -742,7 +766,6 @@ async def info(session: AsyncDBSessionBypass) -> AppInfo:
         else:
             keyvalues[key] = keyvalues.get(key, False)
     return AppInfo(
-        version=APP_VERSION,
         public_app_url=config.TRACECAT__PUBLIC_APP_URL,
         auth_allowed_types=list(config.TRACECAT__AUTH_TYPES),
         saml_enabled=keyvalues["saml_enabled"],
@@ -751,11 +774,24 @@ async def info(session: AsyncDBSessionBypass) -> AppInfo:
     )
 
 
+class AppVersionRead(BaseModel):
+    version: str
+
+
+async def get_app_version(role: AuthenticatedUserOnly) -> AppVersionRead:
+    """Platform version, for signed-in users only."""
+    del role
+    return AppVersionRead(version=APP_VERSION)
+
+
 async def check_health() -> HealthResponse:
     return HealthResponse(status="ok")
 
 
 def create_app(**kwargs) -> FastAPI:
+    # uvicorn's access log writes the raw request path, which carries the
+    # secret segment of webhook and ingest URLs.
+    install_uvicorn_url_secret_redaction()
     if config.TRACECAT__ALLOW_ORIGINS is not None:
         allow_origins = config.TRACECAT__ALLOW_ORIGINS.split(",")
     else:
@@ -795,6 +831,7 @@ def create_app(**kwargs) -> FastAPI:
 
     # Routers
     app.include_router(webhook_router)
+    app.include_router(trigger_ingest_router)
     app.include_router(agent_channels_router)
     app.include_router(agent_channel_bots_public_router)
     app.include_router(agent_channel_links_router)
@@ -860,6 +897,8 @@ def create_app(**kwargs) -> FastAPI:
     _include_workspace_scoped_router(app, tables_router)
     _include_workspace_scoped_router(app, table_folders_router)
     _include_workspace_scoped_router(app, forms_router)
+    _include_workspace_scoped_router(app, event_sources_router)
+    _include_workspace_scoped_router(app, triggers_router)
     app.include_router(forms_intake_router)
     _include_workspace_scoped_router(app, cases_router)
     _include_workspace_scoped_router(app, case_versions_router)
@@ -965,6 +1004,8 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(saml_router)
     app.include_router(mfa_router)
     app.include_router(auth_discovery_router)
+    app.include_router(public_branding_router)
+    app.include_router(branding_router)
 
     if AuthType.BASIC not in config.TRACECAT__AUTH_TYPES:
         # Need basic auth router for `logout` endpoint
@@ -978,6 +1019,7 @@ def create_app(**kwargs) -> FastAPI:
     app.add_api_route("/", root, methods=["GET"], include_in_schema=False)
     app.add_api_route("/info", info, methods=["GET"], include_in_schema=False)
     app.add_api_route("/health", check_health, methods=["GET"], tags=["public"])
+    app.add_api_route("/version", get_app_version, methods=["GET"], tags=["info"])
     include_api_extension_routers(app)
     get_channel_bot_admin()  # Fail startup on two installed channel bot admins.
 
@@ -991,6 +1033,7 @@ def create_app(**kwargs) -> FastAPI:
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
     app.add_exception_handler(TableRowError, table_row_exception_handler)
     app.add_exception_handler(FormError, form_error_handler)
+    app.add_exception_handler(TriggerError, trigger_error_handler)
     app.add_exception_handler(RPCError, temporal_rpc_exception_handler)
     app.add_exception_handler(
         TracecatQueryTimeoutError,
@@ -1021,6 +1064,10 @@ def create_app(**kwargs) -> FastAPI:
     _install_scim_exception_handlers(app)
 
     # Middleware
+    # Innermost, so it catches errors on secret-bearing URLs before Starlette's
+    # server-error layer re-raises them to uvicorn, and its 500 still passes
+    # through the security-header and CORS layers.
+    app.add_middleware(URLSecretErrorMiddleware)
     app.add_middleware(RequestLoggingMiddleware)
     if config.TRACECAT__APP_ENV != "development":
         app.add_middleware(SecurityHeadersMiddleware)
