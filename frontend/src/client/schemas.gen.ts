@@ -45966,10 +45966,6 @@ export const $TriggerStatus = {
 
 export const $TriggerStoppedEventRead = {
   properties: {
-    id: {
-      type: "integer",
-      title: "Id",
-    },
     attempts: {
       type: "integer",
       title: "Attempts",
@@ -45994,7 +45990,7 @@ export const $TriggerStoppedEventRead = {
     },
   },
   type: "object",
-  required: ["id", "attempts", "created_at"],
+  required: ["attempts", "created_at"],
   title: "TriggerStoppedEventRead",
   description: `An event that stopped retrying after the attempt cap. The event itself
 is not returned.`,

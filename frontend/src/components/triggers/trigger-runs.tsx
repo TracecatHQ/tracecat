@@ -150,15 +150,19 @@ function TriggerStoppedEvents({
         empty="No stopped events."
         forbidden="You need permission to view workflow runs or agents to see this trigger's stopped events."
         renderItem={(event) => (
-          <div key={event.id} className="space-y-1 px-4 py-2.5">
+          <div
+            key={`${event.created_at}-${event.attempts}-${event.error ?? ""}`}
+            className="space-y-1 px-4 py-2.5"
+          >
             <div className="flex items-center justify-between gap-3 text-xs">
-              <span className="font-medium">Event {event.id}</span>
+              <span className="font-medium">
+                Event received {formatRelative(event.created_at)}
+              </span>
               <span
                 className="text-muted-foreground"
                 title={new Date(event.created_at).toLocaleString()}
               >
-                Received {formatRelative(event.created_at)} · {event.attempts}{" "}
-                attempts
+                {event.attempts} attempts
               </span>
             </div>
             {event.error ? (

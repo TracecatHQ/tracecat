@@ -46,7 +46,6 @@ class TriggerStoppedEventRead(Schema):
     """An event that stopped retrying after the attempt cap. The event itself
     is not returned."""
 
-    id: int
     attempts: int
     error: str | None = Field(
         default=None, description="The last attempt's error, credentials redacted"

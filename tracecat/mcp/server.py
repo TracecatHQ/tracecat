@@ -7199,7 +7199,7 @@ async def list_trigger_stopped_events(
         limit: Maximum number of events to return.
         cursor: `next_cursor` from a previous page.
 
-    Returns JSON with `items` (id, attempts, error with credentials redacted,
+    Returns JSON with `items` (attempts, error with credentials redacted,
     created_at) and the cursor fields.
     """
     async with _triggers_service(

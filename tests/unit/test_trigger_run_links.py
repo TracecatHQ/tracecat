@@ -37,7 +37,7 @@ from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.exceptions import ScopeDeniedError
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.pagination import CursorPaginationParams
+from tracecat.pagination import CursorPaginationParams, PaginationError
 from tracecat.triggers.enums import (
     EventSourceKind,
     TriggerErrorCode,
@@ -570,7 +570,9 @@ async def test_stopped_events_match_the_trigger_and_hide_secrets_and_the_event(
     )
 
     (event,) = page.items
-    assert (event.id, event.attempts) == (stopped.id, 8)
+    assert event.attempts == 8
+    # The global row ID never leaves the server.
+    assert "id" not in event.model_dump()
     assert event.error is not None
     assert secret not in event.error
     assert key not in event.error
@@ -586,7 +588,7 @@ async def test_stopped_events_page_newest_first(
     trigger = await triggers.get_trigger(trigger_id)
     assert isinstance(trigger.config, ObjectStorageTriggerConfig)
     rows = [
-        _outbox_row(svc_workspace.id, trigger.config.source_id, f"k{i}")
+        _outbox_row(svc_workspace.id, trigger.config.source_id, f"k{i}", attempts=i)
         for i in range(3)
     ]
     session.add_all(rows)
@@ -600,11 +602,22 @@ async def test_stopped_events_page_newest_first(
         trigger_id, CursorPaginationParams(limit=2, cursor=first.next_cursor)
     )
 
-    newest_first = sorted((r.id for r in rows), reverse=True)
-    assert [e.id for e in first.items] == newest_first[:2]
-    assert first.has_more is True
-    assert [e.id for e in second.items] == newest_first[2:]
-    assert second.has_more is False
+    # Same created_at (one transaction), so the occurrence key breaks ties.
+    newest_first = sorted((r.occurrence_key for r in rows), reverse=True)
+    assert len(first.items) == 2 and first.has_more is True
+    assert first.next_cursor is not None
+    # The cursor names (received, occurrence key), never the global row ID.
+    _, occurrence_key = runs_service._decode_stopped_cursor(first.next_cursor)
+    assert occurrence_key in {r.occurrence_key for r in rows}
+    assert len(second.items) == 1 and second.has_more is False
+    attempts_by_key = {r.occurrence_key: r.attempts for r in rows}
+    assert [e.attempts for e in [*first.items, *second.items]] == [
+        attempts_by_key[k] for k in newest_first
+    ]
+    with pytest.raises(PaginationError):
+        await service.list_stopped_events(
+            trigger_id, CursorPaginationParams(limit=2, cursor="not-a-cursor")
+        )
 
 
 async def test_stopped_events_need_a_run_read_scope(
@@ -669,6 +682,7 @@ async def test_a_run_and_a_session_lead_back_to_their_trigger(
     (query,) = queries
     assert build_agent_session_correlation_id(session_id) in query
     assert "TracecatTriggerId IS NOT NULL" in query
+    assert "WorkflowType != 'DSLWorkflow'" in query
     assert f"TracecatWorkspaceId = '{svc_role.workspace_id}'" in query
 
 

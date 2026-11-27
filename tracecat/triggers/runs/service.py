@@ -11,10 +11,12 @@ listed: ``workflow:read`` for workflow runs, ``agent:read`` for agent runs.
 
 from __future__ import annotations
 
+import base64
 import uuid
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, literal, select, tuple_
 
 from tracecat.authz.controls import check_scopes, has_scope
 from tracecat.db.models import AgentPreset, AgentSession, EventOutbox, Workflow
@@ -64,6 +66,28 @@ def _stopped_error(last_error: str | None, event: dict[str, Any]) -> str | None:
     event_values = [value for value in event.values() if isinstance(value, str)]
     redacted = redact_sensitive_text(last_error, sensitive_values=event_values)
     return redacted[:STOPPED_ERROR_MAX_LENGTH]
+
+
+def _encode_stopped_cursor(received: datetime, occurrence_key: str) -> str:
+    raw = f"{received.isoformat()}|{occurrence_key}".encode()
+    return base64.urlsafe_b64encode(raw).decode()
+
+
+def _decode_stopped_cursor(cursor: str) -> tuple[datetime, str]:
+    """The (received, occurrence key) a stopped events cursor points after.
+
+    Raises:
+        PaginationError: If the cursor is not one the list returned.
+    """
+    try:
+        received, _, occurrence_key = (
+            base64.urlsafe_b64decode(cursor.encode()).decode().partition("|")
+        )
+        return datetime.fromisoformat(received), occurrence_key
+    except ValueError as e:
+        raise PaginationError(
+            "Invalid cursor", code=PaginationErrorCode.INVALID_CURSOR
+        ) from e
 
 
 def _session_id_of(correlation_id: str | None) -> uuid.UUID | None:
@@ -254,43 +278,51 @@ class TriggerRunsService(BaseWorkspaceService):
             EventOutbox.next_attempt_at.is_(None),
             func.starts_with(EventOutbox.payload["key"].astext, config.key_prefix),
         ]
+        # Paged on (received, occurrence key): the row ID comes from one
+        # sequence across every workspace, so it is never shown or used.
         if params.cursor is not None:
-            try:
-                before = int(params.cursor)
-            except ValueError as e:
-                raise PaginationError(
-                    "Invalid cursor", code=PaginationErrorCode.INVALID_CURSOR
-                ) from e
-            filters.append(EventOutbox.id < before)
-        rows = (
-            await self.session.execute(
-                select(
-                    EventOutbox.id,
-                    EventOutbox.attempts,
-                    EventOutbox.last_error,
-                    EventOutbox.created_at,
-                    # Read only to blank its values out of the error.
-                    EventOutbox.payload,
-                )
-                .where(and_(*filters))
-                .order_by(EventOutbox.id.desc())
-                .limit(params.limit + 1)
+            received, occurrence_key = _decode_stopped_cursor(params.cursor)
+            filters.append(
+                tuple_(EventOutbox.created_at, EventOutbox.occurrence_key)
+                < tuple_(literal(received), literal(occurrence_key))
             )
-        ).tuples()
+        rows = (
+            (
+                await self.session.execute(
+                    select(
+                        EventOutbox.occurrence_key,
+                        EventOutbox.attempts,
+                        EventOutbox.last_error,
+                        EventOutbox.created_at,
+                        # Read only to blank its values out of the error.
+                        EventOutbox.payload,
+                    )
+                    .where(and_(*filters))
+                    .order_by(
+                        EventOutbox.created_at.desc(), EventOutbox.occurrence_key.desc()
+                    )
+                    .limit(params.limit + 1)
+                )
+            )
+            .tuples()
+            .all()
+        )
+        has_more = len(rows) > params.limit
+        rows = rows[: params.limit]
         events = [
             TriggerStoppedEventRead(
-                id=row_id,
                 attempts=attempts,
                 error=_stopped_error(last_error, payload),
                 created_at=created_at,
             )
-            for row_id, attempts, last_error, created_at, payload in rows
+            for _, attempts, last_error, created_at, payload in rows
         ]
-        has_more = len(events) > params.limit
-        events = events[: params.limit]
+        next_cursor = (
+            _encode_stopped_cursor(rows[-1][3], rows[-1][0]) if has_more else None
+        )
         return TriggerStoppedEventsPage(
             items=events,
-            next_cursor=str(events[-1].id) if has_more else None,
+            next_cursor=next_cursor,
             has_more=has_more,
             has_previous=params.cursor is not None,
         )
@@ -314,7 +346,9 @@ class TriggerRunsService(BaseWorkspaceService):
         """
         if (wf_exec_id is None) == (session_id is None):
             raise ValueError("Give exactly one of wf_exec_id and session_id")
-        check_scopes(self.role, "workflow:read" if wf_exec_id else "agent:read")
+        check_scopes(
+            self.role, "workflow:read" if wf_exec_id is not None else "agent:read"
+        )
         client = await get_temporal_client()
         if not await trigger_id_registered(client):
             return None
@@ -338,6 +372,8 @@ class TriggerRunsService(BaseWorkspaceService):
                         correlation_id=build_agent_session_correlation_id(session_id),
                     ),
                     f"{TemporalSearchAttr.TRIGGER_ID.value} IS NOT NULL",
+                    # Agent turns only, as the run branch takes workflow runs only.
+                    f"WorkflowType != '{DSL_WORKFLOW_TYPE}'",
                 )
             )
             async for execution in client.list_workflows(query, limit=1):

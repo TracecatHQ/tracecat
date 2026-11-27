@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { act, render, screen, waitFor } from "@testing-library/react"
 import type { ReactNode } from "react"
 import {
   type TriggerRead,
@@ -103,7 +103,6 @@ describe("TriggerRunsSections", () => {
     jest.mocked(triggersListTriggerStoppedEvents).mockResolvedValue({
       items: [
         {
-          id: 7,
           attempts: 8,
           error: "binding b: RPCError: unavailable",
           created_at: "2026-11-27T00:00:00Z",
@@ -116,7 +115,8 @@ describe("TriggerRunsSections", () => {
       <TriggerRunsSections workspaceId="workspace-1" trigger={TRIGGER} />
     )
 
-    expect(await screen.findByText("Event 7")).toBeInTheDocument()
+    expect(await screen.findByText(/^Event received/)).toBeInTheDocument()
+    expect(screen.getByText("8 attempts")).toBeInTheDocument()
     expect(
       screen.getByText("binding b: RPCError: unavailable")
     ).toBeInTheDocument()
@@ -180,6 +180,37 @@ describe("StartedByTrigger", () => {
       wfExecId: "wf_abc/exec_def",
       sessionId: undefined,
     })
+  })
+
+  it("asks again a bounded number of times while no trigger is found", async () => {
+    jest.useFakeTimers()
+    try {
+      jest
+        .mocked(triggersGetTriggerRunOrigin)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue({
+          trigger_id: "trigger-1",
+          name: "New uploads",
+          kind: "object_storage",
+        })
+
+      renderWithClient(
+        <StartedByTrigger
+          workspaceId="workspace-1"
+          target={{ sessionId: "s" }}
+        />
+      )
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(16_000)
+      })
+
+      expect(
+        screen.getByRole("link", { name: "New uploads" })
+      ).toBeInTheDocument()
+      expect(triggersGetTriggerRunOrigin).toHaveBeenCalledTimes(2)
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   it("renders nothing for a run no trigger started", async () => {

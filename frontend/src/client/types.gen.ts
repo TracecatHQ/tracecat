@@ -14204,7 +14204,6 @@ export type TriggerStatus = "online" | "offline"
  * is not returned.
  */
 export type TriggerStoppedEventRead = {
-  id: number
   attempts: number
   /**
    * The last attempt's error, credentials redacted
