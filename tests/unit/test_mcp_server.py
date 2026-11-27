@@ -10221,9 +10221,9 @@ def _patch_triggers(
     return service
 
 
-async def _call_trigger_tool(name: str, **arguments: Any) -> Any:
-    defaults, _ = _TRIGGER_TOOL_ARGUMENTS[name]
-    return await _tool(getattr(mcp_server, name))(
+async def _call_trigger_tool(tool_name: str, /, **arguments: Any) -> Any:
+    defaults, _ = _TRIGGER_TOOL_ARGUMENTS[tool_name]
+    return await _tool(getattr(mcp_server, tool_name))(
         workspace_id=str(uuid.uuid4()), **(defaults | arguments)
     )
 
@@ -10241,9 +10241,14 @@ async def test_trigger_tools_are_registered_without_delete_tools() -> None:
     ]
 
 
+_EVENT_SOURCE_TOOLS = [
+    name for name in _TRIGGER_TOOL_ARGUMENTS if "event_source" in name
+]
+
+
 @pytest.mark.anyio
-@pytest.mark.parametrize("tool_name", list(_TRIGGER_TOOL_ARGUMENTS))
-async def test_trigger_tools_need_the_entitlement(
+@pytest.mark.parametrize("tool_name", _EVENT_SOURCE_TOOLS)
+async def test_event_source_tools_need_the_entitlement(
     monkeypatch: pytest.MonkeyPatch, tool_name: str
 ) -> None:
     # The stand-in service has no methods: a call that got past the gate
@@ -10254,6 +10259,65 @@ async def test_trigger_tools_need_the_entitlement(
         await _call_trigger_tool(tool_name)
 
     assert service.opened
+
+
+@pytest.mark.anyio
+async def test_trigger_tools_leave_the_entitlement_to_the_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Schedules need no plan feature; the service checks each kind's."""
+    page = mcp_server.CursorPaginatedResponse(items=[])
+    _patch_triggers(
+        monkeypatch, entitled=False, list_triggers=AsyncMock(return_value=page)
+    )
+
+    result = await _call_trigger_tool("list_triggers", kind="schedule")
+
+    assert result.items == []
+
+    denied = mcp_server.EntitlementRequired("object_triggers")
+    _patch_triggers(
+        monkeypatch, entitled=False, create_trigger=AsyncMock(side_effect=denied)
+    )
+    with pytest.raises(ToolError, match="Feature 'object_triggers' requires"):
+        await _call_trigger_tool("create_trigger")
+
+
+@pytest.mark.anyio
+async def test_create_trigger_accepts_a_schedule_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trigger_id, read = uuid.uuid4(), object()
+    create_trigger = AsyncMock(return_value=SimpleNamespace(id=trigger_id))
+    _patch_triggers(
+        monkeypatch,
+        create_trigger=create_trigger,
+        get_trigger=AsyncMock(return_value=read),
+    )
+    workflow_id = uuid.uuid4()
+    config = mcp_server.TriggerCreate.model_validate(
+        {
+            "name": "x",
+            "config": {
+                "kind": "schedule",
+                "workflow_id": str(workflow_id),
+                "cron": "0 9 * * *",
+            },
+        }
+    ).config
+
+    result = await _call_trigger_tool(
+        "create_trigger", name="Nightly", config=config, status="online"
+    )
+
+    assert result is read
+    [call] = create_trigger.await_args_list
+    params = call.args[0]
+    assert params.name == "Nightly"
+    assert params.status is mcp_server.TriggerStatus.ONLINE
+    assert params.config.kind is mcp_server.TriggerKind.SCHEDULE
+    assert params.config.workflow_id == workflow_id
+    assert params.config.cron == "0 9 * * *"
 
 
 @pytest.mark.anyio

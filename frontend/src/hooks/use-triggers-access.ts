@@ -1,33 +1,35 @@
-import { useEntitlements } from "@/hooks/use-entitlements"
+import { type EntitlementKey, useEntitlements } from "@/hooks/use-entitlements"
 
 /**
- * Whether the Triggers tab is usable.
+ * Whether the organization can use a trigger kind.
  *
  * - `loading`: the entitlement request is in flight.
  * - `unknown`: the entitlement request failed; the plan is not known.
  * - `locked`: the organization is not entitled.
- * - `enabled`: the organization is entitled.
+ * - `enabled`: the kind needs no feature, or the organization has it.
  */
-export type TriggersAccess = "loading" | "unknown" | "locked" | "enabled"
+export type TriggerKindAccess = "loading" | "unknown" | "locked" | "enabled"
 
 /**
- * Reads the `object_triggers` entitlement for the Triggers pages, which gate
- * on the result. Mount this only for a signed-in user.
+ * Reads the plan for the Triggers tab's kind picker. The tab itself is open to
+ * every plan; each kind names the feature it needs (`entitlement` in
+ * `TRIGGER_KINDS`). Mount this only for a signed-in user.
  */
-export function useTriggersAccess({
-  enabled = true,
-}: {
-  enabled?: boolean
-} = {}): TriggersAccess {
-  const { hasEntitlement, hasEntitlementData, isLoading } = useEntitlements({
-    enabled,
-  })
-  if (isLoading) {
-    return "loading"
+export function useTriggerKindAccess(): (
+  entitlement: EntitlementKey | null
+) => TriggerKindAccess {
+  const { hasEntitlement, hasEntitlementData, isLoading } = useEntitlements()
+  return (entitlement) => {
+    if (entitlement === null) {
+      return "enabled"
+    }
+    if (isLoading) {
+      return "loading"
+    }
+    // A failed request says nothing about the plan; don't show it as locked.
+    if (!hasEntitlementData) {
+      return "unknown"
+    }
+    return hasEntitlement(entitlement) ? "enabled" : "locked"
   }
-  // A failed request says nothing about the plan; don't show it as locked.
-  if (!hasEntitlementData) {
-    return "unknown"
-  }
-  return hasEntitlement("object_triggers") ? "enabled" : "locked"
 }

@@ -7,6 +7,7 @@ import hashlib
 import orjson
 
 from tracecat import config
+from tracecat.tiers.enums import Entitlement
 from tracecat.triggers.enums import EventSourceKind, TriggerKind, TriggerTargetType
 
 # Public ingest path per source kind. Customers are handed URLs under these,
@@ -19,6 +20,15 @@ INGEST_PATH_BY_SOURCE_KIND: dict[EventSourceKind, str] = {
 # would have no entry.
 SOURCE_KINDS_BY_TRIGGER_KIND: dict[TriggerKind, frozenset[EventSourceKind]] = {
     TriggerKind.OBJECT_STORAGE: frozenset({EventSourceKind.AWS_SNS}),
+}
+
+# The plan feature each trigger kind needs, or None for a kind every plan has.
+# Every read and write of a trigger (or its bindings) checks its kind's entry;
+# lists leave out the kinds the plan lacks. Entitlements are flat booleans, so
+# a kind maps to one flag.
+ENTITLEMENT_BY_TRIGGER_KIND: dict[TriggerKind, Entitlement | None] = {
+    TriggerKind.OBJECT_STORAGE: Entitlement.OBJECT_TRIGGERS,
+    TriggerKind.SCHEDULE: None,
 }
 
 # Binding a target means every matching event runs it, so the caller needs

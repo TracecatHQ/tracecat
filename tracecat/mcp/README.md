@@ -143,10 +143,14 @@ stored config whole. Submissions are not exposed over MCP.
 
 ## Trigger tools
 
-These need the `object_triggers` entitlement, plus scopes: list and get tools
-need `trigger:read`; `create_event_source` and `create_trigger` need
-`trigger:create`; the update tools and `create_trigger_binding` need
-`trigger:update`. Anything that can make a target run also needs
+The event source tools need the `object_triggers` entitlement. The trigger
+tools are open to every plan; reading, creating or changing a trigger needs its
+kind's entitlement (`object_triggers` for `object_storage`, none for
+`schedule`), and `list_triggers` leaves out the kinds the plan lacks. A
+`schedule` trigger also needs `schedule:read` to be read or listed.
+Scopes: list and get tools need `trigger:read`; `create_event_source` and
+`create_trigger` need `trigger:create`; the update tools and
+`create_trigger_binding` need `trigger:update`. Anything that can make a target run also needs
 `workflow:execute` or `agent:execute` for that target: creating a binding,
 turning a binding, trigger or source online, changing an agent binding's
 instruction, or changing what an online trigger or source matches. Switching
@@ -165,10 +169,20 @@ for callers without `trigger:update`.
 - `update_trigger_binding(workspace_id, trigger_id, binding_id, status=None, instruction=None)`
 
 An event source is an inbound feed (kind `aws_sns`: a customer SNS topic). A
-trigger is a rule over a source's events (kind `object_storage`). A binding
-starts a workflow or an agent preset for each matching event. Each `config` is
-discriminated by `kind`. There are no delete tools: take a source, trigger or
-binding offline instead. The API deletes triggers and bindings.
+trigger is a rule over a source's events (kind `object_storage`) or a workflow
+schedule (kind `schedule`). A binding starts a workflow or an agent preset for
+each matching event. Each `config` is discriminated by `kind`. There are no
+delete tools: take a source, trigger or binding offline instead. The API
+deletes triggers and bindings.
+
+A `schedule` trigger is the same schedule a workflow's `schedules` holds, so a
+schedule made either way shows in both. Creating one needs `schedule:create`,
+`schedule:read` and `workflow:execute` and binds it to its workflow. Renaming
+it or updating its config or status needs `schedule:update` (which grants
+`schedule:read`) on top of `trigger:update`, and a config replaces every
+schedule setting.
+Its one binding is fixed: `create_trigger_binding` and `update_trigger_binding`
+refuse it.
 
 ## Workflow tag tools
 

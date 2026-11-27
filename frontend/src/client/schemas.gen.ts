@@ -36302,6 +36302,231 @@ export const $ScheduleSearch = {
   title: "ScheduleSearch",
 } as const
 
+export const $ScheduleTriggerConfig = {
+  properties: {
+    cron: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Cron",
+      description: "A cron expression. Set this or `every`.",
+    },
+    every: {
+      anyOf: [
+        {
+          type: "string",
+          format: "duration",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Every",
+      description: "ISO 8601 interval. Set this or `cron`.",
+    },
+    offset: {
+      anyOf: [
+        {
+          type: "string",
+          format: "duration",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Offset",
+      description:
+        "ISO 8601 delay before the first interval run. Interval only.",
+    },
+    start_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Start At",
+      description: "ISO 8601 datetime before which it does not run",
+    },
+    end_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "End At",
+      description: "ISO 8601 datetime after which it stops",
+    },
+    timeout: {
+      type: "number",
+      minimum: 0,
+      title: "Timeout",
+      description: "Most seconds each run may take. 0 means no timeout.",
+      default: 0,
+    },
+    inputs: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inputs",
+      description: "The workflow's trigger inputs for each run",
+    },
+    kind: {
+      type: "string",
+      const: "schedule",
+      title: "Kind",
+    },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}",
+        },
+      ],
+      title: "Workflow Id",
+      description: "The workflow the schedule runs. Fixed after create.",
+    },
+  },
+  type: "object",
+  required: ["kind", "workflow_id"],
+  title: "ScheduleTriggerConfig",
+  description: `Run a workflow on a cron expression or a fixed interval.
+
+The settings of the workflow's schedule (\`\`/schedules\`\`), which the
+trigger shows and edits. Until schedules start their targets through
+bindings, the trigger's one target is this workflow and cannot change.`,
+} as const
+
+export const $ScheduleTriggerConfigRead = {
+  properties: {
+    cron: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Cron",
+      description: "A cron expression. Set this or `every`.",
+    },
+    every: {
+      anyOf: [
+        {
+          type: "string",
+          format: "duration",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Every",
+      description: "ISO 8601 interval. Set this or `cron`.",
+    },
+    offset: {
+      anyOf: [
+        {
+          type: "string",
+          format: "duration",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Offset",
+      description:
+        "ISO 8601 delay before the first interval run. Interval only.",
+    },
+    start_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Start At",
+      description: "ISO 8601 datetime before which it does not run",
+    },
+    end_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "End At",
+      description: "ISO 8601 datetime after which it stops",
+    },
+    timeout: {
+      type: "number",
+      minimum: 0,
+      title: "Timeout",
+      description: "Most seconds each run may take. 0 means no timeout.",
+      default: 0,
+    },
+    inputs: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inputs",
+      description: "The workflow's trigger inputs for each run",
+    },
+    kind: {
+      type: "string",
+      const: "schedule",
+      title: "Kind",
+    },
+    workflow_id: {
+      type: "string",
+      title: "Workflow Id",
+      description: "The workflow the schedule runs",
+    },
+    schedule_id: {
+      type: "string",
+      title: "Schedule Id",
+      description: "The schedule's ID in `/schedules`, which does not change",
+    },
+  },
+  type: "object",
+  required: ["kind", "workflow_id", "schedule_id"],
+  title: "ScheduleTriggerConfigRead",
+} as const
+
 export const $ScheduleUpdate = {
   properties: {
     inputs: {
@@ -45358,12 +45583,16 @@ export const $TriggerCreate = {
         {
           $ref: "#/components/schemas/ObjectStorageTriggerConfig",
         },
+        {
+          $ref: "#/components/schemas/ScheduleTriggerConfig",
+        },
       ],
       title: "Config",
       discriminator: {
         propertyName: "kind",
         mapping: {
           object_storage: "#/components/schemas/ObjectStorageTriggerConfig",
+          schedule: "#/components/schemas/ScheduleTriggerConfig",
         },
       },
     },
@@ -45379,7 +45608,7 @@ export const $TriggerCreate = {
 
 export const $TriggerKind = {
   type: "string",
-  enum: ["object_storage"],
+  enum: ["object_storage", "schedule"],
   title: "TriggerKind",
   description:
     "What a trigger listens to. Each kind has its own source and config.",
@@ -45407,12 +45636,16 @@ export const $TriggerRead = {
         {
           $ref: "#/components/schemas/ObjectStorageTriggerConfigRead",
         },
+        {
+          $ref: "#/components/schemas/ScheduleTriggerConfigRead",
+        },
       ],
       title: "Config",
       discriminator: {
         propertyName: "kind",
         mapping: {
           object_storage: "#/components/schemas/ObjectStorageTriggerConfigRead",
+          schedule: "#/components/schemas/ScheduleTriggerConfigRead",
         },
       },
     },
@@ -45491,11 +45724,15 @@ export const $TriggerUpdate = {
             {
               $ref: "#/components/schemas/ObjectStorageTriggerConfig",
             },
+            {
+              $ref: "#/components/schemas/ScheduleTriggerConfig",
+            },
           ],
           discriminator: {
             propertyName: "kind",
             mapping: {
               object_storage: "#/components/schemas/ObjectStorageTriggerConfig",
+              schedule: "#/components/schemas/ScheduleTriggerConfig",
             },
           },
         },

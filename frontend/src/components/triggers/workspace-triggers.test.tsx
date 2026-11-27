@@ -15,7 +15,13 @@ import {
 } from "@/client"
 import { AddTargetDialog } from "@/components/triggers/add-target-dialog"
 import { CreateTriggerDialog } from "@/components/triggers/create-trigger-dialog"
-import { shellQuote } from "@/components/triggers/object-storage/event-source-panel"
+import {
+  describeEventSource,
+  EVENT_SOURCE_PROVIDER_LIST,
+  getEventSourceProvider,
+  shellQuote,
+} from "@/components/triggers/object-storage/event-source-providers"
+import { describeSchedule } from "@/components/triggers/schedule/schedule-trigger-details"
 import { TriggerDetail } from "@/components/triggers/trigger-detail"
 import { WorkspaceTriggers } from "@/components/triggers/workspace-triggers"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -123,6 +129,35 @@ const TRIGGER: TriggerRead = {
   updated_at: "2026-11-27T00:00:00Z",
 }
 
+const SCHEDULE_TRIGGER: TriggerRead = {
+  id: "trigger-2",
+  kind: "schedule",
+  name: "Nightly report schedule",
+  status: "online",
+  config: {
+    kind: "schedule",
+    workflow_id: "wf_3nF1fBrbY6AIX7Mr2qhEpR",
+    schedule_id: "sch_1",
+    cron: "0 9 * * *",
+    timeout: 0,
+  },
+  bindings: [
+    {
+      id: "binding-3",
+      trigger_id: "trigger-2",
+      target_type: "workflow",
+      target_id: "6f1c2a7e-3b4d-4e5f-9a1b-2c3d4e5f6a7b",
+      target_name: "Nightly report",
+      instruction: null,
+      status: "online",
+      created_at: "2026-11-27T00:00:00Z",
+      updated_at: "2026-11-27T00:00:00Z",
+    },
+  ],
+  created_at: "2026-11-27T00:00:00Z",
+  updated_at: "2026-11-27T00:00:00Z",
+}
+
 function renderWithClient(ui: ReactNode) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -146,6 +181,10 @@ beforeEach(() => {
     "trigger:create": true,
     "trigger:update": true,
     "trigger:delete": true,
+    "schedule:create": true,
+    "schedule:read": true,
+    "schedule:update": true,
+    "schedule:delete": true,
   }
 })
 
@@ -178,7 +217,7 @@ describe("WorkspaceTriggers", () => {
 
     expect(await screen.findByText("No triggers yet")).toBeInTheDocument()
     expect(
-      screen.getByText(/A trigger listens for outside events/)
+      screen.getByText(/A trigger starts workflows and agents/)
     ).toBeInTheDocument()
   })
 
@@ -209,13 +248,19 @@ describe("WorkspaceTriggers", () => {
     ).not.toBeInTheDocument()
   })
 
-  it("offers a reload when the plan can't be checked", () => {
-    entitlementsFailed = true
+  it("lists triggers on every plan", async () => {
+    entitled = false
+    jest
+      .mocked(triggersListTriggers)
+      .mockResolvedValue({ items: [SCHEDULE_TRIGGER], has_more: false })
 
     renderWithClient(<WorkspaceTriggers />)
 
-    expect(screen.getByText("Unable to check plan access")).toBeInTheDocument()
-    expect(triggersListTriggers).not.toHaveBeenCalled()
+    expect(
+      await screen.findByRole("link", { name: /Nightly report schedule/ })
+    ).toBeInTheDocument()
+    expect(screen.getByText("0 9 * * *")).toBeInTheDocument()
+    expect(screen.getByText("Schedule")).toBeInTheDocument()
   })
 
   it("keeps the list when a later page fails", async () => {
@@ -246,14 +291,31 @@ describe("WorkspaceTriggers", () => {
       screen.getByRole("link", { name: /New uploads/ })
     ).toBeInTheDocument()
   })
+})
 
-  it("shows the upgrade state and fetches nothing without the entitlement", () => {
+describe("CreateTriggerDialog kind picker", () => {
+  it("marks the kinds the plan lacks and keeps the others open", () => {
     entitled = false
+    scopes = { ...scopes, "workflow:execute": true, "workflow:read": true }
 
-    renderWithClient(<WorkspaceTriggers />)
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
 
-    expect(screen.getByText("Upgrade required")).toBeInTheDocument()
-    expect(triggersListTriggers).not.toHaveBeenCalled()
+    const objectStorage = screen.getByRole("button", { name: /Object storage/ })
+    expect(objectStorage).toBeDisabled()
+    expect(objectStorage).toHaveTextContent("Upgrade required")
+    expect(screen.getByRole("button", { name: /Schedule/ })).toBeEnabled()
+  })
+
+  it("says the plan is unknown rather than locked when the check fails", () => {
+    entitlementsFailed = true
+    scopes = { ...scopes, "workflow:execute": true, "workflow:read": true }
+
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
+
+    expect(
+      screen.getByRole("button", { name: /Object storage/ })
+    ).toHaveTextContent("Plan unknown")
+    expect(screen.getByRole("button", { name: /Schedule/ })).toBeEnabled()
   })
 })
 
@@ -466,7 +528,7 @@ describe("TriggerDetail", () => {
   it("names the missing execute scope when the API refuses a target", async () => {
     const user = userEvent.setup()
     // The UI allows it; the server still refuses (a stale scope set).
-    scopes = { ...scopes, "workflow:execute": true }
+    scopes = { ...scopes, "workflow:execute": true, "workflow:read": true }
     jest.mocked(triggersUpdateTriggerBinding).mockRejectedValue(
       Object.assign(new Error("Forbidden"), {
         status: 403,
@@ -513,7 +575,7 @@ describe("TriggerDetail", () => {
   })
 
   it("keeps the trigger offline without the execute scope of an online target", async () => {
-    scopes = { ...scopes, "workflow:execute": true }
+    scopes = { ...scopes, "workflow:execute": true, "workflow:read": true }
 
     renderWithClient(<TriggerDetail triggerId="trigger-1" />)
 
@@ -545,6 +607,156 @@ describe("TriggerDetail", () => {
     expect(
       screen.getByRole("switch", { name: "New uploads online" })
     ).toBeDisabled()
+  })
+})
+
+describe("TriggerDetail for a schedule", () => {
+  it("shows the schedule and keeps its one target fixed", async () => {
+    jest.mocked(triggersGetTrigger).mockResolvedValue(SCHEDULE_TRIGGER)
+
+    renderWithClient(<TriggerDetail triggerId="trigger-2" />)
+
+    expect(
+      (await screen.findAllByRole("link", { name: "Nightly report" }))[0]
+    ).toHaveAttribute(
+      "href",
+      "/workspaces/workspace-1/workflows/wf_3nF1fBrbY6AIX7Mr2qhEpR"
+    )
+    expect(screen.getByText("0 9 * * *")).toBeInTheDocument()
+    expect(screen.getByText("sch_1")).toBeInTheDocument()
+    expect(
+      screen.getByText(/A schedule runs the workflow it was created for/)
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Add target" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /Remove/ })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("switch", { name: "Nightly report online" })
+    ).not.toBeInTheDocument()
+    // The trigger itself still goes online and offline, and can be deleted.
+    expect(
+      screen.getByRole("switch", { name: "Nightly report schedule online" })
+    ).toBeEnabled()
+    expect(
+      screen.getByRole("button", { name: "Delete Nightly report schedule" })
+    ).toBeInTheDocument()
+  })
+})
+
+describe("event source providers", () => {
+  it("offers Amazon S3 via SNS, and names an unknown kind by its raw name", () => {
+    expect(
+      EVENT_SOURCE_PROVIDER_LIST.map((provider) => provider.label)
+    ).toEqual(["Amazon S3 (via SNS)"])
+    expect(getEventSourceProvider("aws_sns")?.sender).toBe("SNS")
+    expect(describeEventSource(SOURCE)).toBe(SOURCE.config.topic_arn)
+    // A kind from a newer API, and a name that would hit the prototype.
+    expect(getEventSourceProvider("gcs_pubsub")).toBeUndefined()
+    expect(getEventSourceProvider("toString")).toBeUndefined()
+    const unknown = {
+      ...SOURCE,
+      kind: "gcs_pubsub",
+    } as unknown as EventSourceRead
+    expect(describeEventSource(unknown)).toBe("gcs_pubsub")
+  })
+
+  it("checks the provider's fields before creating a source", () => {
+    const [sns] = EVENT_SOURCE_PROVIDER_LIST
+    expect(sns.buildConfig({ topicArn: "  " })).toBe("Enter the SNS topic ARN.")
+    expect(
+      sns.buildConfig({ topicArn: ` ${SOURCE.config.topic_arn} ` })
+    ).toEqual({
+      kind: "aws_sns",
+      topic_arn: SOURCE.config.topic_arn,
+    })
+  })
+})
+
+describe("CreateTriggerDialog kind scopes", () => {
+  it("marks Schedule when the caller lacks a scope creating one needs", () => {
+    // Has trigger:create and the schedule scopes, but not workflow:execute.
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
+
+    const schedule = screen.getByRole("button", { name: /Schedule/ })
+    expect(schedule).toBeDisabled()
+    expect(schedule).toHaveTextContent("No permission")
+  })
+})
+
+describe("CreateTriggerDialog provider picker", () => {
+  it("describes object storage without a provider and starts a new source with the provider picker", async () => {
+    const user = userEvent.setup()
+    jest
+      .mocked(triggersListEventSources)
+      .mockResolvedValue({ items: [], has_more: false })
+
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
+
+    const kind = screen.getByRole("button", { name: /Object storage/ })
+    expect(kind).toHaveTextContent(
+      "Runs when a new object lands in a storage bucket."
+    )
+    expect(kind).not.toHaveTextContent(/S3|SNS/)
+    await user.click(kind)
+
+    expect(
+      await screen.findByRole("combobox", { name: "Provider" })
+    ).toHaveTextContent("Amazon S3 (via SNS)")
+    expect(screen.getByText("New source")).toBeInTheDocument()
+    expect(screen.getByLabelText("SNS topic ARN")).toBeInTheDocument()
+  })
+})
+
+describe("EventSourcePanel for an unknown provider", () => {
+  it("still shows the source, with its raw kind", async () => {
+    jest.mocked(triggersGetTrigger).mockResolvedValue(TRIGGER)
+    jest.mocked(triggersGetEventSource).mockResolvedValue({
+      ...SOURCE,
+      kind: "gcs_pubsub",
+    } as unknown as EventSourceRead)
+
+    renderWithClient(<TriggerDetail triggerId="trigger-1" />)
+
+    expect(
+      await screen.findByText(/can't show setup steps for gcs_pubsub sources/)
+    ).toBeInTheDocument()
+    expect(screen.getByText("gcs_pubsub")).toBeInTheDocument()
+  })
+})
+
+describe("TriggerDetail for a schedule without the schedule scopes", () => {
+  it("hides delete and locks the switch", async () => {
+    scopes = {
+      ...scopes,
+      "schedule:update": false,
+      "schedule:delete": false,
+    }
+    jest.mocked(triggersGetTrigger).mockResolvedValue(SCHEDULE_TRIGGER)
+
+    renderWithClient(<TriggerDetail triggerId="trigger-2" />)
+
+    expect(
+      await screen.findByRole("switch", {
+        name: "Nightly report schedule online",
+      })
+    ).toBeDisabled()
+    expect(
+      screen.queryByRole("button", { name: /Delete/ })
+    ).not.toBeInTheDocument()
+  })
+})
+
+describe("describeSchedule", () => {
+  it("shows both when cron and interval are both stored", () => {
+    const both = {
+      ...SCHEDULE_TRIGGER,
+      config: { ...SCHEDULE_TRIGGER.config, every: "PT1H" },
+    } as TriggerRead
+    expect(describeSchedule(SCHEDULE_TRIGGER)).toBe("0 9 * * *")
+    expect(describeSchedule(both)).toMatch(/^0 9 \* \* \* or every /)
   })
 })
 

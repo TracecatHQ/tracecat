@@ -190,7 +190,6 @@ import { useSkillLibrary } from "@/hooks/use-skill-library"
 import { useSkillTagCatalog } from "@/hooks/use-skill-tags"
 import { useSkill } from "@/hooks/use-skills"
 import { useTrigger } from "@/hooks/use-triggers"
-import { useTriggersAccess } from "@/hooks/use-triggers-access"
 import { holdDoubleTapKey } from "@/hooks/use-type-to-focus"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
 import { getFormErrorDetail } from "@/lib/forms/errors"
@@ -2368,9 +2367,8 @@ function TriggerBreadcrumb({
   triggerId: string
   workspaceId: string
 }) {
-  const access = useTriggersAccess()
   const canRead = useScopeCheck("trigger:read")
-  const canLoad = access === "enabled" && canRead === true
+  const canLoad = canRead === true
   const { data: trigger } = useTrigger(workspaceId, triggerId, {
     enabled: canLoad,
   })
