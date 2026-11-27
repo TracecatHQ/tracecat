@@ -959,7 +959,7 @@ export function ServiceAccountsManager({
             Loading service accounts...
           </div>
         ) : serviceAccounts.length === 0 ? (
-          <Empty className="rounded-none border-0">
+          <Empty className="h-full rounded-none border-0">
             <EmptyHeader>
               <EmptyMedia variant="icon">
                 <KeyRoundIcon />
@@ -972,7 +972,7 @@ export function ServiceAccountsManager({
             </EmptyHeader>
           </Empty>
         ) : filteredServiceAccounts.length === 0 ? (
-          <Empty className="rounded-none border-0">
+          <Empty className="h-full rounded-none border-0">
             <EmptyHeader>
               <EmptyMedia variant="icon">
                 <SearchIcon />

@@ -590,7 +590,7 @@ export function WorkspaceMcpAccess() {
             Loading MCP tokens...
           </div>
         ) : tokens.length === 0 ? (
-          <Empty className="rounded-none border-0">
+          <Empty className="h-full rounded-none border-0">
             <EmptyHeader>
               <EmptyMedia variant="icon">
                 <TerminalIcon />
@@ -603,7 +603,7 @@ export function WorkspaceMcpAccess() {
             </EmptyHeader>
           </Empty>
         ) : filteredTokens.length === 0 ? (
-          <Empty className="rounded-none border-0">
+          <Empty className="h-full rounded-none border-0">
             <EmptyHeader>
               <EmptyMedia variant="icon">
                 <SearchIcon />
