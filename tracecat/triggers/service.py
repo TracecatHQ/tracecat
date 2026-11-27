@@ -715,6 +715,8 @@ class TriggersService(BaseWorkspaceService):
             )
         except TracecatNotFoundError as e:
             raise _not_found("Trigger") from e
+        except TracecatConflictError as e:
+            raise TriggerError(TriggerErrorCode.CONFLICT, str(e)) from e
 
     async def _write_config(self, trigger: Trigger, config: TriggerConfig) -> None:
         """Insert or replace the kind's settings row of ``trigger``.

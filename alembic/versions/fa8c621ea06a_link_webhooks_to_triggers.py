@@ -29,6 +29,7 @@ The downgrade deletes the ``webhook`` trigger rows and drops what the upgrade
 added. Webhooks themselves are untouched either way.
 """
 
+import time
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -78,18 +79,20 @@ SYNC_TRIGGER_SQL = (
 DROP_SYNC_TRIGGER_SQL = f"DROP TRIGGER IF EXISTS {_SYNC_TRIGGER} ON public.webhook"
 
 # Run first, in the backfill's transaction (see ``backfill``): lock the online
-# webhooks still without a trigger row, in ID order, waiting for any another
-# transaction holds. The binding inserts then take a key-share lock on each
-# workflow. Webhook before workflow is the order every writer uses: the app's
-# webhook writes, and a workflow delete, which removes the webhook before the
-# workflow in this release and the previous one. A row deleted or turned off
-# while waited for drops out.
+# webhooks still without a trigger row, each with a key-share lock on its
+# workflow (the binding insert needs one). Writers take these two rows in
+# different orders (a workflow delete removes the webhook first; an import
+# locks the workflow first), so the backfill never waits: a pair another
+# transaction holds is skipped and retried on a later pass. Holding nothing
+# while it waits, it cannot be part of a deadlock.
 LOCK_WEBHOOKS_SQL = """
 SELECT h.id
 FROM webhook h
-WHERE h.trigger_id IS NULL AND h.status = 'online' AND h.workflow_id IS NOT NULL
+JOIN workflow w ON w.id = h.workflow_id AND w.workspace_id = h.workspace_id
+WHERE h.trigger_id IS NULL AND h.status = 'online'
 ORDER BY h.id
-FOR UPDATE OF h
+FOR UPDATE OF h SKIP LOCKED
+FOR KEY SHARE OF w SKIP LOCKED
 """
 
 # One trigger row and one workflow binding per online webhook that has none,
@@ -141,10 +144,25 @@ WHERE h.id = p.webhook_id
 """
 
 
-def backfill(conn: sa.Connection) -> None:
-    """Link every online webhook without a trigger row to one.
+# Online webhooks still without a trigger row, such as ones a pass skipped.
+PENDING_SQL = """
+SELECT EXISTS (
+    SELECT 1 FROM webhook
+    WHERE trigger_id IS NULL AND status = 'online' AND workflow_id IS NOT NULL
+)
+"""
+# A skipped pair is usually held for one short write. Passes repeat about
+# once a second for up to this long; a webhook held for all of it is linked
+# when it is next turned on, or when a later release reruns ``backfill``.
+_BACKFILL_SECONDS = 30
+_BACKFILL_RETRY_SECONDS = 1.0
 
-    Run inside one transaction. Later releases may rerun it.
+
+def backfill(conn: sa.Connection) -> None:
+    """Link the online webhooks without a trigger row that no one holds.
+
+    Run inside one transaction. Never waits for a lock. Later releases may
+    rerun it.
     """
     webhook_ids = list(conn.execute(sa.text(LOCK_WEBHOOKS_SQL)).scalars())
     conn.execute(sa.text(BACKFILL_SQL), {"webhook_ids": webhook_ids})
@@ -183,10 +201,19 @@ def upgrade() -> None:
     with op.get_context().autocommit_block():
         # Outside the DDL transaction the backfill takes only row locks, so
         # the previous release keeps reading and writing webhooks meanwhile.
-        # Its own transaction, webhooks locked first (LOCK_WEBHOOKS_SQL).
-        op.execute("BEGIN")
-        backfill(op.get_bind())
-        op.execute("COMMIT")
+        # Each pass is its own transaction and skips rows others hold, so
+        # repeat passes until none are left or time runs out.
+        conn = op.get_bind()
+        deadline = time.monotonic() + _BACKFILL_SECONDS
+        while True:
+            op.execute("BEGIN")
+            backfill(conn)
+            op.execute("COMMIT")
+            if not conn.execute(sa.text(PENDING_SQL)).scalar():
+                break
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(_BACKFILL_RETRY_SECONDS)
         # VALIDATE takes SHARE UPDATE EXCLUSIVE here: no blocking of reads or
         # writes during its scan.
         op.execute(f'ALTER TABLE webhook VALIDATE CONSTRAINT "{_FK}"')

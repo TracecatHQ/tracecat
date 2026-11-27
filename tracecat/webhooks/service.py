@@ -7,10 +7,12 @@ gives it that row if it has none, in the same transaction; it keeps the row
 when it goes offline. A database trigger on ``webhook`` deletes the row with
 the webhook and copies every status change to it.
 
-Writes lock the webhook row and then (through the binding's foreign key)
-its workflow: the order in which a workflow delete removes them (the ORM
-deletes the webhook before the workflow, in this release and the previous
-one) and the migration's backfill locks them.
+Writes wait only for the webhook row. Giving a webhook its trigger row also
+needs a key-share lock on its workflow, which ``add_webhook_trigger`` takes
+without waiting, because other writers take the two rows in either order: a
+workflow delete removes the webhook first, an import locks the workflow
+first. A write never waits while holding the other lock, so it cannot be
+part of a deadlock.
 """
 
 from __future__ import annotations
@@ -112,8 +114,7 @@ async def lock_webhook(
 
     The webhook is read fresh, so a check against it (such as whether it has
     a trigger row yet) sees what a concurrent writer committed. The workflow
-    row is not locked: a binding insert takes its key-share lock later, after
-    the webhook's, the same order a workflow delete takes them.
+    row is not locked here (see ``add_webhook_trigger``).
 
     Returns:
         The workflow title (``None`` if there is no such workflow) and the
@@ -148,7 +149,28 @@ async def add_webhook_trigger(
     for an offline webhook, as for schedules: the trigger's status is what
     counts until bindings drive the runtime (step 2 must revisit this). The
     caller holds the webhook's lock (``lock_webhook``) and commits.
+
+    Raises:
+        TracecatConflictError: If another transaction holds the workflow (an
+            import or a delete of it is in progress); retrying succeeds.
     """
+    # The binding's foreign key needs a key-share lock on the workflow.
+    # Writers take a workflow and its webhook in either order (an import
+    # locks the workflow first, a delete removes the webhook first), so take
+    # it without waiting: holding the webhook while waiting here could
+    # deadlock. A workflow this transaction locked itself is not skipped.
+    workflow_free = await session.scalar(
+        select(Workflow.id)
+        .where(
+            Workflow.workspace_id == webhook.workspace_id,
+            Workflow.id == webhook.workflow_id,
+        )
+        .with_for_update(key_share=True, skip_locked=True)
+    )
+    if workflow_free is None:
+        raise TracecatConflictError(
+            "The workflow is being changed. Try turning its webhook on again."
+        )
     trigger = Trigger(
         id=uuid.uuid4(),
         workspace_id=webhook.workspace_id,
