@@ -5715,30 +5715,6 @@ export type CursorPaginatedResponse_TableRowRead_ = {
   total_estimate?: number | null
 }
 
-export type CursorPaginatedResponse_TriggerRead_ = {
-  items: Array<TriggerRead>
-  /**
-   * Cursor for next page
-   */
-  next_cursor?: string | null
-  /**
-   * Cursor for previous page
-   */
-  prev_cursor?: string | null
-  /**
-   * Whether more items exist
-   */
-  has_more?: boolean
-  /**
-   * Whether previous items exist
-   */
-  has_previous?: boolean
-  /**
-   * Estimated total count from table statistics
-   */
-  total_estimate?: number | null
-}
-
 export type CursorPaginatedResponse_WorkflowReadMinimal_ = {
   items: Array<WorkflowReadMinimal>
   /**
@@ -6347,6 +6323,30 @@ export type model =
   | "all-minilm:latest"
   | "all-minilm:22m"
   | "sentence-transformers/all-MiniLM-L6-v2"
+
+/**
+ * Available feature entitlements.
+ */
+export type Entitlement =
+  | "custom_registry"
+  | "git_sync"
+  | "agent_addons"
+  | "case_addons"
+  | "rbac_addons"
+  | "service_accounts"
+  | "workspace_chat"
+  | "multi_workspace"
+  | "watchtower"
+  | "external_secret_stores"
+  | "agent_channels"
+  | "semantic_search"
+  | "forms"
+  | "tunnels"
+  | "agent_runtime_preview"
+  | "agent_runtime_workflows"
+  | "agent_channels_preview"
+  | "object_triggers"
+  | "custom_branding"
 
 /**
  * TypedDict for tier entitlements stored in JSONB.
@@ -8264,6 +8264,22 @@ export type LibrarySkillSourceRead = {
 }
 
 export type kind3 = "upstream" | "local"
+
+/**
+ * Triggers of one kind that a list leaves out because the plan lacks
+ * the kind's feature.
+ */
+export type LockedTriggerCount = {
+  kind: TriggerKind
+  /**
+   * The plan feature the kind needs
+   */
+  entitlement: Entitlement
+  /**
+   * How many such triggers match the list's filters
+   */
+  count: number
+}
 
 /**
  * Sign-in methods the current user can manage from their account settings.
@@ -14047,6 +14063,34 @@ export type TriggerCreate = {
  * What a trigger listens to. Each kind has its own source and config.
  */
 export type TriggerKind = "object_storage" | "schedule" | "webhook"
+
+export type TriggerListResponse = {
+  items: Array<TriggerRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+  /**
+   * Triggers matching the filters that are not listed because the plan lacks their kind's feature, counted per kind. They are kept and come back when the plan has the feature again.
+   */
+  locked?: Array<LockedTriggerCount>
+}
 
 export type TriggerRead = {
   id: string
@@ -20458,7 +20502,7 @@ export type TriggersListTriggersData = {
   workspaceId: string
 }
 
-export type TriggersListTriggersResponse = CursorPaginatedResponse_TriggerRead_
+export type TriggersListTriggersResponse = TriggerListResponse
 
 export type TriggersCreateTriggerData = {
   requestBody: TriggerCreate
@@ -29908,7 +29952,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: CursorPaginatedResponse_TriggerRead_
+        200: TriggerListResponse
         /**
          * Validation Error
          */

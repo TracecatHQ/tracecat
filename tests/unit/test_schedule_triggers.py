@@ -40,6 +40,7 @@ from tracecat.triggers.schemas import (
     AgentBindingTarget,
     AwsSnsSourceConfig,
     EventSourceCreate,
+    LockedTriggerCount,
     ObjectStorageTriggerConfig,
     ScheduleTriggerConfig,
     ScheduleTriggerConfigRead,
@@ -864,10 +865,25 @@ async def test_reads_hide_object_storage_triggers_without_the_plan(
     uploads_id = uploads.id
     await triggers.create_trigger(TriggerCreate(name="s", config=_config(workflow)))
 
+    assert (await triggers.list_triggers(PageParams(limit=10))).locked == []
+
     entitled = False
 
     page = await triggers.list_triggers(PageParams(limit=10))
     assert [item.kind for item in page.items] == [TriggerKind.SCHEDULE]
+    # The tab says they exist rather than showing an empty list.
+    assert page.locked == [
+        LockedTriggerCount(
+            kind=TriggerKind.OBJECT_STORAGE,
+            entitlement=Entitlement.OBJECT_TRIGGERS,
+            count=1,
+        )
+    ]
+    # Counts follow the list's filters.
+    schedules_only = await triggers.list_triggers(
+        PageParams(limit=10), kind=TriggerKind.SCHEDULE
+    )
+    assert schedules_only.locked == []
     with pytest.raises(EntitlementRequired):
         await triggers.get_trigger(uploads_id)
 

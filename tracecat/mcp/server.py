@@ -259,6 +259,7 @@ from tracecat.mcp.schemas import (
     LayoutPosition,
     LayoutViewport,
     MCPPaginatedResponse,
+    MCPTriggerListResponse,
     MCPTruncationInfo,
     MCPTruncationSummary,
     ValidationResponse,
@@ -7064,7 +7065,7 @@ async def list_triggers(
     agent_preset_id: uuid.UUID | None = None,
     limit: int = config.TRACECAT__LIMIT_DEFAULT,
     cursor: str | None = None,
-) -> MCPPaginatedResponse[TriggerRead]:
+) -> MCPTriggerListResponse:
     """List triggers newest first, each with its config and bindings.
 
     A trigger is a rule over events; its bindings start a Workflow or an Agent
@@ -7092,7 +7093,9 @@ async def list_triggers(
     start_at, end_at, timeout and inputs. A `webhook` config holds webhook_id,
     workflow_id, methods, allowlisted_cidrs, include_headers, url (it contains
     the webhook's secret) and api_key (preview only). Schedules need
-    `schedule:read` and webhooks `workflow:read` to be listed.
+    `schedule:read` and webhooks `workflow:read` to be listed. Triggers of a
+    kind the plan lacks (such as `object_storage` without `object_triggers`)
+    are not listed but counted in `locked` (kind, entitlement, count).
     """
     async with _triggers_service(workspace_id, "list triggers", "trigger:read") as svc:
         page = await svc.list_triggers(
@@ -7102,12 +7105,13 @@ async def list_triggers(
             workflow_id=WorkflowUUID.new(workflow_id) if workflow_id else None,
             agent_preset_id=agent_preset_id,
         )
-    return MCPPaginatedResponse(
+    return MCPTriggerListResponse(
         items=page.items,
         next_cursor=page.next_cursor,
         prev_cursor=page.prev_cursor,
         has_more=page.has_more,
         has_previous=page.has_previous,
+        locked=page.locked,
     )
 
 

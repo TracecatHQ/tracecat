@@ -28,6 +28,8 @@ from pydantic import Field, StringConstraints, field_validator, model_validator
 from tracecat.core.schemas import Schema
 from tracecat.identifiers.schedules import ScheduleUUID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowID
+from tracecat.pagination import CursorPaginatedResponse
+from tracecat.tiers.enums import Entitlement
 from tracecat.triggers.enums import (
     EventSourceKind,
     SubscriptionStatus,
@@ -314,6 +316,24 @@ class TriggerRead(Schema):
     bindings: list[TriggerBindingRead]
     created_at: datetime
     updated_at: datetime
+
+
+class LockedTriggerCount(Schema):
+    """Triggers of one kind that a list leaves out because the plan lacks
+    the kind's feature."""
+
+    kind: TriggerKind
+    entitlement: Entitlement = Field(description="The plan feature the kind needs")
+    count: int = Field(description="How many such triggers match the list's filters")
+
+
+class TriggerListResponse(CursorPaginatedResponse[TriggerRead]):
+    locked: list[LockedTriggerCount] = Field(
+        default_factory=list,
+        description="Triggers matching the filters that are not listed because"
+        " the plan lacks their kind's feature, counted per kind. They are kept"
+        " and come back when the plan has the feature again.",
+    )
 
 
 # ----- Bindings -----

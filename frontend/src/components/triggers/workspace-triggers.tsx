@@ -2,11 +2,18 @@
 
 import { MousePointerClickIcon, WorkflowIcon, ZapIcon } from "lucide-react"
 import Link from "next/link"
-import type { TriggerBindingRead, TriggerRead } from "@/client"
+import type {
+  LockedTriggerCount,
+  TriggerBindingRead,
+  TriggerRead,
+} from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { describeTriggerError } from "@/components/triggers/trigger-errors"
-import { getTriggerKind } from "@/components/triggers/trigger-kinds"
+import {
+  getTriggerKind,
+  TRIGGER_KINDS,
+} from "@/components/triggers/trigger-kinds"
 import { TriggerStatusLabel } from "@/components/triggers/trigger-status"
 import { Button } from "@/components/ui/button"
 import {
@@ -27,6 +34,7 @@ export function WorkspaceTriggers() {
   const canCreate = useScopeCheck("trigger:create")
   const {
     triggers,
+    locked,
     isLoading,
     error,
     hasNextPage,
@@ -53,17 +61,24 @@ export function WorkspaceTriggers() {
             </EmptyMedia>
             <EmptyTitle>No triggers yet</EmptyTitle>
             <EmptyDescription>
-              A trigger starts workflows and agents: on a schedule, or when an
-              outside event arrives, such as a new file in object storage.
+              A trigger starts workflows and agents: on a schedule, on a request
+              to a webhook, or when an outside event arrives, such as a new file
+              in object storage.
               {canCreate === true ? " Create one with Create trigger." : ""}
             </EmptyDescription>
           </EmptyHeader>
+          <LockedTriggersNote locked={locked} />
         </Empty>
       </div>
     )
   } else {
     body = (
       <div className="divide-y">
+        {locked.length > 0 ? (
+          <div className="px-4 py-2">
+            <LockedTriggersNote locked={locked} />
+          </div>
+        ) : null}
         <div className="flex items-center gap-2 px-4 py-2 text-xs text-muted-foreground">
           <span className="w-4 shrink-0" />
           <span className="w-[220px] shrink-0">Name</span>
@@ -105,6 +120,31 @@ export function WorkspaceTriggers() {
     <div className="flex size-full flex-col overflow-hidden">
       <div className="min-h-0 flex-1 overflow-auto">{body}</div>
     </div>
+  )
+}
+
+/**
+ * "2 object storage triggers are hidden because your plan doesn't include
+ * that kind."
+ * The plan keeps such triggers; they come back when it includes the kind.
+ */
+function LockedTriggersNote({ locked }: { locked: LockedTriggerCount[] }) {
+  if (locked.length === 0) {
+    return null
+  }
+  const parts = locked.map(({ kind, count }) => {
+    const label = Object.prototype.hasOwnProperty.call(TRIGGER_KINDS, kind)
+      ? TRIGGER_KINDS[kind].label.toLowerCase()
+      : kind
+    return `${count} ${label} ${count === 1 ? "trigger" : "triggers"}`
+  })
+  const total = locked.reduce((sum, { count }) => sum + count, 0)
+  return (
+    <p className="text-xs text-muted-foreground">
+      {parts.join(" and ")} {total === 1 ? "is" : "are"} hidden because your
+      plan doesn&apos;t include {total === 1 ? "that kind" : "those kinds"}.
+      Nothing was deleted.
+    </p>
   )
 }
 

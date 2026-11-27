@@ -69,6 +69,9 @@ export function useTriggers(
   })
   return {
     triggers: query.data?.pages.flatMap((page) => page.items) ?? [],
+    // Triggers the plan hides, counted per kind. Every page counts the same
+    // filters, so the first page's count holds for the whole list.
+    locked: query.data?.pages[0]?.locked ?? [],
     isLoading: query.isLoading,
     error: query.error as TracecatApiError | null,
     hasNextPage: query.hasNextPage,

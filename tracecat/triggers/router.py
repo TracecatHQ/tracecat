@@ -25,6 +25,7 @@ from tracecat.triggers.schemas import (
     TriggerBindingRead,
     TriggerBindingUpdate,
     TriggerCreate,
+    TriggerListResponse,
     TriggerRead,
     TriggerUpdate,
 )
@@ -118,11 +119,12 @@ async def list_triggers(
     kind: TriggerKind | None = Query(default=None),
     source_id: uuid.UUID | None = Query(default=None),
     agent_preset_id: uuid.UUID | None = Query(default=None),
-) -> CursorPaginatedResponse[TriggerRead]:
+) -> TriggerListResponse:
     """List triggers newest first, each with its config and bindings.
 
     ``workflow_id`` or ``agent_preset_id`` keeps the triggers bound to that
-    target.
+    target. ``locked`` counts the matching triggers left out because the plan
+    lacks their kind's feature.
     """
     service = TriggersService(session, role)
     return await _paged(

@@ -84,6 +84,7 @@ from tracecat.mcp.middleware import MCPErrorHandlingMiddleware
 from tracecat.pagination import CursorPaginatedResponse, PageParams
 from tracecat.storage.object import ExternalObject, ObjectRef
 from tracecat.tables.service import TablesService
+from tracecat.triggers.schemas import LockedTriggerCount, TriggerListResponse
 from tracecat.validation.schemas import (
     ValidationDetail,
     ValidationResult,
@@ -10291,8 +10292,14 @@ async def test_event_source_tools_need_the_entitlement(
 async def test_trigger_tools_leave_the_entitlement_to_the_service(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Schedules need no plan feature; the service checks each kind's."""
-    page = mcp_server.CursorPaginatedResponse(items=[])
+    """Schedules need no plan feature; the service checks each kind's, and
+    counts the triggers a missing feature hides."""
+    hidden = LockedTriggerCount(
+        kind=mcp_server.TriggerKind.OBJECT_STORAGE,
+        entitlement=mcp_server.Entitlement.OBJECT_TRIGGERS,
+        count=2,
+    )
+    page = TriggerListResponse(items=[], locked=[hidden])
     _patch_triggers(
         monkeypatch, entitled=False, list_triggers=AsyncMock(return_value=page)
     )
@@ -10300,6 +10307,7 @@ async def test_trigger_tools_leave_the_entitlement_to_the_service(
     result = await _call_trigger_tool("list_triggers", kind="schedule")
 
     assert result.items == []
+    assert result.locked == [hidden]
 
     denied = mcp_server.EntitlementRequired("object_triggers")
     _patch_triggers(
@@ -10352,7 +10360,7 @@ async def test_trigger_tools_take_the_webhook_kind(
 ) -> None:
     trigger_id, read = uuid.uuid4(), object()
     create_trigger = AsyncMock(return_value=SimpleNamespace(id=trigger_id))
-    page = mcp_server.CursorPaginatedResponse(items=[])
+    page = TriggerListResponse(items=[])
     list_triggers = AsyncMock(return_value=page)
     _patch_triggers(
         monkeypatch,
@@ -10406,7 +10414,7 @@ async def test_trigger_tools_need_their_scope(
 async def test_list_triggers_passes_its_filters_to_the_service(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    page = mcp_server.CursorPaginatedResponse(items=[])
+    page = TriggerListResponse(items=[])
     list_triggers = AsyncMock(return_value=page)
     _patch_triggers(monkeypatch, list_triggers=list_triggers)
     workflow_id, preset_id, source_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()

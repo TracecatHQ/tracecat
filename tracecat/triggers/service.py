@@ -51,6 +51,7 @@ from tracecat.identifiers.schedules import ScheduleUUID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.pagination import CursorPaginatedResponse, PageParams, paginate
 from tracecat.service import BaseWorkspaceService
+from tracecat.tiers.enums import Entitlement
 from tracecat.triggers.enums import (
     EventSourceKind,
     SubscriptionStatus,
@@ -67,6 +68,7 @@ from tracecat.triggers.schemas import (
     EventSourceCreate,
     EventSourceRead,
     EventSourceUpdate,
+    LockedTriggerCount,
     ObjectStorageTriggerConfig,
     ObjectStorageTriggerConfigRead,
     ScheduleTriggerConfig,
@@ -77,6 +79,7 @@ from tracecat.triggers.schemas import (
     TriggerConfig,
     TriggerConfigRead,
     TriggerCreate,
+    TriggerListResponse,
     TriggerRead,
     TriggerUpdate,
     WebhookTriggerConfig,
@@ -333,24 +336,31 @@ class TriggersService(BaseWorkspaceService):
         source_id: uuid.UUID | None = None,
         workflow_id: WorkflowUUID | None = None,
         agent_preset_id: uuid.UUID | None = None,
-    ) -> CursorPaginatedResponse[TriggerRead]:
+    ) -> TriggerListResponse:
         """List triggers newest first, each with its config and bindings.
 
         Kinds the caller may not read (``_check_kind_readable``) and kinds
-        this version does not know are left out. ``source_id`` keeps triggers
-        that read that source. ``workflow_id`` and ``agent_preset_id`` keep
-        triggers with a binding to that target; every binding of a kept
-        trigger is still returned. Besides the page itself, one query reads
-        the page's bindings and one per kind reads settings.
+        this version does not know are left out. Those left out because the
+        plan lacks their feature are counted in ``locked``, so the tab can say
+        they exist. ``source_id`` keeps triggers that read that source.
+        ``workflow_id`` and ``agent_preset_id`` keep triggers with a binding
+        to that target; every binding of a kept trigger is still returned.
+        Besides the page itself, one query reads the page's bindings, one per
+        kind reads settings, and one counts locked kinds when there are any.
         """
-        readable = [k.value for k in TriggerKind if await self._can_read(k)]
-        statement = select(Trigger).where(
-            Trigger.workspace_id == self.workspace_id, Trigger.kind.in_(readable)
-        )
+        readable: list[str] = []
+        locked: dict[str, Entitlement] = {}
+        for each in TriggerKind:
+            entitlement = ENTITLEMENT_BY_TRIGGER_KIND[each]
+            if entitlement is not None and not await self.has_entitlement(entitlement):
+                locked[each.value] = entitlement
+            elif await self._can_read(each):
+                readable.append(each.value)
+        filters: list[ColumnElement[bool]] = [Trigger.workspace_id == self.workspace_id]
         if kind is not None:
-            statement = statement.where(Trigger.kind == kind.value)
+            filters.append(Trigger.kind == kind.value)
         if source_id is not None:
-            statement = statement.where(
+            filters.append(
                 exists().where(
                     ObjectStorageTrigger.workspace_id == Trigger.workspace_id,
                     ObjectStorageTrigger.trigger_id == Trigger.id,
@@ -358,25 +368,40 @@ class TriggersService(BaseWorkspaceService):
                 )
             )
         if workflow_id is not None:
-            statement = statement.where(
-                _has_binding(TriggerBinding.workflow_id == workflow_id)
-            )
+            filters.append(_has_binding(TriggerBinding.workflow_id == workflow_id))
         if agent_preset_id is not None:
-            statement = statement.where(
+            filters.append(
                 _has_binding(TriggerBinding.agent_preset_id == agent_preset_id)
             )
         result = await paginate(
             self.session,
-            statement,
+            select(Trigger).where(*filters, Trigger.kind.in_(readable)),
             page=page,
             order_by=(Trigger.created_at.desc(), Trigger.surrogate_id.desc()),
         )
-        return CursorPaginatedResponse(
+        counts: list[LockedTriggerCount] = []
+        if locked:
+            rows = await self.session.execute(
+                select(Trigger.kind, func.count())
+                .where(*filters, Trigger.kind.in_(locked))
+                .group_by(Trigger.kind)
+                .order_by(Trigger.kind)
+            )
+            counts = [
+                LockedTriggerCount(
+                    kind=TriggerKind(locked_kind),
+                    entitlement=locked[locked_kind],
+                    count=count,
+                )
+                for locked_kind, count in rows.tuples()
+            ]
+        return TriggerListResponse(
             items=await self._read_triggers(result.items),
             next_cursor=result.next_cursor,
             prev_cursor=result.prev_cursor,
             has_more=result.has_more,
             has_previous=result.has_previous,
+            locked=counts,
         )
 
     async def get_trigger(self, trigger_id: uuid.UUID) -> TriggerRead:

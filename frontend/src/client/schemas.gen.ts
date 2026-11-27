@@ -19203,69 +19203,6 @@ export const $CursorPaginatedResponse_TableRowRead_ = {
   title: "CursorPaginatedResponse[TableRowRead]",
 } as const
 
-export const $CursorPaginatedResponse_TriggerRead_ = {
-  properties: {
-    items: {
-      items: {
-        $ref: "#/components/schemas/TriggerRead",
-      },
-      type: "array",
-      title: "Items",
-    },
-    next_cursor: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Next Cursor",
-      description: "Cursor for next page",
-    },
-    prev_cursor: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Prev Cursor",
-      description: "Cursor for previous page",
-    },
-    has_more: {
-      type: "boolean",
-      title: "Has More",
-      description: "Whether more items exist",
-      default: false,
-    },
-    has_previous: {
-      type: "boolean",
-      title: "Has Previous",
-      description: "Whether previous items exist",
-      default: false,
-    },
-    total_estimate: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Total Estimate",
-      description: "Estimated total count from table statistics",
-    },
-  },
-  type: "object",
-  required: ["items"],
-  title: "CursorPaginatedResponse[TriggerRead]",
-} as const
-
 export const $CursorPaginatedResponse_WorkflowReadMinimal_ = {
   properties: {
     items: {
@@ -20877,6 +20814,33 @@ export const $EmbeddingModelRead = {
   title: "EmbeddingModelRead",
   description:
     "Public metadata needed for status and bounded chunk preparation.",
+} as const
+
+export const $Entitlement = {
+  type: "string",
+  enum: [
+    "custom_registry",
+    "git_sync",
+    "agent_addons",
+    "case_addons",
+    "rbac_addons",
+    "service_accounts",
+    "workspace_chat",
+    "multi_workspace",
+    "watchtower",
+    "external_secret_stores",
+    "agent_channels",
+    "semantic_search",
+    "forms",
+    "tunnels",
+    "agent_runtime_preview",
+    "agent_runtime_workflows",
+    "agent_channels_preview",
+    "object_triggers",
+    "custom_branding",
+  ],
+  title: "Entitlement",
+  description: "Available feature entitlements.",
 } as const
 
 export const $EntitlementsDict = {
@@ -26547,6 +26511,28 @@ export const $LibrarySkillSourceRead = {
   title: "LibrarySkillSourceRead",
   description:
     "Library group, maintainer, and optional upstream location of a skill.",
+} as const
+
+export const $LockedTriggerCount = {
+  properties: {
+    kind: {
+      $ref: "#/components/schemas/TriggerKind",
+    },
+    entitlement: {
+      $ref: "#/components/schemas/Entitlement",
+      description: "The plan feature the kind needs",
+    },
+    count: {
+      type: "integer",
+      title: "Count",
+      description: "How many such triggers match the list's filters",
+    },
+  },
+  type: "object",
+  required: ["kind", "entitlement", "count"],
+  title: "LockedTriggerCount",
+  description: `Triggers of one kind that a list leaves out because the plan lacks
+the kind's feature.`,
 } as const
 
 export const $LoginMethodsRead = {
@@ -45616,6 +45602,78 @@ export const $TriggerKind = {
   title: "TriggerKind",
   description:
     "What a trigger listens to. Each kind has its own source and config.",
+} as const
+
+export const $TriggerListResponse = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/TriggerRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+    locked: {
+      items: {
+        $ref: "#/components/schemas/LockedTriggerCount",
+      },
+      type: "array",
+      title: "Locked",
+      description:
+        "Triggers matching the filters that are not listed because the plan lacks their kind's feature, counted per kind. They are kept and come back when the plan has the feature again.",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "TriggerListResponse",
 } as const
 
 export const $TriggerRead = {

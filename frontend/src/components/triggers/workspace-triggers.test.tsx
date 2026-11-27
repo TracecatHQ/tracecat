@@ -309,6 +309,24 @@ describe("WorkspaceTriggers", () => {
     expect(screen.getByText("Schedule")).toBeInTheDocument()
   })
 
+  it("says how many triggers the plan hides", async () => {
+    entitled = false
+    jest.mocked(triggersListTriggers).mockResolvedValue({
+      items: [],
+      has_more: false,
+      locked: [
+        { kind: "object_storage", entitlement: "object_triggers", count: 2 },
+      ],
+    })
+
+    renderWithClient(<WorkspaceTriggers />)
+
+    expect(await screen.findByText("No triggers yet")).toBeInTheDocument()
+    expect(
+      screen.getByText(/2 object storage triggers are hidden because your plan/)
+    ).toBeInTheDocument()
+  })
+
   it("keeps the list when a later page fails", async () => {
     const user = userEvent.setup()
     jest
