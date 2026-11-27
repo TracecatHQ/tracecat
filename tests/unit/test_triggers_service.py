@@ -516,7 +516,7 @@ async def test_rows_of_a_kind_this_version_does_not_know_are_skipped(
     )
     session.add(binding)
     await session.commit()
-    future_id, binding_id = future.id, binding.id
+    future_id, binding_id, workflow_id = future.id, binding.id, workflow.id
 
     page = await service.list_triggers(PageParams(limit=1))
     assert [t.id for t in page.items] == [known]
@@ -544,12 +544,22 @@ async def test_rows_of_a_kind_this_version_does_not_know_are_skipped(
         assert exc.value.code is TriggerErrorCode.NOT_FOUND
 
     # Left as the newer version wrote it.
-    stored = await session.scalar(select(Trigger.name).where(Trigger.id == future_id))
-    assert stored == "from a newer version"
-    kept = await session.scalar(
-        select(TriggerBinding.id).where(TriggerBinding.id == binding_id)
+    stored = await session.execute(
+        select(Trigger.name, Trigger.kind, Trigger.status).where(
+            Trigger.id == future_id
+        )
     )
-    assert kept == binding_id
+    assert stored.tuples().all() == [
+        ("from a newer version", "future_kind", TriggerStatus.ONLINE.value)
+    ]
+    kept = await session.execute(
+        select(
+            TriggerBinding.id, TriggerBinding.workflow_id, TriggerBinding.status
+        ).where(TriggerBinding.trigger_id == future_id)
+    )
+    assert kept.tuples().all() == [
+        (binding_id, workflow_id, TriggerStatus.ONLINE.value)
+    ]
 
 
 async def test_making_a_binding_live_needs_the_right_to_run_its_target(
