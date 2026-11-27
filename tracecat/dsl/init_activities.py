@@ -58,6 +58,10 @@ class RunLimitsSnapshot(BaseModel):
 
     max_action_executions_per_workflow: int | None = None
     """Action budget for this run; ``None`` means unlimited."""
+    max_concurrent_actions: int | None = None
+    """The org's action limit at run start. The run throttle keeps at most this many
+    action activities outstanding; ``None`` means no throttle. Histories recorded
+    before this field decode it as ``None``."""
 
 
 @activity.defn
@@ -90,5 +94,6 @@ async def resolve_run_limits_activity(org_id: OrganizationID) -> RunLimitsSnapsh
         )
         raise_application_error_from_classification(classification)
     return RunLimitsSnapshot(
-        max_action_executions_per_workflow=limits.max_action_executions_per_workflow
+        max_action_executions_per_workflow=limits.max_action_executions_per_workflow,
+        max_concurrent_actions=limits.max_concurrent_actions,
     )
