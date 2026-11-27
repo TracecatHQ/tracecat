@@ -523,6 +523,8 @@ async def test_starts_every_target_with_fixed_ids_then_deletes_the_row(
     )
     assert wf_call.kwargs["payload"] == row.payload
     assert wf_call.kwargs["trigger_type"] is TriggerType.OBJECT_STORAGE
+    # Links the run to its trigger (TracecatTriggerId).
+    assert wf_call.kwargs["trigger_id"] == fx.trigger.id
     (session_call,) = starts.create_session.await_args_list
     create = session_call.args[0]
     assert create.id == trigger_run_uuid(agent_binding.id, row.occurrence_key)
@@ -534,6 +536,7 @@ async def test_starts_every_target_with_fixed_ids_then_deletes_the_row(
     assert agent_call.args == (create.id,)
     assert agent_call.kwargs["request_id"] == row.occurrence_key
     assert agent_call.kwargs["origin"] is UserMessageOrigin.TRACECAT
+    assert agent_call.kwargs["trigger_id"] == fx.trigger.id
     assert agent_call.kwargs["text"] == build_agent_message(
         "Summarize the new file.", row.payload
     )

@@ -1174,10 +1174,16 @@ import type {
   TriggersGetEventSourceResponse,
   TriggersGetTriggerData,
   TriggersGetTriggerResponse,
+  TriggersGetTriggerRunOriginData,
+  TriggersGetTriggerRunOriginResponse,
   TriggersGetWebhookData,
   TriggersGetWebhookResponse,
   TriggersListEventSourcesData,
   TriggersListEventSourcesResponse,
+  TriggersListTriggerRunsData,
+  TriggersListTriggerRunsResponse,
+  TriggersListTriggerStoppedEventsData,
+  TriggersListTriggerStoppedEventsResponse,
   TriggersListTriggersData,
   TriggersListTriggersResponse,
   TriggersRevokeWebhookApiKeyData,
@@ -14878,6 +14884,105 @@ export const triggersDeleteTriggerBinding = (
     errors: {
       400: "See detail.code",
       404: "See detail.code",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Trigger Run Origin
+ * The trigger that started a workflow run or an agent session, or null.
+ *
+ * Give exactly one of ``wf_exec_id`` (needs ``workflow:read``) and
+ * ``session_id`` (needs ``agent:read``).
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.wfExecId
+ * @param data.sessionId
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const triggersGetTriggerRunOrigin = (
+  data: TriggersGetTriggerRunOriginData
+): CancelablePromise<TriggersGetTriggerRunOriginResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/triggers/runs/origin",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      wf_exec_id: data.wfExecId,
+      session_id: data.sessionId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Trigger Runs
+ * The runs the trigger started, open runs first, then by close time.
+ *
+ * Workflow runs need ``workflow:read`` and agent runs ``agent:read``.
+ * @param data The data for the request.
+ * @param data.triggerId
+ * @param data.workspaceId
+ * @param data.limit Maximum items per page
+ * @param data.cursor
+ * @returns TriggerRunsPage Successful Response
+ * @throws ApiError
+ */
+export const triggersListTriggerRuns = (
+  data: TriggersListTriggerRunsData
+): CancelablePromise<TriggersListTriggerRunsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/triggers/{trigger_id}/runs",
+    path: {
+      trigger_id: data.triggerId,
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Trigger Stopped Events
+ * The trigger's events that stopped retrying, newest first.
+ *
+ * Only ``object_storage`` triggers queue events; other kinds list none.
+ * Also needs ``workflow:read`` and ``agent:read``.
+ * @param data The data for the request.
+ * @param data.triggerId
+ * @param data.workspaceId
+ * @param data.limit Maximum items per page
+ * @param data.cursor
+ * @returns TriggerStoppedEventsPage Successful Response
+ * @throws ApiError
+ */
+export const triggersListTriggerStoppedEvents = (
+  data: TriggersListTriggerStoppedEventsData
+): CancelablePromise<TriggersListTriggerStoppedEventsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/triggers/{trigger_id}/stopped-events",
+    path: {
+      trigger_id: data.triggerId,
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
       422: "Validation Error",
     },
   })

@@ -107,6 +107,9 @@ async def validate_incoming_webhook(
         # bool before the session closes so it stays valid once the ORM object
         # detaches.
         request.state.webhook_include_headers = webhook.include_headers
+        # The trigger row that lists this webhook, if it has one. Its runs
+        # carry it as TracecatTriggerId.
+        request.state.webhook_trigger_id = webhook.trigger_id
 
         updated = False
 

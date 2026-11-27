@@ -14170,9 +14170,137 @@ export type TriggerRead = {
 }
 
 /**
+ * The trigger that started a run or an agent session.
+ */
+export type TriggerRunOrigin = {
+  trigger_id: string
+  /**
+   * Null if the trigger was deleted since
+   */
+  name?: string | null
+  kind?: TriggerKind | null
+}
+
+/**
+ * One run a trigger started: a workflow run or an agent session's turn.
+ */
+export type TriggerRunRead = {
+  target_type: TriggerTargetType
+  /**
+   * The workflow's title (null if it was deleted), or for an agent run the agent preset's name, falling back to the session's title if the preset was deleted (null if the session was too)
+   */
+  target_name?: string | null
+  /**
+   * The run's Temporal workflow ID
+   */
+  wf_exec_id: string
+  /**
+   * The workflow, for a workflow run
+   */
+  workflow_id?: string | null
+  /**
+   * The agent session, for an agent run
+   */
+  session_id?: string | null
+  /**
+   * The session's agent preset, for an agent run
+   */
+  agent_preset_id?: string | null
+  status:
+    | "RUNNING"
+    | "COMPLETED"
+    | "FAILED"
+    | "CANCELED"
+    | "TERMINATED"
+    | "CONTINUED_AS_NEW"
+    | "TIMED_OUT"
+  start_time: string
+  close_time?: string | null
+}
+
+export type status10 =
+  | "RUNNING"
+  | "COMPLETED"
+  | "FAILED"
+  | "CANCELED"
+  | "TERMINATED"
+  | "CONTINUED_AS_NEW"
+  | "TIMED_OUT"
+
+/**
+ * A page of a trigger's runs, open runs first, then by close time.
+ */
+export type TriggerRunsPage = {
+  items: Array<TriggerRunRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+/**
  * Whether a source, trigger or binding takes part in dispatch.
  */
 export type TriggerStatus = "online" | "offline"
+
+/**
+ * An event that stopped retrying after the attempt cap. The event itself
+ * is not returned.
+ */
+export type TriggerStoppedEventRead = {
+  attempts: number
+  /**
+   * The last attempt's error, credentials redacted
+   */
+  error?: string | null
+  /**
+   * When the event was received
+   */
+  created_at: string
+}
+
+/**
+ * A page of a trigger's stopped events, newest first.
+ */
+export type TriggerStoppedEventsPage = {
+  items: Array<TriggerStoppedEventRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
 
 /**
  * What a trigger binding starts.
@@ -15153,7 +15281,7 @@ export type WorkflowCommitResponse = {
   } | null
 }
 
-export type status10 = "success" | "failure"
+export type status11 = "success" | "failure"
 
 /**
  * API response model for persisted workflow definitions.
@@ -15241,7 +15369,7 @@ export type WorkflowDslPublishResult = {
   message: string
 }
 
-export type status11 = "committed" | "no_op"
+export type status12 = "committed" | "no_op"
 
 export type WorkflowEditDefinition_Input = {
   entrypoint?: DSLEntrypoint_Input
@@ -15599,15 +15727,6 @@ export type WorkflowExecutionRead = {
    */
   events: Array<WorkflowExecutionEvent>
 }
-
-export type status12 =
-  | "RUNNING"
-  | "COMPLETED"
-  | "FAILED"
-  | "CANCELED"
-  | "TERMINATED"
-  | "CONTINUED_AS_NEW"
-  | "TIMED_OUT"
 
 export type WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_ = {
   /**
@@ -20622,6 +20741,38 @@ export type TriggersDeleteTriggerBindingData = {
 }
 
 export type TriggersDeleteTriggerBindingResponse = void
+
+export type TriggersGetTriggerRunOriginData = {
+  sessionId?: string | null
+  wfExecId?: string | null
+  workspaceId: string
+}
+
+export type TriggersGetTriggerRunOriginResponse = TriggerRunOrigin | null
+
+export type TriggersListTriggerRunsData = {
+  cursor?: string | null
+  /**
+   * Maximum items per page
+   */
+  limit?: number
+  triggerId: string
+  workspaceId: string
+}
+
+export type TriggersListTriggerRunsResponse = TriggerRunsPage
+
+export type TriggersListTriggerStoppedEventsData = {
+  cursor?: string | null
+  /**
+   * Maximum items per page
+   */
+  limit?: number
+  triggerId: string
+  workspaceId: string
+}
+
+export type TriggersListTriggerStoppedEventsResponse = TriggerStoppedEventsPage
 
 export type FormsListIntakeFormsData = {
   cursor?: string | null
@@ -30171,6 +30322,51 @@ export type $OpenApiTs = {
          * See detail.code
          */
         404: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/triggers/runs/origin": {
+    get: {
+      req: TriggersGetTriggerRunOriginData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TriggerRunOrigin | null
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/triggers/{trigger_id}/runs": {
+    get: {
+      req: TriggersListTriggerRunsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TriggerRunsPage
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/triggers/{trigger_id}/stopped-events": {
+    get: {
+      req: TriggersListTriggerStoppedEventsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TriggerStoppedEventsPage
         /**
          * Validation Error
          */

@@ -43,6 +43,7 @@ class ClaimedRow:
 class WorkflowTarget:
     binding_id: uuid.UUID
     workflow_id: uuid.UUID
+    trigger_id: uuid.UUID
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +52,7 @@ class AgentTarget:
     agent_preset_id: uuid.UUID
     instruction: str
     trigger_name: str
+    trigger_id: uuid.UUID
 
 
 type Target = WorkflowTarget | AgentTarget

@@ -56,6 +56,7 @@ from tracecat.db.models import (
     CaseTag,
     CaseTrigger,
     CaseTriggerOutbox,
+    Trigger,
     Workflow,
     Workspace,
 )
@@ -447,6 +448,17 @@ class TestOutboxDispatch:
         same run and Temporal's REJECT_DUPLICATE stops a second run.
         """
         trigger = await _add_trigger(session, svc_role, event_types=["case_updated"])
+        # The Triggers tab's row for this case trigger; its runs carry its ID.
+        trigger_row = Trigger(
+            workspace_id=trigger.workspace_id,
+            kind="case_trigger",
+            name="Case updates",
+            status="online",
+        )
+        session.add(trigger_row)
+        await session.flush()
+        trigger.trigger_id = trigger_row.id
+        await session.commit()
         event = await _add_update_event(session, svc_role, test_case)
         expected_exec_id = case_trigger_exec_id(event.id, trigger.workflow_id)
 
@@ -457,6 +469,8 @@ class TestOutboxDispatch:
         assert start.await_count == 1
         assert start.await_args is not None
         assert start.await_args.kwargs["wf_exec_id"] == expected_exec_id
+        # Links the run to the case trigger's trigger row (TracecatTriggerId).
+        assert start.await_args.kwargs["trigger_id"] == trigger_row.id
         assert await _outbox_rows(session, test_case) == []
 
         # A crash before the delete repeats the row; the duplicate start is

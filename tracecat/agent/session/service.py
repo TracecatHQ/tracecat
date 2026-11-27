@@ -2189,10 +2189,12 @@ class AgentSessionService(BaseWorkspaceService):
         origin: UserMessageOrigin,
         author_id: uuid.UUID | None = None,
         prompt_run_id: uuid.UUID | None = None,
+        trigger_id: uuid.UUID | None = None,
     ) -> None:
         """Build the turn's config and start it as ``run_id`` on a validated session.
 
         ``prompt_run_id``: the run that first sent a retried prompt.
+        ``trigger_id``: the trigger that sent the prompt, if any.
         """
         session_id = agent_session.id
         # Titling eligibility must be decided before the workflow spawns: the
@@ -2240,6 +2242,7 @@ class AgentSessionService(BaseWorkspaceService):
                     origin=origin,
                     author_id=author_id,
                     prompt_run_id=prompt_run_id,
+                    trigger_id=trigger_id,
                 )
             )
 
@@ -2593,11 +2596,13 @@ class AgentSessionService(BaseWorkspaceService):
         instructions: str | None = None,
         author_id: uuid.UUID | None = None,
         origin: UserMessageOrigin = UserMessageOrigin.CHANNEL,
+        trigger_id: uuid.UUID | None = None,
     ) -> RunStarted:
         """Start a turn for the message, recording ``author_id`` as its author.
 
         ``origin`` is where the message entered: channel ingress by default, or
         ``TRACECAT`` for a caller inside Tracecat, such as a trigger.
+        ``trigger_id`` is that trigger, set on the turn as ``TracecatTriggerId``.
 
         A retry of the same ``request_id`` returns the run the first attempt
         started and re-issues a start whose outcome was lost. Recovery may
@@ -2644,6 +2649,7 @@ class AgentSessionService(BaseWorkspaceService):
                     origin=origin,
                     author_id=author_id,
                     stream_id=uuid.uuid4(),
+                    trigger_id=trigger_id,
                 )
                 return RunStarted(run_id=run_id)
             except TurnAlreadyStarted:

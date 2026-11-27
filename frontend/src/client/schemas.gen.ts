@@ -45864,11 +45864,315 @@ export const $TriggerRead = {
   title: "TriggerRead",
 } as const
 
+export const $TriggerRunOrigin = {
+  properties: {
+    trigger_id: {
+      type: "string",
+      format: "uuid",
+      title: "Trigger Id",
+    },
+    name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+      description: "Null if the trigger was deleted since",
+    },
+    kind: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/TriggerKind",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["trigger_id"],
+  title: "TriggerRunOrigin",
+  description: "The trigger that started a run or an agent session.",
+} as const
+
+export const $TriggerRunRead = {
+  properties: {
+    target_type: {
+      $ref: "#/components/schemas/TriggerTargetType",
+    },
+    target_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Target Name",
+      description:
+        "The workflow's title (null if it was deleted), or for an agent run the agent preset's name, falling back to the session's title if the preset was deleted (null if the session was too)",
+    },
+    wf_exec_id: {
+      type: "string",
+      title: "Wf Exec Id",
+      description: "The run's Temporal workflow ID",
+    },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Id",
+      description: "The workflow, for a workflow run",
+    },
+    session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Session Id",
+      description: "The agent session, for an agent run",
+    },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description: "The session's agent preset, for an agent run",
+    },
+    status: {
+      type: "string",
+      enum: [
+        "RUNNING",
+        "COMPLETED",
+        "FAILED",
+        "CANCELED",
+        "TERMINATED",
+        "CONTINUED_AS_NEW",
+        "TIMED_OUT",
+      ],
+      title: "Status",
+    },
+    start_time: {
+      type: "string",
+      format: "date-time",
+      title: "Start Time",
+    },
+    close_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Close Time",
+    },
+  },
+  type: "object",
+  required: ["target_type", "wf_exec_id", "status", "start_time"],
+  title: "TriggerRunRead",
+  description:
+    "One run a trigger started: a workflow run or an agent session's turn.",
+} as const
+
+export const $TriggerRunsPage = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/TriggerRunRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "TriggerRunsPage",
+  description:
+    "A page of a trigger's runs, open runs first, then by close time.",
+} as const
+
 export const $TriggerStatus = {
   type: "string",
   enum: ["online", "offline"],
   title: "TriggerStatus",
   description: "Whether a source, trigger or binding takes part in dispatch.",
+} as const
+
+export const $TriggerStoppedEventRead = {
+  properties: {
+    attempts: {
+      type: "integer",
+      title: "Attempts",
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+      description: "The last attempt's error, credentials redacted",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "When the event was received",
+    },
+  },
+  type: "object",
+  required: ["attempts", "created_at"],
+  title: "TriggerStoppedEventRead",
+  description: `An event that stopped retrying after the attempt cap. The event itself
+is not returned.`,
+} as const
+
+export const $TriggerStoppedEventsPage = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/TriggerStoppedEventRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "TriggerStoppedEventsPage",
+  description: "A page of a trigger's stopped events, newest first.",
 } as const
 
 export const $TriggerTargetType = {

@@ -84,6 +84,7 @@ from tracecat.mcp.middleware import MCPErrorHandlingMiddleware
 from tracecat.pagination import CursorPaginatedResponse, PageParams
 from tracecat.storage.object import ExternalObject, ObjectRef
 from tracecat.tables.service import TablesService
+from tracecat.triggers.enums import TriggerTargetType
 from tracecat.triggers.schemas import LockedTriggerCount, TriggerListResponse
 from tracecat.validation.schemas import (
     ValidationDetail,
@@ -10208,6 +10209,12 @@ _TRIGGER_TOOL_ARGUMENTS: dict[str, tuple[dict[str, Any], str]] = {
         {"trigger_id": str(uuid.uuid4()), "binding_id": str(uuid.uuid4())},
         "trigger:update",
     ),
+    "list_trigger_runs": ({"trigger_id": str(uuid.uuid4())}, "trigger:read"),
+    "list_trigger_stopped_events": (
+        {"trigger_id": str(uuid.uuid4())},
+        "trigger:read",
+    ),
+    "get_trigger_run_origin": ({"wf_exec_id": "wf_x/exec_y"}, "trigger:read"),
 }
 
 
@@ -10564,6 +10571,63 @@ async def test_trigger_tool_reports_service_errors(
 
     with pytest.raises(ToolError, match="^Trigger not found$"):
         await _call_trigger_tool("get_trigger")
+
+
+@pytest.mark.anyio
+async def test_trigger_run_tools_read_through_the_runs_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _patch_triggers(monkeypatch, session=object())
+    trigger_id = uuid.uuid4()
+    run = mcp_server.TriggerRunRead(
+        target_type=TriggerTargetType.WORKFLOW,
+        wf_exec_id="wf_x/exec_y",
+        status="COMPLETED",
+        start_time=datetime.now(UTC),
+    )
+    origin = mcp_server.TriggerRunOrigin(trigger_id=trigger_id, name="Uploads")
+    runs = SimpleNamespace(
+        list_runs=AsyncMock(
+            return_value=SimpleNamespace(
+                items=[run],
+                next_cursor="n",
+                prev_cursor=None,
+                has_more=True,
+                has_previous=False,
+            )
+        ),
+        list_stopped_events=AsyncMock(
+            return_value=SimpleNamespace(
+                items=[], next_cursor=None, has_more=False, has_previous=False
+            )
+        ),
+        run_origin=AsyncMock(return_value=origin),
+    )
+    built: list[tuple[object, object]] = []
+
+    def _runs_service(session: object, role: object) -> SimpleNamespace:
+        built.append((session, role))
+        return runs
+
+    monkeypatch.setattr(mcp_server, "TriggerRunsService", _runs_service)
+
+    page = await _call_trigger_tool(
+        "list_trigger_runs", trigger_id=str(trigger_id), limit=5, cursor="c"
+    )
+    stopped = await _call_trigger_tool(
+        "list_trigger_stopped_events", trigger_id=str(trigger_id)
+    )
+    found = await _call_trigger_tool("get_trigger_run_origin")
+
+    assert (page.items, page.next_cursor, page.has_more) == ([run], "n", True)
+    [call] = runs.list_runs.await_args_list
+    assert call.args[0] == trigger_id
+    assert (call.args[1].limit, call.args[1].cursor) == (5, "c")
+    assert stopped.items == []
+    assert found is origin
+    runs.run_origin.assert_awaited_once_with(wf_exec_id="wf_x/exec_y", session_id=None)
+    # Same session and role as the trigger tools' checks.
+    assert built == [(service.session, service.role)] * 3
 
 
 @pytest.mark.anyio

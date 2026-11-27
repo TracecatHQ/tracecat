@@ -174,6 +174,13 @@ class TemporalSearchAttr(StrEnum):
     ERROR_OWNER = "TracecatErrorOwner"
     """The `Keyword` Search Attribute for terminal runtime error ownership."""
 
+    TRIGGER_ID = "TracecatTriggerId"
+    """The `Keyword` Search Attribute for the ID of the trigger that started the run.
+
+    Set at start only, and only once the namespace has it
+    (``tracecat.workflow.executions.trigger_link``).
+    """
+
     @cached_property
     def key(self) -> SearchAttributeKey[str]:
         return SearchAttributeKey.for_keyword(self.value)
