@@ -41,6 +41,10 @@ jest.mock("@/components/auth/no-organization-access", () => ({
   NoOrganizationAccess: () => <div>No organization access</div>,
 }))
 
+jest.mock("@/components/branding/branding-style", () => ({
+  OrganizationBrandingStyle: () => null,
+}))
+
 jest.mock("@/components/auth/scope-guard", () => ({
   useScopeCheck: (scope: string) => mockUseScopeCheck(scope),
 }))

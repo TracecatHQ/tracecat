@@ -103,6 +103,14 @@ jest.mock("@/components/auth/scope-guard", () => ({
   useScopeCheck: () => true,
 }))
 
+jest.mock("@/hooks/use-branding", () => ({
+  usePublicBranding: () => ({ branding: null, brandingIsLoading: false }),
+}))
+
+jest.mock("@/components/branding/branding-style", () => ({
+  OrganizationBrandingStyle: () => null,
+}))
+
 jest.mock("@/hooks/use-pending-org-invitations", () => ({
   usePendingOrgInvitations: () => ({
     pendingInvitations: [],
@@ -363,6 +371,17 @@ describe("Auth UI matrix", () => {
       expect(mockRouterReplace).toHaveBeenCalledWith("/workspaces")
     })
     expect(mockRouterReplace).not.toHaveBeenCalledWith("/admin")
+  })
+
+  it("redirects logged-out visitors on home straight to sign-in", async () => {
+    mockUser = null
+
+    render(<HomePage />)
+
+    await waitFor(() => {
+      expect(mockRouterReplace).toHaveBeenCalledWith("/sign-in")
+    })
+    expect(mockRouterPush).not.toHaveBeenCalled()
   })
 
   it("defaults unknown tenancy to workspaces for authenticated superusers on home", async () => {

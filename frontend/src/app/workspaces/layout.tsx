@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from "react"
 import { ApiError } from "@/client"
 import { NoOrganizationAccess } from "@/components/auth/no-organization-access"
 import { useScopeCheck } from "@/components/auth/scope-guard"
+import { OrganizationBrandingStyle } from "@/components/branding/branding-style"
 import { CaseSelectionProvider } from "@/components/cases/case-selection-context"
 import { CommandPalette } from "@/components/command-palette/command-palette"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -312,6 +313,7 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
 
   return (
     <SidebarProvider>
+      <OrganizationBrandingStyle />
       <AppSidebar />
       {routeOwnsInset ? (
         children

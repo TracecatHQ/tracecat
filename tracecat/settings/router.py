@@ -38,6 +38,8 @@ from tracecat.settings.schemas import (
     AuditSettingsRead,
     AuditSettingsUpdate,
     AuditWebhookTestResult,
+    BrandingSettingsRead,
+    BrandingSettingsUpdate,
     GitSettingsRead,
     GitSettingsUpdate,
     IPAllowlistCheckRequest,
@@ -227,6 +229,34 @@ async def update_app_settings(
 ) -> None:
     service = SettingsService(session, role)
     await service.update_app_settings(params)
+
+
+@router.get("/branding", response_model=BrandingSettingsRead)
+@require_scope("org:settings:read")
+async def get_branding_settings(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+) -> BrandingSettingsRead:
+    service = SettingsService(session, role)
+    settings = await service.list_org_settings(keys=BrandingSettingsRead.keys())
+    settings_dict = {s.key: service.get_value(s) for s in settings}
+    return BrandingSettingsRead.model_validate(
+        {k: v for k, v in settings_dict.items() if v is not None}
+    )
+
+
+@router.patch("/branding", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:settings:update")
+async def update_branding_settings(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    params: BrandingSettingsUpdate,
+) -> None:
+    await check_entitlement(session, role, Entitlement.CUSTOM_BRANDING)
+    service = SettingsService(session, role)
+    await service.update_branding_settings(params)
 
 
 @router.get("/audit", response_model=AuditSettingsRead)

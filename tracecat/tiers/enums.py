@@ -24,6 +24,7 @@ class Entitlement(StrEnum):
     AGENT_RUNTIME_WORKFLOWS = "agent_runtime_workflows"
     AGENT_CHANNELS_PREVIEW = "agent_channels_preview"
     OBJECT_TRIGGERS = "object_triggers"
+    CUSTOM_BRANDING = "custom_branding"
 
 
 class ConcurrencyLimitName(StrEnum):

@@ -11,12 +11,14 @@ function SignUpContent() {
   const organizationSlug = searchParams?.get("org") ?? null
 
   return (
-    <div className="flex size-full items-center justify-center">
-      <SignUp
-        className="flex size-16 w-full justify-center"
-        returnUrl={returnUrl}
-        organizationSlug={organizationSlug}
-      />
+    <div className="size-full overflow-y-auto">
+      <div className="flex min-h-full items-center justify-center py-8">
+        <SignUp
+          className="flex w-full justify-center"
+          returnUrl={returnUrl}
+          organizationSlug={organizationSlug}
+        />
+      </div>
     </div>
   )
 }
