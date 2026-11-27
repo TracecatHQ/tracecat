@@ -12,6 +12,7 @@ import {
   triggersGetWebhook,
   triggersListEventSources,
   triggersListTriggers,
+  triggersUpdateEventSource,
   triggersUpdateTriggerBinding,
   type WebhookRead,
 } from "@/client"
@@ -43,6 +44,7 @@ jest.mock("@/client", () => ({
   triggersGetWebhook: jest.fn(),
   triggersListEventSources: jest.fn(),
   triggersListTriggers: jest.fn(),
+  triggersUpdateEventSource: jest.fn(),
   triggersUpdateTriggerBinding: jest.fn(),
   // The detail page's Recent runs and Stopped events (trigger-runs.test.tsx).
   triggersListTriggerRuns: jest.fn(async () => ({
@@ -586,6 +588,88 @@ describe("TriggerDetail", () => {
     ).toBeInTheDocument()
   })
 
+  it("pins the source to a bucket and clears the pin", async () => {
+    const user = userEvent.setup()
+    const pinned: EventSourceRead = {
+      ...SOURCE,
+      config: { ...SOURCE.config, bucket: "uploads-bucket" },
+    }
+    jest.mocked(triggersUpdateEventSource).mockResolvedValue(pinned)
+
+    renderWithClient(<TriggerDetail triggerId="trigger-1" />)
+
+    const field = await screen.findByLabelText("Pinned S3 bucket")
+    expect(field).toHaveValue("")
+    expect(
+      screen.getByText("Every bucket that publishes to the topic is accepted.")
+    ).toBeInTheDocument()
+    await user.type(field, "arn:aws:s3:::uploads-bucket")
+    // The refetch after the save returns the pinned source.
+    jest.mocked(triggersGetEventSource).mockResolvedValue(pinned)
+    await user.click(screen.getByRole("button", { name: "Save" }))
+
+    await waitFor(() =>
+      expect(triggersUpdateEventSource).toHaveBeenCalledWith({
+        workspaceId: "workspace-1",
+        sourceId: SOURCE.id,
+        requestBody: {
+          config: {
+            kind: "aws_sns",
+            topic_arn: SOURCE.config.topic_arn,
+            bucket: "arn:aws:s3:::uploads-bucket",
+          },
+        },
+      })
+    )
+    // The API saves the name the ARN names.
+    await waitFor(() =>
+      expect(screen.getByLabelText("Pinned S3 bucket")).toHaveValue(
+        "uploads-bucket"
+      )
+    )
+    expect(
+      screen.getByText(
+        "Events for any bucket other than uploads-bucket are refused."
+      )
+    ).toBeInTheDocument()
+
+    jest.mocked(triggersUpdateEventSource).mockResolvedValue(SOURCE)
+    await user.clear(screen.getByLabelText("Pinned S3 bucket"))
+    await user.click(screen.getByRole("button", { name: "Clear" }))
+
+    await waitFor(() =>
+      expect(triggersUpdateEventSource).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          requestBody: {
+            config: {
+              kind: "aws_sns",
+              topic_arn: SOURCE.config.topic_arn,
+              bucket: null,
+            },
+          },
+        })
+      )
+    )
+  })
+
+  it("shows the bucket pin read-only without trigger:update", async () => {
+    scopes = { "trigger:read": true, "workflow:read": true }
+    jest.mocked(triggersGetEventSource).mockResolvedValue({
+      ...SOURCE,
+      endpoint_url: null,
+      config: { ...SOURCE.config, bucket: "uploads-bucket" },
+    })
+
+    renderWithClient(<TriggerDetail triggerId="trigger-1" />)
+
+    expect(
+      await screen.findByText(
+        "Events for any bucket other than uploads-bucket are refused."
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByLabelText("Pinned S3 bucket")).not.toBeInTheDocument()
+  })
+
   it("explains why the endpoint URL is hidden", async () => {
     jest
       .mocked(triggersGetEventSource)
@@ -744,6 +828,16 @@ describe("event source providers", () => {
     ).toEqual({
       kind: "aws_sns",
       topic_arn: SOURCE.config.topic_arn,
+    })
+    expect(
+      sns.buildConfig({
+        topicArn: SOURCE.config.topic_arn,
+        bucket: " arn:aws:s3:::uploads-bucket ",
+      })
+    ).toEqual({
+      kind: "aws_sns",
+      topic_arn: SOURCE.config.topic_arn,
+      bucket: "arn:aws:s3:::uploads-bucket",
     })
   })
 })

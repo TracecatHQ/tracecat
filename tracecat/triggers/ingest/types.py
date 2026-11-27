@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
@@ -27,6 +28,7 @@ class IngestErrorCode(StrEnum):
     SOURCE_NOT_FOUND = "source_not_found"
     NOT_ENTITLED = "not_entitled"
     TOPIC_MISMATCH = "topic_mismatch"
+    BUCKET_MISMATCH = "bucket_mismatch"
     SIGNATURE_INVALID = "signature_invalid"
     STALE_MESSAGE = "stale_message"
     SOURCE_OFFLINE = "source_offline"
@@ -56,7 +58,9 @@ class IngestSource:
 
     ``pin_value`` is the source config value at ``pin_key`` that a provider
     checks every message against (for SNS, the topic ARN). Events are queued
-    only while the source still holds that value.
+    only while the source still holds that value. ``config`` is the whole
+    stored config, for the checks of the event format the source carries
+    (for S3, the bucket pin).
     """
 
     id: uuid.UUID
@@ -65,6 +69,9 @@ class IngestSource:
     status: TriggerStatus
     pin_key: str
     pin_value: str
+    # The JSONB column as stored; each layer reads only its own keys, so it
+    # stays a plain mapping rather than a per-kind model.
+    config: Mapping[str, Any]
 
 
 @dataclass(frozen=True, slots=True)

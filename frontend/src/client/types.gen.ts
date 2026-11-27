@@ -2225,6 +2225,10 @@ export type AwsSnsSourceConfig = {
    * ARN of the customer's SNS topic. The source accepts no other.
    */
   topic_arn: string
+  /**
+   * Accept events for this S3 bucket only. A bucket name or ARN, saved as the name. Null or omitted accepts every bucket that publishes to the topic.
+   */
+  bucket?: string | null
 }
 
 /**

@@ -50,6 +50,7 @@ async def load_source(
             EventSource.workspace_id,
             Workspace.organization_id,
             EventSource.config[pin_key].astext,
+            EventSource.config,
             EventSource.status,
         )
         .join(Workspace, Workspace.id == EventSource.workspace_id)
@@ -64,7 +65,7 @@ async def load_source(
         row = (await session.execute(stmt)).tuples().one_or_none()
         if row is None:
             raise IngestError(IngestErrorCode.SOURCE_NOT_FOUND, "Not found")
-        source_id, workspace_id, organization_id, pin_value, status = row
+        source_id, workspace_id, organization_id, pin_value, config, status = row
         if not await is_org_entitled(session, organization_id, TRIGGERS_ENTITLEMENT):
             raise IngestError(
                 IngestErrorCode.NOT_ENTITLED,
@@ -77,6 +78,7 @@ async def load_source(
         status=TriggerStatus(status),
         pin_key=pin_key,
         pin_value=pin_value,
+        config=config,
     )
 
 

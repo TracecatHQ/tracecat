@@ -8,6 +8,7 @@ import uuid
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -50,6 +51,7 @@ from tracecat.triggers.ingest import rate_limit
 from tracecat.triggers.ingest import service as ingest_service
 from tracecat.triggers.ingest.aws_sns import confirm as sns_confirm
 from tracecat.triggers.ingest.aws_sns import rate_limit as sns_rate_limit
+from tracecat.triggers.ingest.aws_sns import router as sns_router
 from tracecat.triggers.ingest.aws_sns import service as sns_service
 from tracecat.triggers.ingest.aws_sns import signature as sns_signature
 from tracecat.triggers.ingest.aws_sns.router import MAX_BODY_BYTES
@@ -176,6 +178,7 @@ def _s3_record(
     event_name: str = "ObjectCreated:Put",
     sequencer: str = "0055AED6DCD90281E5",
     version_id: str | None = "v1",
+    bucket: str = "synthetic-bucket",
 ) -> dict[str, Any]:
     obj: dict[str, Any] = {
         "key": key,
@@ -193,10 +196,7 @@ def _s3_record(
         "eventName": event_name,
         "s3": {
             "s3SchemaVersion": "1.0",
-            "bucket": {
-                "name": "synthetic-bucket",
-                "arn": "arn:aws:s3:::synthetic-bucket",
-            },
+            "bucket": {"name": bucket, "arn": f"arn:aws:s3:::{bucket}"},
             "object": obj,
         },
     }
@@ -890,6 +890,148 @@ async def test_wrong_topic_is_refused_before_any_fetch(
     assert _code(response) == "topic_mismatch"
     assert aws.calls.call_count == 0
     assert await _outbox(session, source) == []
+
+
+# ----- Bucket pin -----
+
+
+class _Counter:
+    def __init__(self) -> None:
+        self.added: list[tuple[int, dict[str, str]]] = []
+
+    def add(self, amount: int, attributes: dict[str, str]) -> None:
+        self.added.append((amount, attributes))
+
+
+@pytest.fixture
+def refused(monkeypatch: pytest.MonkeyPatch) -> _Counter:
+    counter = _Counter()
+    monkeypatch.setattr(sns_router, "_REFUSED", counter)
+    return counter
+
+
+async def _pin(session: AsyncSession, source: EventSource, bucket: str) -> None:
+    source.config = {"topic_arn": TOPIC, "bucket": bucket}
+    await session.commit()
+
+
+@pytest.mark.parametrize(
+    ("pin", "bucket"),
+    [
+        (None, "synthetic-bucket"),
+        (None, "any-other-bucket"),
+        ("synthetic-bucket", "synthetic-bucket"),
+    ],
+    ids=["unset", "unset-other-bucket", "pinned-match"],
+)
+async def test_bucket_pin_accepts_its_bucket_and_unset_accepts_all(
+    client: httpx.AsyncClient,
+    session: AsyncSession,
+    source: EventSource,
+    sign: SignFn,
+    aws: respx.MockRouter,
+    refused: _Counter,
+    pin: str | None,
+    bucket: str,
+) -> None:
+    if pin is not None:
+        await _pin(session, source, pin)
+
+    response = await _post(
+        client, source, sign("Notification", _s3_message(_s3_record(bucket=bucket)))
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["queued"] == 1
+    assert [row.payload["bucket"] for row in await _outbox(session, source)] == [bucket]
+    assert refused.added == []
+
+
+async def test_bucket_pin_refuses_another_bucket_as_final(
+    client: httpx.AsyncClient,
+    session: AsyncSession,
+    source: EventSource,
+    sign: SignFn,
+    aws: respx.MockRouter,
+    refused: _Counter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _pin(session, source, "synthetic-bucket")
+    logged: list[tuple[str, dict[str, Any]]] = []
+    monkeypatch.setattr(
+        sns_router,
+        "logger",
+        SimpleNamespace(info=lambda msg, **kw: logged.append((msg, kw))),
+    )
+    key = "private/secret-name.csv"
+
+    response = await _post(
+        client,
+        source,
+        sign("Notification", _s3_message(_s3_record(key, bucket="other-bucket"))),
+    )
+
+    # 403: SNS treats any 4xx but 429 as final, so a mismatch is not retried.
+    assert response.status_code == 403
+    assert _code(response) == "bucket_mismatch"
+    assert await _outbox(session, source) == []
+    assert refused.added == [(1, {"provider": "aws_sns", "code": "bucket_mismatch"})]
+    assert logged == [
+        (
+            "SNS message refused",
+            {
+                "code": "bucket_mismatch",
+                "reason": "Bucket is not the one this source accepts",
+            },
+        )
+    ]
+    assert key not in str(logged) and source.endpoint_token not in str(logged)
+
+
+async def test_bucket_pin_refuses_a_message_with_any_other_bucket(
+    client: httpx.AsyncClient,
+    session: AsyncSession,
+    source: EventSource,
+    sign: SignFn,
+    aws: respx.MockRouter,
+) -> None:
+    await _pin(session, source, "synthetic-bucket")
+    message = _s3_message(
+        _s3_record("a.csv", sequencer="01"),
+        _s3_record("b.csv", sequencer="02", bucket="other-bucket"),
+    )
+
+    response = await _post(client, source, sign("Notification", message))
+
+    # The matching record is not queued either: the whole message is refused.
+    assert response.status_code == 403
+    assert _code(response) == "bucket_mismatch"
+    assert await _outbox(session, source) == []
+
+
+async def test_bucket_pin_ignores_records_it_would_skip(
+    client: httpx.AsyncClient,
+    session: AsyncSession,
+    source: EventSource,
+    sign: SignFn,
+    aws: respx.MockRouter,
+) -> None:
+    await _pin(session, source, "synthetic-bucket")
+    message = _s3_message(
+        _s3_record("a.csv", sequencer="01"),
+        _s3_record(
+            "b.csv",
+            event_name="ObjectRemoved:Delete",
+            sequencer="02",
+            bucket="other-bucket",
+        ),
+    )
+
+    response = await _post(client, source, sign("Notification", message))
+
+    assert response.status_code == 200, response.text
+    assert response.json()["queued"] == 1
+    assert response.json()["ignored"] == 1
 
 
 async def test_raw_delivery_header_is_refused(

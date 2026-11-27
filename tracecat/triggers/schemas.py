@@ -19,6 +19,7 @@ members here, a detail table if it has settings, its source kinds in
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timedelta
 from typing import Annotated, Any, Literal, Self
@@ -80,11 +81,53 @@ Instruction = Annotated[
 # ----- Event sources -----
 
 
+# General purpose bucket names. Older buckets in us-east-1 may break these
+# rules; they cannot be pinned.
+_S3_BUCKET_NAME = re.compile(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]")
+_S3_BUCKET_ARN = re.compile(r"arn:aws(?:-cn|-us-gov)?:s3:::(?P<name>[^/:]+)")
+
+
+def _normalize_s3_bucket(value: str) -> str | None:
+    """Reduce a bucket pin to the bucket name; blank means no pin.
+
+    Accepts a bucket name or a bucket ARN (``arn:aws:s3:::name``, in any
+    partition).
+
+    Raises:
+        ValueError: If the value is neither.
+    """
+    name = value.strip()
+    if not name:
+        return None
+    if name.startswith("arn:"):
+        if (arn := _S3_BUCKET_ARN.fullmatch(name)) is None:
+            raise ValueError("Not an S3 bucket ARN (arn:aws:s3:::bucket-name)")
+        name = arn.group("name")
+    if not _S3_BUCKET_NAME.fullmatch(name):
+        raise ValueError(
+            "Not an S3 bucket name: 3 to 63 lowercase letters, digits, dots or"
+            " hyphens, starting and ending with a letter or digit"
+        )
+    return name
+
+
 class AwsSnsSourceConfig(Schema):
     """Events pushed by a customer-owned SNS topic, pinned by its ARN."""
 
     kind: Literal[EventSourceKind.AWS_SNS]
     topic_arn: TopicArn
+    bucket: str | None = Field(
+        default=None,
+        description="Accept events for this S3 bucket only. A bucket name or"
+        " ARN, saved as the name. Null or omitted accepts every bucket that"
+        " publishes to the topic.",
+        examples=["my-bucket"],
+    )
+
+    @field_validator("bucket", mode="before")
+    @classmethod
+    def _normalize_bucket(cls, value: object) -> object:
+        return _normalize_s3_bucket(value) if isinstance(value, str) else value
 
 
 EventSourceConfig = Annotated[AwsSnsSourceConfig, Field(discriminator="kind")]
