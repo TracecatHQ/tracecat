@@ -691,15 +691,37 @@ def test_wake_with_nothing_in_flight_is_ignored() -> None:
 
 
 @pytest.mark.anyio
-async def test_admitted_probe_spends_an_earlier_wake(fake: FakeWorkflow) -> None:
-    """After an admitted probe the hand-on probes at once; a stale wake is dropped."""
+async def test_admitted_probe_keeps_a_wake_for_a_dispatch_in_flight(
+    fake: FakeWorkflow,
+) -> None:
+    """Another probe's admission must not spend a wake a busy dispatch still needs."""
     admission = _waking_admission()
-    admission._active = 1  # pyright: ignore[reportPrivateUsage]
-    admission.wake()
+    results: list[Any] = [_busy(), {"type": "inline"}]
+    waits = 0
+    real_wait_condition = fake.wait_condition
 
-    admission._on_progress()  # pyright: ignore[reportPrivateUsage]
+    async def counting_wait_condition(
+        fn: Callable[[], bool], *, timeout: timedelta | None = None
+    ) -> None:
+        nonlocal waits
+        if timeout is not None:
+            waits += 1
+        await real_wait_condition(fn, timeout=timeout)
 
-    assert admission._woken is False  # pyright: ignore[reportPrivateUsage]
+    fake.wait_condition = counting_wait_condition  # type: ignore[method-assign]
+
+    async def dispatch(_max_attempts: int, _probe_id: str | None) -> Any:
+        result = results.pop(0)
+        if parse_not_admitted(result) is not None:
+            admission.wake()  # a release wakes the run ...
+            admission._on_progress()  # pyright: ignore[reportPrivateUsage]
+            # ... then another probe's admission lands, before this busy result.
+        return result
+
+    result = await admission.execute(dispatch, max_attempts=1)
+
+    assert result == {"type": "inline"}
+    assert waits == 0  # the wake survived: the probe went at once
 
 
 @pytest.mark.anyio

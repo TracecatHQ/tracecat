@@ -118,8 +118,7 @@ class RunAdmission:
 
     def _on_progress(self) -> None:
         """An attempt was admitted: the next waiter probes without a timer."""
-        # The hand-on probes at once, so an earlier wake has nothing left to cut.
-        self._woken = False
+        # Keeps any wake: another dispatch may still be about to come back busy.
         self._needs_timer = False
         self._backoff_step = 0
         if self._waiters == 0:
