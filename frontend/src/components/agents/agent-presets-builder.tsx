@@ -802,6 +802,7 @@ function AgentPresetChatPane({
         agent_preset_version_id: selectedVersionId,
       })
       setSelectedChatId(newChat.id)
+      dropLinkedSession()
       await refetchChats()
     } catch (error) {
       console.error("Failed to create agent preset chat", error)
