@@ -5,6 +5,7 @@ import { ImageIcon } from "lucide-react"
 import { type ChangeEvent, useRef } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
+import type { BrandingSettingsUpdate } from "@/client"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { Button } from "@/components/ui/button"
@@ -210,12 +211,23 @@ export function OrgSettingsBrandingForm() {
 
   async function onSubmit(data: BrandingFormValues) {
     try {
-      await updateBrandingSettings({
-        branding_logo: data.branding_logo,
-        branding_primary_color_light: data.branding_primary_color_light || null,
-        branding_primary_color_dark: data.branding_primary_color_dark || null,
-        branding_terms_enabled: data.branding_terms_enabled,
-      })
+      const dirty = form.formState.dirtyFields
+      const update: BrandingSettingsUpdate = {}
+      if (dirty.branding_logo) {
+        update.branding_logo = data.branding_logo
+      }
+      if (dirty.branding_primary_color_light) {
+        update.branding_primary_color_light =
+          data.branding_primary_color_light || null
+      }
+      if (dirty.branding_primary_color_dark) {
+        update.branding_primary_color_dark =
+          data.branding_primary_color_dark || null
+      }
+      if (dirty.branding_terms_enabled) {
+        update.branding_terms_enabled = data.branding_terms_enabled
+      }
+      await updateBrandingSettings(update)
       toast({ title: "Branding saved" })
     } catch {
       toast({
