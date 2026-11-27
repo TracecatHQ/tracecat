@@ -46,20 +46,23 @@ async def test_slackbot_interface_prepares_direct_agent_config(
         dsl_action,
         "_evaluate_agent_args",
         AsyncMock(
-            return_value={
-                "event": None,
-                "prompt": "Investigate this issue",
-                "instructions": "Reply in the channel",
-                "channel_id": "C01234567",
-                "model": {
-                    "model_name": "claude-sonnet-4-5",
-                    "model_provider": "anthropic",
+            return_value=(
+                {
+                    "event": None,
+                    "prompt": "Investigate this issue",
+                    "instructions": "Reply in the channel",
+                    "channel_id": "C01234567",
+                    "model": {
+                        "model_name": "claude-sonnet-4-5",
+                        "model_provider": "anthropic",
+                    },
+                    "actions": None,
+                    "model_settings": None,
+                    "retries": 6,
+                    "limit_messages": 5,
                 },
-                "actions": None,
-                "model_settings": None,
-                "retries": 6,
-                "limit_messages": 5,
-            }
+                "environment_a",
+            )
         ),
     )
     monkeypatch.setattr(
@@ -92,6 +95,7 @@ async def test_slackbot_interface_prepares_direct_agent_config(
     assert result.args.user_prompt == "Prepared Slack prompt"
     assert result.args.instructions == "Prepared Slack instructions"
     assert result.args.actions == ["tools.slack.post_message"]
+    assert result.args.environment == "environment_a"
     assert result.context == SlackbotContext(channel_id="C01234567")
     prepare.assert_awaited_once()
 
@@ -104,17 +108,20 @@ async def test_slackbot_prepare_failure_after_ack_clears_slack(
         dsl_action,
         "_evaluate_agent_args",
         AsyncMock(
-            return_value={
-                "event": None,
-                "prompt": "p",
-                "instructions": None,
-                "channel_id": "C01234567",
-                "model": {"model_name": "m", "model_provider": "anthropic"},
-                "actions": None,
-                "model_settings": None,
-                "retries": 6,
-                "limit_messages": 5,
-            }
+            return_value=(
+                {
+                    "event": None,
+                    "prompt": "p",
+                    "instructions": None,
+                    "channel_id": "C01234567",
+                    "model": {"model_name": "m", "model_provider": "anthropic"},
+                    "actions": None,
+                    "model_settings": None,
+                    "retries": 6,
+                    "limit_messages": 5,
+                },
+                "default",
+            )
         ),
     )
     monkeypatch.setattr(
@@ -161,13 +168,16 @@ async def test_build_agent_args_activity_does_not_prepare_slackbot(
         dsl_action,
         "_evaluate_agent_args",
         AsyncMock(
-            return_value={
-                "user_prompt": "Investigate this issue",
-                "model": {
-                    "model_name": "claude-sonnet-4-5",
-                    "model_provider": "anthropic",
+            return_value=(
+                {
+                    "user_prompt": "Investigate this issue",
+                    "model": {
+                        "model_name": "claude-sonnet-4-5",
+                        "model_provider": "anthropic",
+                    },
                 },
-            }
+                "default",
+            )
         ),
     )
     prepare = AsyncMock()

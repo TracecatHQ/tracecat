@@ -23,6 +23,10 @@ class AgentWorkflowArgs(BaseModel):
 
     role: Role
     agent_args: RunAgentArgs
+    environment: str = Field(
+        default="default",
+        description="Environment used to resolve secrets for this agent run's tools.",
+    )
     # Session metadata
     title: str = Field(default="New Chat", description="Session title")
     entity_type: AgentSessionEntity = Field(

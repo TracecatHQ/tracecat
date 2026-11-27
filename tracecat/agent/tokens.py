@@ -114,6 +114,8 @@ class MCPTokenClaims(BaseModel):
     """Optional parent durable agent run ID for correlation."""
     organization_id: OrganizationID
     """Organization UUID for authorization context."""
+    environment: str = "default"
+    """Environment used to resolve secrets for registry tool execution."""
     allowed_actions: list[str]
     """Set of allowed action names (e.g., {"tools.slack.post_message", "core.http_request"})."""
     deferred_actions: list[str] = Field(default_factory=list)
@@ -158,6 +160,7 @@ def mint_mcp_token(
     allowed_actions: list[str],
     session_id: uuid.UUID,
     registry_lock: RegistryLock,
+    environment: str = "default",
     deferred_actions: list[str] | None = None,
     user_id: UserID | None = None,
     parent_agent_workflow_id: str | None = None,
@@ -182,6 +185,7 @@ def mint_mcp_token(
         organization_id: Organization UUID for authorization context
         allowed_actions: Set of allowed action names
         session_id: Agent session ID for traceability
+        environment: Environment used to resolve registry tool secrets
         registry_lock: Registry lock resolved for this token's registry
             and deferred actions
         deferred_actions: Action names listed for discovery but never
@@ -224,6 +228,7 @@ def mint_mcp_token(
         MCPTokenClaims(
             workspace_id=workspace_id,
             organization_id=organization_id,
+            environment=environment,
             user_id=user_id,
             session_id=session_id,
             parent_agent_workflow_id=parent_agent_workflow_id,

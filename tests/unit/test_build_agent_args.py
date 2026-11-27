@@ -66,6 +66,57 @@ def _make_context(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("preset", "task_environment", "default_environment", "expected"),
+    [
+        (False, "environment_a", "default", "environment_a"),
+        (False, None, "environment_a", "environment_a"),
+        (True, "environment_a", "default", "environment_a"),
+        (True, None, "environment_a", "environment_a"),
+    ],
+    ids=[
+        "agent-action-override",
+        "agent-workflow-default",
+        "preset-action-override",
+        "preset-workflow-default",
+    ],
+)
+async def test_agent_args_include_resolved_environment(
+    role: Role,
+    preset: bool,
+    task_environment: str | None,
+    default_environment: str,
+    expected: str,
+) -> None:
+    args = (
+        {"preset": "my-preset", "user_prompt": "Hello"}
+        if preset
+        else {
+            "user_prompt": "Hello",
+            "model_name": "test-model",
+            "model_provider": "test-provider",
+        }
+    )
+    input = BuildAgentArgsActivityInput(
+        action="ai.preset_agent" if preset else "ai.agent",
+        args=args,
+        operand=_make_context(),
+        role=role,
+        task_environment=task_environment,
+        default_environment=default_environment,
+    )
+    build_activity = (
+        DSLActivities.build_preset_agent_args_activity
+        if preset
+        else DSLActivities.build_agent_args_activity
+    )
+
+    result = await build_activity(input)
+
+    assert result.environment == expected
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("preset", [False, True], ids=["agent", "preset-agent"])
 async def test_agent_materialization_failure_keeps_platform_attribution(
     role: Role,

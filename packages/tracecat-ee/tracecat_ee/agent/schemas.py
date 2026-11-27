@@ -21,6 +21,7 @@ class AgentActionArgs(BaseModel):
     model_config = _BASE_CONFIG
 
     user_prompt: str
+    environment: str = "default"
     model_name: str
     model_provider: str
     catalog_id: uuid.UUID | None = None
@@ -89,6 +90,7 @@ class PresetAgentActionArgs(BaseModel):
     preset: str
     preset_version: int | None = None
     user_prompt: str
+    environment: str = "default"
     actions: list[str] | None = None
     instructions: str | None = None
     output_type: OutputType | None = None

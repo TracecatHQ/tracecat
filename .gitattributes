@@ -1,2 +1,3 @@
 # Embedded patches must preserve their context-line whitespace.
 *.patch -whitespace
+docker/nsjail/*.patch text eol=lf
