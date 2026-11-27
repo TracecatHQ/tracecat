@@ -103,7 +103,7 @@ Rotating gives the source a new endpoint URL and retires the current one. Rotate
 - Someone who could read the URL no longer should.
 - You need the URL again after a subscription to it was confirmed, for example to recreate a deleted subscription. Tracecat hides the URL once a subscription to it is confirmed, and keeps it hidden after an unsubscribe, because SNS can restore an unsubscribed subscription.
 
-Rotate from the source panel of an object storage trigger (**Rotate URL**), with the `rotate_event_source_endpoint` MCP tool, or with `POST /workspaces/<workspace-id>/event-sources/<source-id>/rotate-endpoint`. Rotating needs the `trigger:update` scope and is recorded in the audit log.
+Rotate from the source panel of an object storage trigger (**Rotate URL**), with the `rotate_event_source_endpoint` MCP tool (pass `confirm=true`), or with `POST /workspaces/<workspace-id>/event-sources/<source-id>/rotate-endpoint`. Rotating needs the `trigger:update` scope and is recorded in the audit log.
 
 What happens to the old URL:
 

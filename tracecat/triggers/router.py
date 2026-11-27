@@ -75,7 +75,10 @@ async def list_event_sources(
 async def create_event_source(
     *, role: WorkspaceActorRouteRole, session: AsyncDBSession, params: EventSourceCreate
 ) -> EventSourceRead:
-    """Create an event source with the endpoint URL to subscribe."""
+    """Create an event source with the endpoint URL to subscribe.
+
+    ``endpoint_url`` is null unless the caller also holds ``trigger:update``.
+    """
     source = await TriggersService(session, role).create_event_source(params)
     return read_event_source(source, role)
 

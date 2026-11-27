@@ -219,8 +219,13 @@ async def test_changing_the_topic_resets_the_subscription(
 async def test_a_topic_change_resets_a_confirmation_it_raced(
     service: TriggersService,
 ) -> None:
-    """A confirmation committed after the source was read must not survive
-    a topic change: the update rereads the locked row before resetting."""
+    """The update must reread the row it resets, not trust a loaded snapshot.
+
+    A confirmation written after the source was loaded leaves the snapshot
+    stale; assigning pending/null over a stale pending/null snapshot writes
+    nothing, so the confirmation would survive the topic change. This covers
+    the reread (``populate_existing``); the ``FOR UPDATE`` wait is Postgres's.
+    """
     source = await service.create_event_source(
         EventSourceCreate(name="bucket", config=_sns())
     )

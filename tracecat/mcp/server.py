@@ -7085,7 +7085,8 @@ async def rotate_event_source_endpoint(
     confirmed, the old URL keeps accepting notifications until the new subscription is
     confirmed, or until `previous_url_expires_at` (24 hours) at the latest;
     after that, events sent to it are refused. A URL never confirmed stops at
-    once. Needs `trigger:update`.
+    once. Call it with `confirm=true`; without it the tool refuses. Needs
+    `trigger:update` and the `object_triggers` plan feature.
 
     Args:
         workspace_id: The workspace ID.

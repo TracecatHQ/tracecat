@@ -34,6 +34,9 @@ _UNIQUE = "uq_event_source_previous_endpoint_token"
 
 
 def upgrade() -> None:
+    # The new columns take a short exclusive lock on a small table; fail fast
+    # rather than queue ingest reads behind a long transaction.
+    op.execute("SET LOCAL lock_timeout = '10s'")
     op.add_column(
         "event_source",
         sa.Column("previous_endpoint_token", sa.String(length=64), nullable=True),

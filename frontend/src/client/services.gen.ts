@@ -14552,6 +14552,8 @@ export const triggersListEventSources = (
 /**
  * Create Event Source
  * Create an event source with the endpoint URL to subscribe.
+ *
+ * ``endpoint_url`` is null unless the caller also holds ``trigger:update``.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody

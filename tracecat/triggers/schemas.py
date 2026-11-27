@@ -120,7 +120,8 @@ class EventSourceRead(Schema):
     )
     endpoint_url: str | None = Field(
         description="Point the feed (e.g. the SNS subscription) at this HTTPS URL."
-        " It changes only when rotated. Shown only to callers with trigger:update,"
+        " It changes when rotated or when the feed (topic) changes. Shown only to"
+        " callers with trigger:update,"
         " and only until a subscription to it is first confirmed: after that the"
         " URL is null for everyone; rotate to get a new one."
     )
