@@ -35,7 +35,8 @@ const TRIGGERS_PAGE_SIZE = 50
 // The API's page cap. Sources are one per SNS topic, so a workspace has few.
 const SOURCES_PAGE_SIZE = 200
 
-function triggersQueryKey(workspaceId: string) {
+/** The query key prefix of every trigger read in a workspace. */
+export function triggersQueryKey(workspaceId: string) {
   return ["workspace-triggers", workspaceId] as const
 }
 
@@ -150,9 +151,16 @@ export function useTriggerMutations(workspaceId: string) {
   const meta = { suppressErrorToast: true }
 
   function invalidateTriggers() {
-    return queryClient.invalidateQueries({
-      queryKey: triggersQueryKey(workspaceId),
-    })
+    return Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: triggersQueryKey(workspaceId),
+      }),
+      // A schedule trigger is a workflow schedule: the workflow page's
+      // Schedules panel (`useSchedules`) shows the same rows.
+      queryClient.invalidateQueries({
+        predicate: (query) => query.queryKey[1] === "schedules",
+      }),
+    ])
   }
 
   function invalidateSources() {

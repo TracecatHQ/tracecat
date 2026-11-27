@@ -8,6 +8,9 @@ export function ObjectStorageTriggerDetails({
   workspaceId,
   trigger,
 }: TriggerKindDetailsProps) {
+  if (trigger.config.kind !== "object_storage") {
+    return null
+  }
   const keyPrefix = trigger.config.key_prefix ?? ""
   return (
     <div className="space-y-6">

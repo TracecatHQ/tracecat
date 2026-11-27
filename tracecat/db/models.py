@@ -2360,7 +2360,26 @@ class EventOutbox(Base):
 
 
 class Schedule(WorkspaceModel):
+    """A workflow schedule, and the settings of its ``schedule`` trigger.
+
+    The Temporal schedule reads this row. ``trigger_id`` links the
+    ``trigger`` row that shows it in the Triggers tab; the schedule service
+    writes both together, and deleting the trigger deletes the schedule. A
+    database trigger deletes the ``trigger`` row when the schedule goes,
+    including by cascade from its workflow. Null only for rows the previous
+    release wrote during a rollout; a later release backfills those and makes
+    the column NOT NULL.
+    """
+
     __tablename__ = "schedule"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["trigger_id", "workspace_id"],
+            ["trigger.id", "trigger.workspace_id"],
+            ondelete="CASCADE",
+        ),
+        Index("uq_schedule_trigger_id", "trigger_id", unique=True),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -2401,6 +2420,7 @@ class Schedule(WorkspaceModel):
         nullable=True,
         index=True,
     )
+    trigger_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
 
     workflow: Mapped[Workflow] = relationship(back_populates="schedules")
 

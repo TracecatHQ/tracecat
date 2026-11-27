@@ -27,3 +27,33 @@ export function useCanRunTarget(): (
   const canRunAgents = useScopeCheck(EXECUTE_SCOPE_BY_TARGET.agent)
   return (type) => (type === "agent" ? canRunAgents : canRunWorkflows)
 }
+
+/**
+ * Whether the caller holds every scope in a list: `undefined` while scopes
+ * load. Covers the scopes trigger kinds name in `TRIGGER_KINDS[...].scopes`.
+ */
+export function useHasScopes(): (
+  scopes: readonly string[]
+) => boolean | undefined {
+  const held: Record<string, boolean | undefined> = {
+    "schedule:create": useScopeCheck("schedule:create"),
+    "schedule:read": useScopeCheck("schedule:read"),
+    "schedule:update": useScopeCheck("schedule:update"),
+    "schedule:delete": useScopeCheck("schedule:delete"),
+    "workflow:execute": useScopeCheck("workflow:execute"),
+    "workflow:read": useScopeCheck("workflow:read"),
+  }
+  return (scopes) => {
+    let all: boolean | undefined = true
+    for (const scope of scopes) {
+      const has = held[scope]
+      if (has === false) {
+        return false
+      }
+      if (has === undefined) {
+        all = undefined
+      }
+    }
+    return all
+  }
+}

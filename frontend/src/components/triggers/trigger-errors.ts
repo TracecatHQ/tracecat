@@ -5,6 +5,9 @@ const SCOPE_ACTIONS: Record<string, string> = {
   "trigger:create": "create triggers",
   "trigger:update": "change triggers",
   "trigger:delete": "delete triggers",
+  "schedule:create": "create schedules",
+  "schedule:update": "change schedules",
+  "schedule:delete": "delete schedules",
   "workflow:execute": "run workflows",
   "agent:execute": "run agents",
 }

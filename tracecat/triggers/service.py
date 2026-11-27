@@ -1,7 +1,13 @@
 """Service for event sources, triggers and trigger bindings.
 
 Every query filters on the caller's workspace, on top of RLS. Callers check
-the ``object_triggers`` entitlement and route scopes before calling in.
+route scopes before calling in; writes check their trigger kind's
+entitlement here (``ENTITLEMENT_BY_TRIGGER_KIND``).
+
+A ``schedule`` trigger is a workflow schedule: its settings are the
+``schedule`` row, which ``WorkflowSchedulesService`` writes with the trigger
+row and its one workflow binding. Until schedules start their targets
+through bindings, that binding cannot be added to, changed or removed.
 """
 
 from __future__ import annotations
@@ -25,11 +31,18 @@ from tracecat.db.models import (
     AgentPreset,
     EventSource,
     ObjectStorageTrigger,
+    Schedule,
     Trigger,
     TriggerBinding,
     Workflow,
 )
 from tracecat.db.soft_delete import with_deleted
+from tracecat.exceptions import (
+    EntitlementRequired,
+    TracecatConflictError,
+    TracecatNotFoundError,
+)
+from tracecat.identifiers.schedules import ScheduleUUID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.pagination import CursorPaginatedResponse, PageParams, paginate
 from tracecat.service import BaseWorkspaceService
@@ -51,6 +64,8 @@ from tracecat.triggers.schemas import (
     EventSourceUpdate,
     ObjectStorageTriggerConfig,
     ObjectStorageTriggerConfigRead,
+    ScheduleTriggerConfig,
+    ScheduleTriggerConfigRead,
     TriggerBindingCreate,
     TriggerBindingRead,
     TriggerBindingUpdate,
@@ -62,10 +77,13 @@ from tracecat.triggers.schemas import (
     WorkflowBindingTarget,
 )
 from tracecat.triggers.types import (
+    ENTITLEMENT_BY_TRIGGER_KIND,
     EXECUTE_SCOPE_BY_TARGET,
     SOURCE_KINDS_BY_TRIGGER_KIND,
     event_source_endpoint_url,
 )
+from tracecat.workflow.schedules.schemas import ScheduleCreate, ScheduleUpdate
+from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
 _UQ_ENDPOINT_TOKEN = "uq_event_source_endpoint_token"
 _UQ_SNS_TOPIC = "uq_event_source_aws_sns_topic"
@@ -75,6 +93,15 @@ _UQ_BINDING_AGENT = "uq_trigger_binding_trigger_id_agent_preset_id"
 
 def _not_found(what: str) -> TriggerError:
     return TriggerError(TriggerErrorCode.NOT_FOUND, f"{what} not found")
+
+
+# Until schedules start their targets through bindings, the Temporal schedule
+# runs the schedule's workflow and ignores every binding.
+_SCHEDULE_TARGET_FIXED = (
+    "A schedule trigger runs its schedule's workflow only, so its target"
+    " cannot be added, changed or removed. Create another schedule for"
+    " another workflow."
+)
 
 
 # ----- Per-kind mapping between API configs and stored columns -----
@@ -276,12 +303,15 @@ class TriggersService(BaseWorkspaceService):
     ) -> CursorPaginatedResponse[TriggerRead]:
         """List triggers newest first, each with its config and bindings.
 
+        Kinds the caller may not read are left out (``_check_kind_readable``).
         ``source_id`` keeps triggers that read that source. ``workflow_id`` and
         ``agent_preset_id`` keep triggers with a binding to that target; every
         binding of a kept trigger is still returned. Besides the page itself,
         one query reads the page's bindings and one per kind reads settings.
         """
         statement = select(Trigger).where(Trigger.workspace_id == self.workspace_id)
+        if hidden := [k.value for k in TriggerKind if not await self._can_read(k)]:
+            statement = statement.where(Trigger.kind.not_in(hidden))
         if kind is not None:
             statement = statement.where(Trigger.kind == kind.value)
         if source_id is not None:
@@ -318,19 +348,36 @@ class TriggersService(BaseWorkspaceService):
         """Get a trigger with its config and bindings.
 
         Raises:
+            EntitlementRequired: If the plan lacks the kind's feature.
+            ScopeDeniedError: For a schedule, without ``schedule:read``.
             TriggerError: ``not_found`` if the workspace has no such trigger.
         """
-        (item,) = await self._read_triggers([await self._get_trigger_row(trigger_id)])
+        trigger = await self._get_trigger_row(trigger_id)
+        await self._check_kind_readable(TriggerKind(trigger.kind))
+        (item,) = await self._read_triggers([trigger])
         return item
 
     @audit_log(resource_type="trigger", action="create")
     async def create_trigger(self, params: TriggerCreate) -> Trigger:
         """Create a trigger and its kind's settings in one transaction.
 
+        A ``schedule`` trigger is created with its schedule and bound to the
+        schedule's workflow; see ``_create_schedule_trigger``.
+
         Raises:
-            TriggerError: ``not_found`` if the source is not in the workspace,
-                ``invalid`` if the source's kind cannot feed this trigger kind.
+            EntitlementRequired: If the plan lacks the kind's feature.
+            ScopeDeniedError: For a schedule, without ``schedule:create`` or
+                ``workflow:execute``.
+            TriggerError: ``not_found`` if the source or workflow is not in
+                the workspace, ``invalid`` if the source's kind cannot feed
+                this trigger kind, ``conflict`` if the workflow was never
+                saved.
         """
+        # Checked up front: the routes answer with the read view, and a write
+        # that commits and then fails to read back would look like a failure.
+        await self._check_kind_readable(params.config.kind)
+        if isinstance(params.config, ScheduleTriggerConfig):
+            return await self._create_schedule_trigger(params, params.config)
         trigger = Trigger(
             id=uuid.uuid4(),
             workspace_id=self.workspace_id,
@@ -360,14 +407,20 @@ class TriggersService(BaseWorkspaceService):
         matches, needs the right to run its online bindings' targets, as
         making a binding live does.
 
+        For a ``schedule`` trigger the config and status go to its schedule
+        (as ``POST /schedules/{id}`` does), which needs ``schedule:update``.
+
         Raises:
+            EntitlementRequired: If the plan lacks the kind's feature.
             ScopeDeniedError: If the change needs the right to run a bound
                 target and the caller lacks it.
             TriggerError: ``not_found``, or ``invalid`` if the config is of
-                another kind or names a source that cannot feed it.
+                another kind, names a source that cannot feed it, or moves a
+                schedule to another workflow.
         """
         await self._lock_config()
         trigger = await self._get_trigger_row(trigger_id)
+        await self._check_kind_readable(TriggerKind(trigger.kind))
         if params.config is not None and params.config.kind != trigger.kind:
             raise TriggerError(
                 TriggerErrorCode.INVALID, "A trigger's kind cannot change"
@@ -376,11 +429,20 @@ class TriggersService(BaseWorkspaceService):
             trigger.status, params.status, changed=params.config is not None
         ):
             await self._check_can_run_bound([trigger.id])
-        if params.name is not None:
-            trigger.name = params.name
-        if params.status is not None:
-            trigger.status = params.status.value
         try:
+            if trigger.kind == TriggerKind.SCHEDULE:
+                # The schedule service writes the name, status and settings
+                # and commits. It locks the workflow before the trigger row,
+                # the same order as /schedules, so the header must not be
+                # dirtied (and flushed) here first.
+                await self._update_schedule_trigger(trigger, params)
+                # Committed: nothing after this may fail and report the
+                # change as failed. Callers read the trigger back themselves.
+                return trigger
+            if params.name is not None:
+                trigger.name = params.name
+            if params.status is not None:
+                trigger.status = params.status.value
             if params.config is not None:
                 await self._write_config(trigger, params.config)
                 # The header's timestamp covers its settings too.
@@ -396,9 +458,28 @@ class TriggersService(BaseWorkspaceService):
     async def delete_trigger(self, trigger_id: uuid.UUID) -> None:
         """Delete a trigger with its settings and bindings.
 
+        Deleting a ``schedule`` trigger deletes its schedule, Temporal
+        schedule included, and needs ``schedule:delete``.
+
         Raises:
+            EntitlementRequired: If the plan lacks the kind's feature.
             TriggerError: ``not_found`` if the workspace has no such trigger.
         """
+        trigger = await self._get_trigger_row(trigger_id)
+        await self._check_kind_entitled(TriggerKind(trigger.kind))
+        if trigger.kind == TriggerKind.SCHEDULE:
+            schedules = WorkflowSchedulesService(self.session, self.role)
+            try:
+                # Commits. The schedule's database trigger deletes the
+                # trigger row.
+                await schedules.delete_trigger_schedule(trigger.id)
+            except TracecatNotFoundError as e:
+                await self.session.rollback()
+                raise _not_found("Trigger") from e
+            except BaseException:
+                await self.session.rollback()
+                raise
+            return
         deleted = await self.session.scalar(
             delete(Trigger)
             .where(Trigger.workspace_id == self.workspace_id, Trigger.id == trigger_id)
@@ -408,8 +489,79 @@ class TriggersService(BaseWorkspaceService):
             raise _not_found("Trigger")
         await self.session.commit()
 
+    async def _create_schedule_trigger(
+        self, params: TriggerCreate, config: ScheduleTriggerConfig
+    ) -> Trigger:
+        """Create a schedule, its trigger row and its workflow binding.
+
+        The schedule service writes all three. Creating the schedule needs
+        ``schedule:create``, as ``POST /schedules`` does; the binding makes
+        the schedule run the workflow, so it also needs ``workflow:execute``.
+        """
+        _check_can_run(self.role, TriggerTargetType.WORKFLOW)
+        schedules = WorkflowSchedulesService(self.session, self.role)
+        try:
+            schedule = await schedules.create_trigger_schedule(
+                ScheduleCreate(
+                    workflow_id=config.workflow_id,
+                    status=params.status.value,
+                    **_schedule_settings(config),
+                ),
+                trigger_name=params.name,
+            )
+        except TracecatNotFoundError as e:
+            await self.session.rollback()
+            raise _not_found("Workflow") from e
+        except TracecatConflictError as e:
+            await self.session.rollback()
+            raise TriggerError(TriggerErrorCode.CONFLICT, str(e)) from e
+        except BaseException:
+            await self.session.rollback()
+            raise
+        if schedule.trigger_id is None:
+            raise RuntimeError(f"Schedule {schedule.id} was created without a trigger")
+        return await self._get_trigger_row(schedule.trigger_id)
+
+    async def _update_schedule_trigger(
+        self, trigger: Trigger, params: TriggerUpdate
+    ) -> None:
+        """Send a trigger update to its schedule, which commits it.
+
+        A config replaces every schedule setting; its workflow must stay the
+        schedule's. The schedule service also writes the name and status to
+        the trigger row.
+        """
+        update: dict[str, Any] = {}
+        if isinstance(params.config, ScheduleTriggerConfig):
+            workflow_id = await self.session.scalar(
+                select(Schedule.workflow_id).where(
+                    Schedule.workspace_id == self.workspace_id,
+                    Schedule.trigger_id == trigger.id,
+                )
+            )
+            if workflow_id != WorkflowUUID.new(params.config.workflow_id):
+                raise TriggerError(
+                    TriggerErrorCode.INVALID,
+                    "A schedule's workflow cannot change. Create a schedule for"
+                    " the other workflow instead.",
+                )
+            update |= _schedule_settings(params.config)
+        if params.status is not None:
+            update["status"] = params.status.value
+        schedules = WorkflowSchedulesService(self.session, self.role)
+        try:
+            await schedules.update_trigger_schedule(
+                trigger.id, ScheduleUpdate(**update), trigger_name=params.name
+            )
+        except TracecatNotFoundError as e:
+            raise _not_found("Trigger") from e
+
     async def _write_config(self, trigger: Trigger, config: TriggerConfig) -> None:
-        """Insert or replace the kind's settings row of ``trigger``."""
+        """Insert or replace the kind's settings row of ``trigger``.
+
+        Schedules are written by the schedule service instead, through
+        ``_create_schedule_trigger`` and ``_update_schedule_trigger``.
+        """
         match config:
             case ObjectStorageTriggerConfig(source_id=source_id, key_prefix=key_prefix):
                 await self._check_source(TriggerKind.OBJECT_STORAGE, source_id)
@@ -425,6 +577,8 @@ class TriggersService(BaseWorkspaceService):
                         index_elements=[ObjectStorageTrigger.trigger_id], set_=values
                     )
                 )
+            case ScheduleTriggerConfig():
+                raise TypeError("The schedule service writes schedule settings")
 
     async def _read_configs(
         self, triggers: Sequence[Trigger]
@@ -464,6 +618,16 @@ class TriggersService(BaseWorkspaceService):
                             key_prefix=key_prefix,
                             source_name=source_name,
                         )
+                case TriggerKind.SCHEDULE:
+                    schedules = await self.session.scalars(
+                        select(Schedule).where(
+                            Schedule.workspace_id == self.workspace_id,
+                            Schedule.trigger_id.in_(trigger_ids),
+                        )
+                    )
+                    for schedule in schedules:
+                        if schedule.trigger_id is not None:
+                            configs[schedule.trigger_id] = _schedule_config(schedule)
         return configs
 
     # ----- Bindings -----
@@ -475,13 +639,17 @@ class TriggersService(BaseWorkspaceService):
         """Bind a trigger to a workflow or agent preset of this workspace.
 
         Raises:
+            EntitlementRequired: If the plan lacks the trigger kind's feature.
             ScopeDeniedError: If the caller may not run the target.
             TriggerError: ``not_found`` if the trigger or target is not in the
-                workspace, ``conflict`` if the trigger already has that target.
+                workspace, ``conflict`` if the trigger already has that target,
+                ``invalid`` for a ``schedule`` trigger, whose one target is
+                fixed.
         """
         _check_can_run(self.role, params.target.type)
         await self._lock_config()
         trigger = await self._get_trigger_row(trigger_id)
+        await self._check_bindings_editable(trigger)
         binding = TriggerBinding(
             workspace_id=self.workspace_id,
             trigger_id=trigger.id,
@@ -529,11 +697,14 @@ class TriggersService(BaseWorkspaceService):
         Raises:
             ScopeDeniedError: If the update needs the right to run the target
                 and the caller lacks it.
+            EntitlementRequired: If the plan lacks the trigger kind's feature.
             TriggerError: ``not_found``, or ``invalid`` for an instruction on a
-                workflow binding.
+                workflow binding or for any change to a ``schedule``
+                trigger's binding.
         """
         await self._lock_config()
         binding = await self._get_binding_row(trigger_id, binding_id)
+        await self._check_bindings_editable(await self._get_trigger_row(trigger_id))
         if params.status == TriggerStatus.ONLINE or params.instruction is not None:
             _check_can_run(self.role, TriggerTargetType(binding.target_type))
         if params.status is not None:
@@ -557,8 +728,13 @@ class TriggersService(BaseWorkspaceService):
         """Delete one binding of a trigger.
 
         Raises:
-            TriggerError: ``not_found`` if the trigger has no such binding.
+            EntitlementRequired: If the plan lacks the trigger kind's feature.
+            TriggerError: ``not_found`` if the trigger has no such binding,
+                ``invalid`` for a ``schedule`` trigger, whose one target is
+                fixed.
         """
+        await self._get_binding_row(trigger_id, binding_id)
+        await self._check_bindings_editable(await self._get_trigger_row(trigger_id))
         deleted = await self.session.scalar(
             delete(TriggerBinding)
             .where(
@@ -584,6 +760,47 @@ class TriggersService(BaseWorkspaceService):
         return item
 
     # ----- Helpers -----
+
+    async def _can_read(self, kind: TriggerKind) -> bool:
+        """Whether the caller may read triggers of ``kind`` at all.
+
+        A kind needs its plan feature, and a schedule needs ``schedule:read``:
+        its settings, inputs included, are as private as on ``/schedules``.
+        """
+        entitlement = ENTITLEMENT_BY_TRIGGER_KIND[kind]
+        if entitlement is not None and not await self.has_entitlement(entitlement):
+            return False
+        if kind == TriggerKind.SCHEDULE:
+            return has_scope(self.role.scopes or frozenset(), "schedule:read")
+        return True
+
+    async def _check_kind_readable(self, kind: TriggerKind) -> None:
+        """Require the kind's plan feature and, for schedules, ``schedule:read``.
+
+        Raises:
+            EntitlementRequired: If the organization lacks the feature (403).
+            ScopeDeniedError: For a schedule, without ``schedule:read``.
+        """
+        await self._check_kind_entitled(kind)
+        if kind == TriggerKind.SCHEDULE:
+            check_scopes(self.role, "schedule:read")
+
+    async def _check_kind_entitled(self, kind: TriggerKind) -> None:
+        """Require the plan feature of a trigger kind, if it has one.
+
+        Raises:
+            EntitlementRequired: If the organization lacks it (403).
+        """
+        entitlement = ENTITLEMENT_BY_TRIGGER_KIND[kind]
+        if entitlement is not None and not await self.has_entitlement(entitlement):
+            raise EntitlementRequired(entitlement.value)
+
+    async def _check_bindings_editable(self, trigger: Trigger) -> None:
+        """Refuse binding changes the trigger's kind cannot honour yet."""
+        kind = TriggerKind(trigger.kind)
+        await self._check_kind_entitled(kind)
+        if kind == TriggerKind.SCHEDULE:
+            raise TriggerError(TriggerErrorCode.INVALID, _SCHEDULE_TARGET_FIXED)
 
     async def _lock_config(self) -> None:
         """Serialize this workspace's trigger config writes until commit.
@@ -743,6 +960,31 @@ class TriggersService(BaseWorkspaceService):
         if found is None:
             raise _not_found("Agent preset")
         return found
+
+
+def _schedule_settings(config: ScheduleTriggerConfig) -> dict[str, Any]:
+    """A schedule trigger config's schedule settings: all but kind and workflow."""
+    return config.model_dump(exclude={"kind", "workflow_id"})
+
+
+def _schedule_config(schedule: Schedule) -> ScheduleTriggerConfigRead:
+    """The trigger view of a schedule row.
+
+    Built without validation: a row the ``/schedules`` routes wrote is shown
+    as it is, even one an update left without cron or interval.
+    """
+    return ScheduleTriggerConfigRead.model_construct(
+        kind=TriggerKind.SCHEDULE,
+        workflow_id=WorkflowUUID.new(schedule.workflow_id),
+        schedule_id=ScheduleUUID.new(schedule.id),
+        cron=schedule.cron,
+        every=schedule.every,
+        offset=schedule.offset,
+        start_at=schedule.start_at,
+        end_at=schedule.end_at,
+        timeout=schedule.timeout or 0,
+        inputs=schedule.inputs,
+    )
 
 
 def _makes_live(

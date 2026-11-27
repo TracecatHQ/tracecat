@@ -21,8 +21,8 @@ import { TriggerStatusLabel } from "@/components/triggers/trigger-status"
 import {
   RUN_ACTION_BY_TARGET,
   useCanRunTarget,
+  useHasScopes,
 } from "@/components/triggers/trigger-target-scopes"
-import { TriggersLockedState } from "@/components/triggers/workspace-triggers"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,7 +37,6 @@ import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { toast } from "@/components/ui/use-toast"
 import { useTrigger, useTriggerMutations } from "@/hooks/use-triggers"
-import { useTriggersAccess } from "@/hooks/use-triggers-access"
 import { getErrorStatus } from "@/lib/errors"
 import { workflowUuidToShortId } from "@/lib/workflow-ids"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -45,16 +44,8 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 /** One trigger: its status, targets and kind settings. */
 export function TriggerDetail({ triggerId }: { triggerId: string }) {
   const workspaceId = useWorkspaceId()
-  const access = useTriggersAccess()
-  const {
-    data: trigger,
-    isLoading,
-    error,
-  } = useTrigger(workspaceId, triggerId, { enabled: access === "enabled" })
+  const { data: trigger, isLoading, error } = useTrigger(workspaceId, triggerId)
 
-  if (access !== "enabled") {
-    return <TriggersLockedState access={access} />
-  }
   if (isLoading) {
     return <CenteredSpinner />
   }
@@ -98,12 +89,20 @@ function TriggerDetailBody({
   trigger: TriggerRead
 }) {
   const router = useRouter()
-  const canUpdate = useScopeCheck("trigger:update")
-  const canDelete = useScopeCheck("trigger:delete")
+  const canUpdateTriggers = useScopeCheck("trigger:update")
+  const canDeleteTriggers = useScopeCheck("trigger:delete")
+  const hasScopes = useHasScopes()
   const { updateTrigger, deleteTrigger } = useTriggerMutations(workspaceId)
   const [addTargetOpen, setAddTargetOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const definition = getTriggerKind(trigger)
+  // The kind may need its own scopes too, such as schedule:update.
+  const canUpdate =
+    canUpdateTriggers === true &&
+    hasScopes(definition?.scopes.update ?? []) === true
+  const canDelete =
+    canDeleteTriggers === true &&
+    hasScopes(definition?.scopes.delete ?? []) === true
   const Icon = definition?.icon ?? ZapIcon
   const canRunTarget = useCanRunTarget()
   // Putting the trigger online makes every online target live, so the API
@@ -202,7 +201,7 @@ function TriggerDetailBody({
               and the trigger are online.
             </p>
           </div>
-          {canUpdate === true ? (
+          {canUpdate === true && !definition?.fixedTargets ? (
             <Button
               variant="outline"
               size="sm"
@@ -226,10 +225,16 @@ function TriggerDetailBody({
                 workspaceId={workspaceId}
                 trigger={trigger}
                 binding={binding}
+                fixed={Boolean(definition?.fixedTargets)}
               />
             ))}
           </div>
         )}
+        {definition?.fixedTargets ? (
+          <p className="text-xs text-muted-foreground">
+            {definition.fixedTargets}
+          </p>
+        ) : null}
       </section>
 
       <section className="space-y-3">
@@ -258,8 +263,7 @@ function TriggerDetailBody({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {trigger.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              Its targets are removed too. The event source stays, so other
-              triggers can keep using it.
+              {definition?.deleteDescription ?? "Its targets are removed too."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -289,10 +293,13 @@ function TargetRow({
   workspaceId,
   trigger,
   binding,
+  fixed,
 }: {
   workspaceId: string
   trigger: TriggerRead
   binding: TriggerBindingRead
+  /** The kind's targets can't change: no switch or remove. */
+  fixed: boolean
 }) {
   const canUpdate = useScopeCheck("trigger:update")
   const canDelete = useScopeCheck("trigger:delete")
@@ -367,29 +374,17 @@ function TargetRow({
       <span className="w-16 shrink-0">
         <TriggerStatusLabel status={binding.status} />
       </span>
-      <span title={onlineBlockedReason}>
-        <Switch
-          aria-label={`${binding.target_name} online`}
-          checked={binding.status === "online"}
-          disabled={
-            canUpdate !== true ||
-            updateBinding.isPending ||
-            onlineBlockedReason !== undefined
-          }
-          onCheckedChange={setOnline}
+      {fixed ? null : (
+        <TargetControls
+          binding={binding}
+          canUpdate={canUpdate}
+          canDelete={canDelete}
+          pending={updateBinding.isPending}
+          onlineBlockedReason={onlineBlockedReason}
+          onToggle={setOnline}
+          onRemove={() => setConfirmRemove(true)}
         />
-      </span>
-      {canDelete === true ? (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7"
-          aria-label={`Remove ${binding.target_name}`}
-          onClick={() => setConfirmRemove(true)}
-        >
-          <Trash2Icon className="size-4" />
-        </Button>
-      ) : null}
+      )}
       <AlertDialog open={confirmRemove} onOpenChange={setConfirmRemove}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -412,5 +407,50 @@ function TargetRow({
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  )
+}
+
+/** A target's online switch and remove button. */
+function TargetControls({
+  binding,
+  canUpdate,
+  canDelete,
+  pending,
+  onlineBlockedReason,
+  onToggle,
+  onRemove,
+}: {
+  binding: TriggerBindingRead
+  canUpdate: boolean | undefined
+  canDelete: boolean | undefined
+  pending: boolean
+  onlineBlockedReason: string | undefined
+  onToggle: (online: boolean) => void
+  onRemove: () => void
+}) {
+  return (
+    <>
+      <span title={onlineBlockedReason}>
+        <Switch
+          aria-label={`${binding.target_name} online`}
+          checked={binding.status === "online"}
+          disabled={
+            canUpdate !== true || pending || onlineBlockedReason !== undefined
+          }
+          onCheckedChange={onToggle}
+        />
+      </span>
+      {canDelete === true ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          aria-label={`Remove ${binding.target_name}`}
+          onClick={onRemove}
+        >
+          <Trash2Icon className="size-4" />
+        </Button>
+      ) : null}
+    </>
   )
 }

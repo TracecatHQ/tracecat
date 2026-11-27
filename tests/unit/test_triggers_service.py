@@ -55,6 +55,16 @@ def _sns(topic: str = TOPIC) -> AwsSnsSourceConfig:
     return AwsSnsSourceConfig(kind=EventSourceKind.AWS_SNS, topic_arn=topic)
 
 
+@pytest.fixture(autouse=True)
+def entitled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give the org object storage triggers; the service checks each kind's."""
+
+    async def _entitled(self: TriggersService, entitlement: object) -> bool:
+        return True
+
+    monkeypatch.setattr(TriggersService, "has_entitlement", _entitled)
+
+
 @pytest.fixture
 def service(session: AsyncSession, svc_role: Role) -> TriggersService:
     return TriggersService(session, svc_role)
@@ -101,6 +111,12 @@ async def preset(session: AsyncSession, svc_workspace: Workspace) -> AgentPreset
     session.add(preset)
     await session.commit()
     return preset
+
+
+def _os(config: object) -> ObjectStorageTriggerConfigRead:
+    """Narrow a read config to the object storage kind."""
+    assert isinstance(config, ObjectStorageTriggerConfigRead)
+    return config
 
 
 async def _trigger(service: TriggersService, prefix: str = "") -> uuid.UUID:
@@ -238,7 +254,7 @@ async def test_trigger_header_and_settings_round_trip(
         ),
     )
     updated = await service.get_trigger(trigger_id)
-    assert updated.config.key_prefix == "other/"
+    assert _os(updated.config).key_prefix == "other/"
     assert updated.status is TriggerStatus.ONLINE
     assert updated.updated_at >= read.updated_at
 
@@ -275,7 +291,7 @@ async def test_workspaces_cannot_see_or_change_each_others_rows(
     service: TriggersService, other_service: TriggersService
 ) -> None:
     trigger_id = await _trigger(service)
-    source_id = (await service.get_trigger(trigger_id)).config.source_id
+    source_id = _os((await service.get_trigger(trigger_id)).config).source_id
 
     for call in (
         other_service.get_trigger(trigger_id),
@@ -457,7 +473,7 @@ async def test_list_triggers_filters_and_returns_bindings_in_one_page(
     everything = await service.list_triggers(PageParams())
     assert [t.id for t in everything.items] == [unbound, to_agent, to_workflow]
     assert [len(t.bindings) for t in everything.items] == [0, 1, 1]
-    assert {t.config.source_name for t in everything.items} == {"bucket"}
+    assert {_os(t.config).source_name for t in everything.items} == {"bucket"}
 
     by_workflow = await service.list_triggers(
         PageParams(), workflow_id=WorkflowUUID.new(workflow.id)
@@ -466,7 +482,7 @@ async def test_list_triggers_filters_and_returns_bindings_in_one_page(
     by_agent = await service.list_triggers(PageParams(), agent_preset_id=preset.id)
     assert [t.id for t in by_agent.items] == [to_agent]
 
-    source_id = by_agent.items[0].config.source_id
+    source_id = _os(by_agent.items[0].config).source_id
     by_source = await service.list_triggers(PageParams(), source_id=source_id)
     assert [t.id for t in by_source.items] == [to_agent]
     by_kind = await service.list_triggers(PageParams(), kind=TriggerKind.OBJECT_STORAGE)
@@ -638,7 +654,7 @@ async def test_gated_writes_take_the_workspace_config_lock(
 ) -> None:
     """Writes whose scope check reads other rows serialize on one lock."""
     trigger_id = await _trigger(service)
-    source_id = (await service.get_trigger(trigger_id)).config.source_id
+    source_id = _os((await service.get_trigger(trigger_id)).config).source_id
     keys: list[int] = []
     real_lock = trigger_service.pg_advisory_xact_lock
 

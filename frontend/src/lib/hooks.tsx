@@ -375,6 +375,7 @@ import {
   markStdioMcpVerificationStarted,
   useStdioMcpVerificationStatus,
 } from "@/hooks/use-stdio-mcp-verification-status"
+import { triggersQueryKey } from "@/hooks/use-triggers"
 import { type AgentSessionWithStatus, enrichAgentSession } from "@/lib/agents"
 import { client as apiClient, getBaseUrl } from "@/lib/api"
 import {
@@ -1453,6 +1454,10 @@ export function useSchedules(workflowId: string) {
       await schedulesCreateSchedule(values),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [workflowId, "schedules"] })
+      // Each schedule also shows in the Triggers tab.
+      queryClient.invalidateQueries({
+        queryKey: triggersQueryKey(workspaceId),
+      })
       toast({
         title: "Created schedule",
         description: "Your schedule has been created successfully.",
@@ -1473,6 +1478,10 @@ export function useSchedules(workflowId: string) {
       await schedulesUpdateSchedule(values),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [workflowId, "schedules"] })
+      // Each schedule also shows in the Triggers tab.
+      queryClient.invalidateQueries({
+        queryKey: triggersQueryKey(workspaceId),
+      })
       toast({
         title: "Updated schedule",
         description: "Your schedule has been updated successfully.",
@@ -1494,6 +1503,10 @@ export function useSchedules(workflowId: string) {
       await schedulesDeleteSchedule(values),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [workflowId, "schedules"] })
+      // Each schedule also shows in the Triggers tab.
+      queryClient.invalidateQueries({
+        queryKey: triggersQueryKey(workspaceId),
+      })
       toast({
         title: "Deleted schedule",
         description: "Your schedule has been deleted successfully.",
