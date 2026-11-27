@@ -1,4 +1,4 @@
-"""SNS message checks: signing certificate, signature, freshness, confirmation.
+"""SNS message checks: signing certificate, signature, freshness.
 
 The signing certificate fetch is the only outbound call whose target comes
 from message content, so the URL is checked against one exact host (the SNS
@@ -6,14 +6,9 @@ host of the pinned topic's region) and one path shape, then rebuilt from the
 checked parts before it is fetched with no redirects, a short timeout and a
 size cap.
 
-``SubscribeURL`` is never fetched. A subscription is confirmed through the
-``ConfirmSubscription`` API with the token, in the pinned topic's region.
-
-References:
+Reference:
 - Verifying message signatures:
   https://docs.aws.amazon.com/sns/latest/dg/sns-verify-signature-of-message.html
-- ConfirmSubscription:
-  https://docs.aws.amazon.com/sns/latest/api/API_ConfirmSubscription.html
 """
 
 from __future__ import annotations
@@ -25,19 +20,15 @@ from collections import OrderedDict
 from datetime import datetime, timedelta
 from urllib.parse import urlsplit
 
-import aioboto3
 import httpx
-from aiobotocore.config import AioConfig
-from botocore import UNSIGNED
-from botocore.exceptions import BotoCoreError, ClientError
 from cryptography import x509
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
-from tracecat.logger import logger
-from tracecat.triggers.ingest.schemas import SnsEnvelope
-from tracecat.triggers.ingest.types import IngestError, IngestErrorCode, SnsTopic
+from tracecat.triggers.ingest.aws_sns.schemas import SnsEnvelope
+from tracecat.triggers.ingest.aws_sns.types import SnsTopic
+from tracecat.triggers.ingest.types import IngestError, IngestErrorCode
 
 # AWS names signing certificates SimpleNotificationService-<id>.pem.
 _CERT_PATH_PATTERN = re.compile(r"/SimpleNotificationService-[A-Za-z0-9]{1,64}\.pem")
@@ -56,20 +47,6 @@ _cert_cache: OrderedDict[str, x509.Certificate] = OrderedDict()
 # retry policy and any realistic throttled backlog.
 MAX_MESSAGE_AGE = timedelta(hours=24)
 MAX_CLOCK_SKEW = timedelta(minutes=15)
-
-# ConfirmSubscription errors that mean the token or topic is wrong, so a retry
-# cannot succeed. Others (throttling, AWS errors) are worth a retry.
-_FINAL_CONFIRM_ERRORS = frozenset(
-    {"InvalidParameter", "NotFound", "AuthorizationError", "InvalidParameterValue"}
-)
-_CONFIRM_CLIENT_CONFIG = AioConfig(
-    # The token proves the right to confirm; no Tracecat credentials are used,
-    # the same as the unsigned SubscribeURL request.
-    signature_version=UNSIGNED,
-    connect_timeout=5,
-    read_timeout=10,
-    retries={"max_attempts": 2, "mode": "standard"},
-)
 
 
 def _invalid_signature(message: str) -> IngestError:
@@ -212,42 +189,3 @@ async def verify_envelope(
     sent_at = _parse_timestamp(envelope.timestamp)
     if sent_at < now - MAX_MESSAGE_AGE or sent_at > now + MAX_CLOCK_SKEW:
         raise IngestError(IngestErrorCode.STALE_MESSAGE, "Message is too old")
-
-
-async def confirm_subscription(*, topic: SnsTopic, token: str) -> str:
-    """Confirm a pending subscription with the ``ConfirmSubscription`` API.
-
-    Returns:
-        The subscription ARN.
-
-    Raises:
-        IngestError: ``CONFIRMATION_REJECTED`` if SNS refused the token,
-            ``UNAVAILABLE`` if the call failed in a way a retry may fix.
-    """
-    session = aioboto3.Session()
-    try:
-        async with session.client(
-            "sns", region_name=topic.region, config=_CONFIRM_CLIENT_CONFIG
-        ) as sns:
-            # No AuthenticateOnUnsubscribe: it needs a signed request, and
-            # this one is unsigned. The subscription ARN is shown only to
-            # callers who may change the source.
-            response = await sns.confirm_subscription(TopicArn=topic.arn, Token=token)
-    except ClientError as e:
-        code = e.response.get("Error", {}).get("Code", "")
-        logger.warning(
-            "SNS refused a subscription confirmation", topic_arn=topic.arn, code=code
-        )
-        if code in _FINAL_CONFIRM_ERRORS:
-            raise IngestError(
-                IngestErrorCode.CONFIRMATION_REJECTED, "SNS refused the confirmation"
-            ) from None
-        raise _unavailable("SNS could not confirm the subscription") from None
-    except BotoCoreError as e:
-        logger.warning(
-            "SNS confirmation call failed",
-            topic_arn=topic.arn,
-            error_type=type(e).__name__,
-        )
-        raise _unavailable("SNS could not confirm the subscription") from None
-    return response["SubscriptionArn"]
