@@ -20,7 +20,7 @@ import {
   X,
 } from "lucide-react"
 import Link from "next/link"
-import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import {
   type FormEvent,
   type ReactNode,
@@ -704,20 +704,21 @@ function AgentPresetChatPane({
   // Picking a chat or a history scope leaves the linked session behind, in
   // the URL too, so remounting the pane doesn't bring it back.
   const router = useRouter()
-  const pathname = usePathname()
-  const searchParams = useSearchParams()
-  const sessionParam = searchParams.get(AGENT_PRESET_SESSION_QUERY_PARAM)
+  const sessionParam = useSearchParams().get(AGENT_PRESET_SESSION_QUERY_PARAM)
   const linkedChatId =
     sessionParam && SESSION_ID_PATTERN.test(sessionParam) ? sessionParam : null
   const activeChatId = selectedChatId ?? linkedChatId ?? latestChatId
   const dropLinkedSession = () => {
-    if (sessionParam === null) {
+    // Reads the live URL, not this render's: a callback that resolves after
+    // the user moved to another preset must not navigate back.
+    const params = new URLSearchParams(window.location.search)
+    if (!params.has(AGENT_PRESET_SESSION_QUERY_PARAM)) {
       return
     }
-    const params = new URLSearchParams(searchParams.toString())
     params.delete(AGENT_PRESET_SESSION_QUERY_PARAM)
     const query = params.toString()
-    router.replace(query ? `${pathname}?${query}` : pathname)
+    const path = window.location.pathname
+    router.replace(query ? `${path}?${query}` : path)
   }
 
   const handleHistoryScopeChange = (nextScope: ChatHistoryScope) => {
