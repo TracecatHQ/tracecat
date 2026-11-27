@@ -413,11 +413,10 @@ describe("GitSyncView connected", () => {
       })
     }
     const toastOptions = jest.mocked(toast).mock.calls[0][0]
-    const openSpy = jest.spyOn(window, "open").mockReturnValue(null)
-    render(<button type="button" {...toastOptions.action} />)
-    await user.click(screen.getByRole("button", { name: "Open pull request" }))
-    expect(openSpy).toHaveBeenCalledWith(prUrl, "_blank", "noopener,noreferrer")
-    openSpy.mockRestore()
+    expect(toastOptions.action).toMatchObject({
+      "aria-label": "Open pull request",
+      href: prUrl,
+    })
   })
 
   it("compares later previews against a branch it just created", async () => {

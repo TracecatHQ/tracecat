@@ -252,8 +252,7 @@ export function GitSyncPushTab({
                   <ExternalLinkIcon className="size-3.5" />
                 </>
               ),
-              onClick: () =>
-                window.open(prUrl, "_blank", "noopener,noreferrer"),
+              href: prUrl,
             }
           : undefined,
       })

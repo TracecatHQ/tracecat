@@ -11,11 +11,17 @@ import {
 } from "lucide-react"
 import type * as React from "react"
 
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
+/** Data stored on a toast by `toast()`. */
+interface ToastData {
+  /** Renders the action as a link that opens this URL in a new tab. */
+  actionHref?: string
+}
+
 /** Global toast manager shared by the root `Toaster` and `toast()` callers. */
-const toastManager = ToastPrimitive.createToastManager()
+const toastManager = ToastPrimitive.createToastManager<ToastData>()
 
 function ToastProvider({ ...props }: ToastPrimitive.Provider.Props) {
   return <ToastPrimitive.Provider {...props} />
@@ -160,8 +166,38 @@ function ToastIcon({ type }: { type: string | undefined }) {
   )
 }
 
+/**
+ * Whether a Radix dismissable-layer event came from a toast. Dialogs and sheets
+ * use this so clicking a toast does not dismiss them.
+ */
+function isToastInteraction(event: Event): boolean {
+  return (
+    event.target instanceof Element &&
+    event.target.closest("[data-slot=toast-viewport]") !== null
+  )
+}
+
+function ToastActionSlot({ href }: { href?: string }) {
+  if (!href) {
+    return <ToastAction />
+  }
+  return (
+    <ToastAction
+      nativeButton={false}
+      render={
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+        />
+      }
+    />
+  )
+}
+
 function ToastList() {
-  const { toasts } = ToastPrimitive.useToastManager()
+  const { toasts } = ToastPrimitive.useToastManager<ToastData>()
 
   return toasts.map((toastItem) => (
     <Toast key={toastItem.id} toast={toastItem}>
@@ -171,7 +207,9 @@ function ToastList() {
           <ToastTitle />
           <ToastDescription />
         </div>
-        {toastItem.actionProps ? <ToastAction /> : null}
+        {toastItem.actionProps ? (
+          <ToastActionSlot href={toastItem.data?.actionHref} />
+        ) : null}
         <ToastClose />
       </ToastContent>
     </Toast>
@@ -212,6 +250,8 @@ export {
   ToastTitle,
   ToastViewport,
   createToastManager,
+  isToastInteraction,
+  type ToastData,
   toastManager,
   useToastManager,
 }

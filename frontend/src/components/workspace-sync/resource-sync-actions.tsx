@@ -226,8 +226,7 @@ export function WorkspaceResourceSyncActions({
         action: prUrl
           ? {
               children: `View ${getReviewRequestAbbreviation(provider)}`,
-              onClick: () =>
-                window.open(prUrl, "_blank", "noopener,noreferrer"),
+              href: prUrl,
             }
           : undefined,
       })

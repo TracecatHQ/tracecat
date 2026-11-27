@@ -187,12 +187,7 @@ export function WorkflowProvider({
         action: response.pr_url
           ? {
               children: "View PR",
-              onClick: () =>
-                window.open(
-                  response.pr_url ?? "",
-                  "_blank",
-                  "noopener,noreferrer"
-                ),
+              href: response.pr_url,
             }
           : undefined,
       })

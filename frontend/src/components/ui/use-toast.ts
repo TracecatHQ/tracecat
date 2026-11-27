@@ -14,13 +14,21 @@ type ToastVariant =
   | "destructive"
   | "loading"
 
+/** Action button props, plus an optional link target. */
+type ToastActionOptions = React.ComponentPropsWithoutRef<"button"> & {
+  href?: string
+}
+
 /** Options accepted by `toast()`. */
 interface ToastOptions {
   title?: React.ReactNode
   description?: React.ReactNode
   variant?: ToastVariant
-  /** Props for the toast's action button, e.g. `{ children: "View PR", onClick }`. */
-  action?: React.ComponentPropsWithoutRef<"button">
+  /**
+   * Toast action, e.g. `{ children: "View PR", onClick }`. Pass `href` to
+   * render it as a link that opens in a new tab.
+   */
+  action?: ToastActionOptions
   /** Auto-dismiss delay in ms; `0` keeps the toast open. Defaults to 5000. */
   duration?: number
 }
@@ -34,6 +42,14 @@ const VARIANT_TYPES: Record<ToastVariant, string | undefined> = {
   loading: "loading",
 }
 
+function toActionFields(action: ToastActionOptions | undefined) {
+  if (!action) {
+    return {}
+  }
+  const { href, ...actionProps } = action
+  return { actionProps, data: { actionHref: href } }
+}
+
 /** Show a toast through the shared Base UI toast manager. */
 function toast({
   variant = "default",
@@ -44,9 +60,8 @@ function toast({
   const id = toastManager.add({
     ...options,
     type: VARIANT_TYPES[variant],
-    actionProps: action,
+    ...toActionFields(action),
     timeout: duration,
-    priority: variant === "destructive" ? "high" : "low",
   })
 
   return {
@@ -62,7 +77,7 @@ function toast({
       toastManager.update(id, {
         ...rest,
         ...(nextVariant ? { type: VARIANT_TYPES[nextVariant] } : {}),
-        ...(nextAction ? { actionProps: nextAction } : {}),
+        ...(nextAction ? toActionFields(nextAction) : {}),
         ...(nextDuration !== undefined ? { timeout: nextDuration } : {}),
       })
     },
@@ -77,4 +92,10 @@ function useToast() {
   }
 }
 
-export { type ToastOptions, type ToastVariant, toast, useToast }
+export {
+  type ToastActionOptions,
+  type ToastOptions,
+  type ToastVariant,
+  toast,
+  useToast,
+}
