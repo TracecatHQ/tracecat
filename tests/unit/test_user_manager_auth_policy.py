@@ -879,6 +879,29 @@ async def test_change_email_rejects_domain_outside_org_policy(
 
 
 @pytest.mark.anyio
+async def test_change_email_allowed_when_org_has_no_domains(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+    credential_audit: AsyncMock,
+) -> None:
+    user = await _create_basic_user(session, monkeypatch, email="old@acme-em6.com")
+    await session.execute(
+        delete(OrganizationDomain).where(
+            OrganizationDomain.normalized_domain == "acme-em6.com"
+        )
+    )
+    await session.commit()
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+
+    updated = await user_manager.change_email(
+        user, current_password="password-123456", new_email="new@elsewhere-em6.com"
+    )
+
+    assert updated.email == "new@elsewhere-em6.com"
+
+
+@pytest.mark.anyio
 async def test_change_email_rejects_env_disallowed_domain(
     session: AsyncSession,
     user_manager: UserManager,
@@ -919,6 +942,24 @@ async def test_change_email_rejects_email_in_use(
     with pytest.raises(users_mod.CredentialChangeError) as exc_info:
         await user_manager.change_email(
             user, current_password="password-123456", new_email="Taken@acme-em5.com"
+        )
+
+    assert exc_info.value.code is CredentialChangeErrorCode.INVALID_EMAIL
+
+
+@pytest.mark.anyio
+async def test_change_email_keeps_superadmin_email_reserved(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+    credential_audit: AsyncMock,
+) -> None:
+    user = await _create_basic_user(session, monkeypatch, email="admin@acme-em7.com")
+    monkeypatch.setattr(config, "TRACECAT__AUTH_SUPERADMIN_EMAIL", user.email)
+
+    with pytest.raises(users_mod.CredentialChangeError) as exc_info:
+        await user_manager.change_email(
+            user, current_password="password-123456", new_email="new@acme-em7.com"
         )
 
     assert exc_info.value.code is CredentialChangeErrorCode.INVALID_EMAIL

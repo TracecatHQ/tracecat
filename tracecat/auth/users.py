@@ -248,9 +248,9 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     ) -> User:
         """Change the user's sign-in email after checking the current password.
 
-        The new email must pass registration validation, the domain policy of
-        every organization the user belongs to, and must not sit on a domain
-        claimed by an organization the user is not a member of.
+        The new email must pass registration validation, sit on a verified
+        domain of every member organization that has domains, and not sit on
+        a domain claimed by an organization the user is not a member of.
 
         Raises:
             CredentialChangeError: If local password login is not allowed, the
@@ -260,6 +260,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         if new_email == user.email:
             return user
         await self._validate_new_email(user, new_email)
+        email_taken = False
         try:
             user = await self.user_db.update(
                 user, {"email": new_email, "is_verified": False}
@@ -267,9 +268,10 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         except IntegrityError:
             # Lost a race with another account claiming the same email.
             await self._user_db.session.rollback()
-            raise CredentialChangeError(
-                CredentialChangeErrorCode.INVALID_EMAIL
-            ) from None
+            email_taken = True
+        # Raised outside the handler so the database error isn't chained on.
+        if email_taken:
+            raise CredentialChangeError(CredentialChangeErrorCode.INVALID_EMAIL)
         self.logger.info("User changed their email", user_id=str(user.id))
         await self._emit_credential_change_audit(user=user, changed_field="email")
         return user
@@ -289,16 +291,41 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
     async def _validate_new_email(self, user: User, email: str) -> None:
         invalid = CredentialChangeError(CredentialChangeErrorCode.INVALID_EMAIL)
+        # Registering with the superadmin email grants platform admin, so the
+        # bootstrap account can't give it up and no one else can take it.
+        if superadmin_email := config.TRACECAT__AUTH_SUPERADMIN_EMAIL:
+            reserved = superadmin_email.lower()
+            if reserved in (user.email.lower(), email.lower()):
+                raise invalid
         try:
             await self.validate_email(email)
         except InvalidEmailException:
             raise invalid from None
 
+        try:
+            normalized_domain = normalize_domain(
+                email.rpartition("@")[2]
+            ).normalized_domain
+        except ValueError:
+            raise invalid from None
+
+        # An organization that has verified domains keeps its members' emails
+        # on them. Organizations without domains don't restrict basic-auth
+        # emails, matching registration.
         org_ids = await self._list_user_org_ids(user.id)
+        statement = select(
+            OrganizationDomain.organization_id, OrganizationDomain.normalized_domain
+        ).where(
+            OrganizationDomain.organization_id.in_(org_ids),
+            OrganizationDomain.is_active.is_(True),
+        )
         async with get_async_session_auth_context_manager() as session:
-            for org_id in org_ids:
-                if not await self._saml_would_admit_email(session, org_id, email):
-                    raise invalid
+            rows = (await session.execute(statement)).tuples().all()
+        domains_by_org: dict[OrganizationID, set[str]] = {}
+        for org_id, domain in rows:
+            domains_by_org.setdefault(org_id, set()).add(domain)
+        if any(normalized_domain not in d for d in domains_by_org.values()):
+            raise invalid
 
         domain_org_id = await self._get_org_id_for_email_domain(email)
         if domain_org_id is not None and domain_org_id not in org_ids:
