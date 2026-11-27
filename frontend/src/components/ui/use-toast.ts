@@ -42,6 +42,23 @@ const VARIANT_TYPES: Record<ToastVariant, string | undefined> = {
   loading: "loading",
 }
 
+/**
+ * Errors are announced assertively, unless the description is rich content:
+ * Base UI repeats high-priority content in a hidden alert, which would
+ * duplicate any links in it.
+ */
+function getPriority(
+  variant: ToastVariant,
+  description: React.ReactNode
+): "high" | "low" {
+  if (variant !== "destructive") {
+    return "low"
+  }
+  return typeof description === "object" && description !== null
+    ? "low"
+    : "high"
+}
+
 function toActionFields(action: ToastActionOptions | undefined) {
   if (!action) {
     return {}
@@ -62,6 +79,7 @@ function toast({
     type: VARIANT_TYPES[variant],
     ...toActionFields(action),
     timeout: duration,
+    priority: getPriority(variant, options.description),
   })
 
   return {
