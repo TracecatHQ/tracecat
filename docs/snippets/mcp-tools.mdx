@@ -270,7 +270,7 @@
 <ResponseField name="list_triggers" type="tool">
   List triggers newest first, each with its config and bindings.
 
-  A trigger is a rule over events; its bindings start a Workflow or an Agent for each matching event. Kind `object_storage` fires once per object created in its source whose key starts with `config.key_prefix`. Kind `schedule` is a workflow schedule (the same one a workflow's `schedules` holds): it runs its one bound workflow on `config.cron` or `config.every`. Kind `webhook` is a workflow's webhook (the one `get_webhook` shows), listed once it has been turned on: it runs its one bound workflow for each request to `config.url`.
+  A trigger is a rule over events; its bindings start a Workflow or an Agent for each matching event. Kind `object_storage` fires once per object created in its source whose key starts with `config.key_prefix`. Kind `schedule` is a workflow schedule (the same one a workflow's `schedules` holds): it runs its one bound workflow on `config.cron` or `config.every`. Kind `webhook` is a workflow's webhook (the one `get_webhook` shows), listed once it has been turned on: it runs its one bound workflow for each request to `config.url`. Forms are not listed here, though each starts its workflow on every submission: `list_forms` lists them, and they are managed with the form tools only.
 </ResponseField>
 
 <ResponseField name="get_trigger" type="tool">

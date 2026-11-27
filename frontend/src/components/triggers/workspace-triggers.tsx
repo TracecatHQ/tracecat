@@ -9,6 +9,10 @@ import type {
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import {
+  FormTriggerRows,
+  useFormTriggers,
+} from "@/components/triggers/form-trigger-rows"
 import { describeTriggerError } from "@/components/triggers/trigger-errors"
 import {
   getTriggerKind,
@@ -41,6 +45,7 @@ export function WorkspaceTriggers() {
     isFetchingNextPage,
     fetchNextPage,
   } = useTriggers(workspaceId)
+  const forms = useFormTriggers(workspaceId)
 
   let body: React.ReactNode
   if (error && triggers.length === 0) {
@@ -49,9 +54,9 @@ export function WorkspaceTriggers() {
         Couldn't load triggers. {describeTriggerError(error)}
       </p>
     )
-  } else if (isLoading) {
+  } else if (isLoading || (triggers.length === 0 && forms.isLoading)) {
     body = <CenteredSpinner />
-  } else if (triggers.length === 0) {
+  } else if (triggers.length === 0 && forms.forms.length === 0) {
     body = (
       <div className="flex h-full p-6">
         <Empty>
@@ -112,6 +117,11 @@ export function WorkspaceTriggers() {
             </Button>
           </div>
         ) : null}
+        <FormTriggerRows
+          workspaceId={workspaceId}
+          forms={forms.forms}
+          error={forms.error}
+        />
       </div>
     )
   }

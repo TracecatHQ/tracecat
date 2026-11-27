@@ -7075,7 +7075,9 @@ async def list_triggers(
     holds): it runs its one bound workflow on `config.cron` or `config.every`.
     Kind `webhook` is a workflow's webhook (the one `get_webhook` shows),
     listed once it has been turned on: it runs its one bound workflow for each
-    request to `config.url`.
+    request to `config.url`. Forms are not listed here, though each starts its
+    workflow on every submission: `list_forms` lists them, and they are
+    managed with the form tools only.
 
     Args:
         workspace_id: The workspace ID.
