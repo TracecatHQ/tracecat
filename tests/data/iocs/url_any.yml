@@ -91,3 +91,6 @@
 - id: url_with_unicode_dash_in_path
   text: "See https://en.wikipedia.org/wiki/1918\u20131920_flu_pandemic for details"
   expected: ["https://en.wikipedia.org/wiki/1918\u20131920_flu_pandemic"]
+- id: url_host_followed_by_unicode_dash
+  text: "Visit https://example.com\u2014next time or https://example.org/a\u2013b"
+  expected: ["https://example.com", "https://example.org/a\u2013b"]

@@ -23,15 +23,17 @@ from pydantic import AnyHttpUrl, AnyUrl, TypeAdapter, ValidationError
 # URL regexes
 # Non-ASCII hosts and paths, minus U+00A0, U+2000-U+206F (spaces, curly quotes,
 # ellipsis), U+3000-U+3002 (ideographic space and punctuation) and U+FEFF,
-# which end a URL in running text. Dashes U+2010-U+2015 stay, as in
-# Wikipedia titles like `1914–1918`.
-_NON_ASCII = r"\u00A1-\u1FFF\u2010-\u2015\u2070-\u2FFF\u3003-\uFEFE\uFF00-\uFFFF"
+# which end a URL in running text.
+_NON_ASCII = r"\u00A1-\u1FFF\u2070-\u2FFF\u3003-\uFEFE\uFF00-\uFFFF"
+# Paths also keep dashes U+2010-U+2015, as in Wikipedia titles like `1914–1918`.
+# Hosts don't, so prose like `example.com—next` can't extend the domain.
+_PATH_NON_ASCII = rf"{_NON_ASCII}\u2010-\u2015"
 
 # Match only HTTP and HTTPS URLs
-HTTP_URL_REGEX = rf"(?:https?):\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#={_NON_ASCII}]{{1,256}}(?:\.[a-zA-Z0-9(){_NON_ASCII}]{{1,63}})+(?::\d{{1,5}})?(?:\/[-a-zA-Z0-9()@:%_\+.~#?&\/={_NON_ASCII}]*)?(?<![?&=/#.])"
+HTTP_URL_REGEX = rf"(?:https?):\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#={_NON_ASCII}]{{1,256}}(?:\.[a-zA-Z0-9(){_NON_ASCII}]{{1,63}})+(?::\d{{1,5}})?(?:\/[-a-zA-Z0-9()@:%_\+.~#?&\/={_PATH_NON_ASCII}]*)?(?<![?&=/#.])"
 
 # Match URLs with all supported protocols (http, https, tcp, udp, ftp, sftp, ftps)
-URL_REGEX = rf"(?:https?|tcp|udp|ftp|sftp|ftps):\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#={_NON_ASCII}]{{1,256}}(?:\.[a-zA-Z0-9(){_NON_ASCII}]{{1,63}})+(?::\d{{1,5}})?(?:\/[-a-zA-Z0-9()@:%_\+.~#?&\/={_NON_ASCII}]*)?(?<![?&=/#.])"
+URL_REGEX = rf"(?:https?|tcp|udp|ftp|sftp|ftps):\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#={_NON_ASCII}]{{1,256}}(?:\.[a-zA-Z0-9(){_NON_ASCII}]{{1,63}})+(?::\d{{1,5}})?(?:\/[-a-zA-Z0-9()@:%_\+.~#?&\/={_PATH_NON_ASCII}]*)?(?<![?&=/#.])"
 
 
 # URL type adapters
