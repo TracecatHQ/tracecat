@@ -91,7 +91,8 @@ WITH pending AS (
             ELSE left(btrim(w.title), 246) || ' schedule'
         END AS name
     FROM schedule s
-    LEFT JOIN workflow w ON w.id = s.workflow_id
+    LEFT JOIN workflow w
+        ON w.id = s.workflow_id AND w.workspace_id = s.workspace_id
     WHERE s.trigger_id IS NULL
     FOR UPDATE OF s
 ),

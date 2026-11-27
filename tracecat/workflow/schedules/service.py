@@ -527,11 +527,13 @@ class WorkflowSchedulesService(BaseWorkspaceService):
             await self.session.flush()
 
     # ----- Entry points for the Triggers tab -----
-    # The triggers service calls these inside its own transaction and audit
-    # record, so they neither commit nor audit. Each still needs its schedule
-    # scope: the Triggers tab is another way in, not a way around it.
+    # The triggers service calls these inside its own transaction, so they
+    # don't commit. Each needs its schedule scope and writes a ``schedule``
+    # audit record, as ``/schedules`` does: the Triggers tab is another way
+    # in, not a way around either.
 
     @require_scope("schedule:create")
+    @audit_log(resource_type="schedule", action="create", resource_id_attr="id")
     async def create_trigger_schedule(
         self, params: ScheduleCreate, *, trigger_name: str
     ) -> Schedule:
@@ -546,7 +548,20 @@ class WorkflowSchedulesService(BaseWorkspaceService):
             params, commit=False, trigger_name=trigger_name
         )
 
+    def _trigger_update_audit_details(
+        self, trigger_id: uuid.UUID, params: ScheduleUpdate
+    ) -> AuditEventDetails:
+        return AuditEventDetails(
+            data={"changed_fields": sorted(params.model_fields_set)}
+        )
+
     @require_scope("schedule:update")
+    @audit_log(
+        resource_type="schedule",
+        action="update",
+        resource_id_attr="id",
+        attempt_metadata=_trigger_update_audit_details,
+    )
     async def update_trigger_schedule(
         self, trigger_id: uuid.UUID, params: ScheduleUpdate
     ) -> Schedule:
@@ -561,14 +576,19 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         return schedule
 
     @require_scope("schedule:delete")
-    async def delete_trigger_schedule(self, trigger_id: uuid.UUID) -> None:
+    @audit_log(resource_type="schedule", action="delete", resource_id_attr="id")
+    async def delete_trigger_schedule(self, trigger_id: uuid.UUID) -> Schedule:
         """Delete the schedule behind a ``schedule`` trigger, and so the trigger.
+
+        Returns:
+            The deleted schedule, for its audit record.
 
         Raises:
             TracecatNotFoundError: If no schedule belongs to the trigger.
         """
         schedule = await self._get_trigger_schedule(trigger_id)
         await self._delete_schedule_impl(schedule.id, commit=False)
+        return schedule
 
     async def _get_trigger_schedule(self, trigger_id: uuid.UUID) -> Schedule:
         """The schedule of a trigger, with its workflow locked until commit."""

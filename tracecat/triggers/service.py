@@ -303,12 +303,17 @@ class TriggersService(BaseWorkspaceService):
     ) -> CursorPaginatedResponse[TriggerRead]:
         """List triggers newest first, each with its config and bindings.
 
+        Without ``schedule:read`` the ``schedule`` triggers are left out.
         ``source_id`` keeps triggers that read that source. ``workflow_id`` and
         ``agent_preset_id`` keep triggers with a binding to that target; every
         binding of a kept trigger is still returned. Besides the page itself,
         one query reads the page's bindings and one per kind reads settings.
         """
         statement = select(Trigger).where(Trigger.workspace_id == self.workspace_id)
+        if not self._can_read_schedules():
+            # A schedule's settings (inputs included) are as private as on
+            # /schedules.
+            statement = statement.where(Trigger.kind != TriggerKind.SCHEDULE.value)
         if kind is not None:
             statement = statement.where(Trigger.kind == kind.value)
         if source_id is not None:
@@ -344,10 +349,17 @@ class TriggersService(BaseWorkspaceService):
     async def get_trigger(self, trigger_id: uuid.UUID) -> TriggerRead:
         """Get a trigger with its config and bindings.
 
+        A ``schedule`` trigger also needs ``schedule:read``, as on
+        ``/schedules``; ``list_triggers`` leaves them out without it.
+
         Raises:
+            ScopeDeniedError: For a schedule, without ``schedule:read``.
             TriggerError: ``not_found`` if the workspace has no such trigger.
         """
-        (item,) = await self._read_triggers([await self._get_trigger_row(trigger_id)])
+        trigger = await self._get_trigger_row(trigger_id)
+        if trigger.kind == TriggerKind.SCHEDULE:
+            check_scopes(self.role, "schedule:read")
+        (item,) = await self._read_triggers([trigger])
         return item
 
     @audit_log(resource_type="trigger", action="create")
@@ -420,14 +432,18 @@ class TriggersService(BaseWorkspaceService):
             trigger.status, params.status, changed=params.config is not None
         ):
             await self._check_can_run_bound([trigger.id])
-        if params.name is not None:
-            trigger.name = params.name
-        if params.status is not None:
-            trigger.status = params.status.value
         try:
             if trigger.kind == TriggerKind.SCHEDULE:
+                # Before the header is dirtied: the schedule service locks the
+                # workflow, then writes the trigger row, the same order as
+                # /schedules. Flushing a dirty header first would lock the
+                # trigger row before the workflow, and the two could deadlock.
                 await self._update_schedule_trigger(trigger, params)
-            elif params.config is not None:
+            if params.name is not None:
+                trigger.name = params.name
+            if params.status is not None:
+                trigger.status = params.status.value
+            if params.config is not None and trigger.kind != TriggerKind.SCHEDULE:
                 await self._write_config(trigger, params.config)
                 # The header's timestamp covers its settings too.
                 trigger.updated_at = func.now()
@@ -747,6 +763,9 @@ class TriggersService(BaseWorkspaceService):
         return item
 
     # ----- Helpers -----
+
+    def _can_read_schedules(self) -> bool:
+        return has_scope(self.role.scopes or frozenset(), "schedule:read")
 
     async def _check_kind_entitled(self, kind: TriggerKind) -> None:
         """Require the plan feature of a trigger kind, if it has one.

@@ -6,11 +6,14 @@ import uuid
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.audit.enums import AuditEventStatus
+from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import EDITOR_SCOPES
 from tracecat.db.models import (
@@ -519,6 +522,65 @@ async def test_an_unsaved_workflow_cannot_get_a_schedule(
         )
         is None
     )
+
+
+async def test_schedule_triggers_need_schedule_read(
+    session: AsyncSession,
+    svc_role: Role,
+    triggers: TriggersService,
+    workflow: SimpleNamespace,
+    temporal: _Temporal,
+) -> None:
+    """A schedule's settings, inputs included, are as private as on /schedules."""
+    created = await triggers.create_trigger(
+        TriggerCreate(name="s", config=_config(workflow, inputs={"token": "x"}))
+    )
+    created_id = created.id
+    # Every schedule scope: schedule:update also grants schedule:read.
+    scopes = frozenset(
+        scope
+        for scope in svc_role.scopes or frozenset()
+        if not scope.startswith("schedule:")
+    )
+    no_read = TriggersService(session, svc_role.model_copy(update={"scopes": scopes}))
+
+    page = await no_read.list_triggers(PageParams(limit=10))
+    assert page.items == []
+    with pytest.raises(ScopeDeniedError):
+        await no_read.get_trigger(created_id)
+    assert (await triggers.get_trigger(created_id)).kind is TriggerKind.SCHEDULE
+
+
+async def test_the_tab_writes_schedule_audit_records(
+    monkeypatch: pytest.MonkeyPatch,
+    triggers: TriggersService,
+    workflow: SimpleNamespace,
+    temporal: _Temporal,
+) -> None:
+    """An auditor filtering on schedules sees changes made in the tab."""
+    create_event = AsyncMock()
+    monkeypatch.setattr(AuditService, "create_event", create_event)
+
+    created = await triggers.create_trigger(
+        TriggerCreate(name="s", config=_config(workflow))
+    )
+    created_id = created.id
+    await triggers.update_trigger(
+        created_id, TriggerUpdate(status=TriggerStatus.ONLINE)
+    )
+    await triggers.delete_trigger(created_id)
+
+    schedule_events = [
+        (call.kwargs["action"], call.kwargs.get("data"))
+        for call in create_event.await_args_list
+        if call.kwargs["resource_type"] == "schedule"
+        and call.kwargs["status"] is AuditEventStatus.SUCCESS
+    ]
+    assert [action for action, _ in schedule_events] == [
+        "create",
+        "update",
+        "delete",
+    ]
 
 
 # ----- Bindings are fixed until schedules read them -----
