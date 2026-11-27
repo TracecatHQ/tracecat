@@ -153,6 +153,11 @@ def _captured_loguru() -> Generator[list[str]]:
             id="quote-before-secret",
         ),
         pytest.param(
+            f"/agent/channel-links/callback?x=#&state={STATE_VALUE}",
+            f"/agent/channel-links/callback?x=#&state={REDACTED_URL_SECRET}",
+            id="hash-before-secret",
+        ),
+        pytest.param(
             "/cases?postcode=12345", "/cases?postcode=12345", id="query-other"
         ),
         pytest.param("/workflows/wf_1/webhook", "/workflows/wf_1/webhook", id="other"),

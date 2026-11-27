@@ -42,10 +42,10 @@ _URL_SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
 _SECRET_QUERY_KEYS = frozenset(
     {"code", "state", "token", "access_token", "id_token", "refresh_token"}
 )
-# The query part of a URL or request line: up to a fragment or space. Quotes
-# are kept inside it: a raw query can contain them, and stopping there would
-# leave the parameters after them unredacted.
-_QUERY = re.compile(r"\?([^#\s]*)")
+# The query part of a URL or request line: up to the next space. A request
+# target never carries a fragment, and a raw query can contain `#` or quotes;
+# stopping at either would leave the parameters after it unredacted.
+_QUERY = re.compile(r"\?(\S*)")
 
 UVICORN_LOGGER_NAMES = ("uvicorn.access", "uvicorn.error")
 

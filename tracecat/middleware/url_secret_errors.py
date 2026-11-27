@@ -10,7 +10,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from tracecat.contexts import ctx_role
 from tracecat.logger import logger
-from tracecat.logger.redaction import redact_query_string, redact_url_secrets
+from tracecat.logger.redaction import redact_url_secrets
 from tracecat.observability.sentry import capture_api_exception
 
 
@@ -19,9 +19,9 @@ class URLSecretErrorMiddleware:
 
     Starlette's ``ServerErrorMiddleware`` answers an unhandled error with the
     500 handler, then re-raises it so the server logs the traceback and OTel
-    records it on the span. For a URL that carries a secret the error text can
+    records it on the span. For a path that carries a secret the error text can
     contain it: a failed lookup echoes its bound parameters, the token among
-    them. This middleware sits inside that layer and, for those URLs only,
+    them. This middleware sits inside that layer and, for those paths only,
     logs the error type and stack frames, reports the error to Sentry (which
     drops exception text) and answers the same 500 body without re-raising.
     """
@@ -33,10 +33,11 @@ class URLSecretErrorMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
+        # Gate on the path, which the route fixes, not on the query, which any
+        # client can fill with a credential-shaped name.
         path: str = scope["path"]
-        query = scope.get("query_string", b"").decode("latin-1")
         redacted_path = redact_url_secrets(path)
-        if redacted_path == path and redact_query_string(query) == query:
+        if redacted_path == path:
             await self.app(scope, receive, send)
             return
 
