@@ -4618,6 +4618,10 @@ async def edit_workflow(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `PATCH /workflows/{id}/draft`. The edit document is
+        # written directly, not through a scoped service method, and it holds
+        # the definition, schedules and case trigger.
+        check_scopes(role, "workflow:update")
         wf_id = WorkflowUUID.new(workflow_id)
         request = parse_workflow_edit_request(
             base_revision=base_revision,
@@ -4703,6 +4707,9 @@ async def edit_workflow(
                 draft_revision=compute_workflow_edit_revision(refreshed_document),
                 actions=_action_index_entries(refreshed_document),
             )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except WorkflowEditError as e:
         raise _workflow_edit_error_to_tool_error(e) from e
     except ToolError:

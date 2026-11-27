@@ -213,6 +213,24 @@ def resolved_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
 
 
+@pytest.fixture
+def resolved_workflow_editor(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Like ``resolved_workspace``, with `workflow:update` for `edit_workflow`."""
+    workspace_id = uuid.uuid4()
+    role = Role(
+        type="service",
+        service_id="tracecat-mcp",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"workflow:update"}),
+    )
+
+    async def _resolve(_workspace_id: Any) -> tuple[uuid.UUID, Role]:
+        return workspace_id, role
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+
+
 @pytest.fixture(autouse=True)
 def no_managed_check(monkeypatch: pytest.MonkeyPatch) -> None:
     """Workflow edit tests use fake service sessions with no database.
@@ -1312,7 +1330,15 @@ def _chained_workflow_stub(workflow_id: uuid.UUID) -> SimpleNamespace:
 
 def _patch_workflow_read(monkeypatch, workflow: SimpleNamespace) -> None:
     async def _resolve(_workspace_id):
-        return uuid.uuid4(), SimpleNamespace()
+        role = Role(
+            type="service",
+            service_id="tracecat-mcp",
+            workspace_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+            # `edit_workflow` needs it; it implies `workflow:read`.
+            scopes=frozenset({"workflow:update"}),
+        )
+        return role.workspace_id, role
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     _patch_workflow_service(monkeypatch, workflow)
@@ -1776,7 +1802,7 @@ async def test_replace_workflow_definition_from_dsl_uses_existing_workflow() -> 
 
 
 @pytest.mark.anyio
-@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_refreshes_related_state_before_response_revision(
     monkeypatch,
 ):
@@ -1842,7 +1868,7 @@ async def test_edit_workflow_refreshes_related_state_before_response_revision(
 
 
 @pytest.mark.anyio
-@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_validate_only_does_not_persist(monkeypatch):
     workflow_id = uuid.uuid4()
     workflow = SimpleNamespace(
@@ -1897,7 +1923,7 @@ async def test_edit_workflow_validate_only_does_not_persist(monkeypatch):
 
 
 @pytest.mark.anyio
-@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_validate_only_rejects_invalid_schedule(monkeypatch):
     workflow_id = uuid.uuid4()
     workflow = _workflow_stub(id=workflow_id)
@@ -1927,7 +1953,7 @@ async def test_edit_workflow_validate_only_rejects_invalid_schedule(monkeypatch)
 
 
 @pytest.mark.anyio
-@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_validate_only_runs_full_definition_validation(monkeypatch):
     validation_error = ValidationResult.new(
         type=ValidationResultType.DSL,
@@ -1987,7 +2013,7 @@ async def test_edit_workflow_validate_only_runs_full_definition_validation(monke
 
 
 @pytest.mark.anyio
-@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_updates_metadata_with_disconnected_layout_actions(
     monkeypatch,
 ):
@@ -2198,7 +2224,7 @@ async def test_persist_workflow_edit_document_skips_reorder_only_changes(
 
 
 @pytest.mark.anyio
-@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_validate_only_canonicalizes_draft_revision(monkeypatch):
     workflow_id = uuid.uuid4()
     trigger_id = f"trigger-{workflow_id}"
@@ -2279,7 +2305,7 @@ async def test_edit_workflow_validate_only_canonicalizes_draft_revision(monkeypa
 
 
 @pytest.mark.anyio
-@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_validate_only_revision_drops_inert_case_trigger(
     monkeypatch,
 ):
@@ -2406,7 +2432,7 @@ async def test_edit_workflow_unknown_ref_path_names_ref(monkeypatch):
 
 
 @pytest.mark.anyio
-@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_apply_returns_post_save_action_map(monkeypatch):
     workflow_id = uuid.uuid4()
     workflow = _chained_workflow_stub(workflow_id)
@@ -2460,7 +2486,7 @@ async def test_edit_workflow_apply_returns_post_save_action_map(monkeypatch):
 
 
 @pytest.mark.anyio
-@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_refuses_a_managed_workflow(monkeypatch):
     workflow = _workflow_stub()
     _patch_workflow_service(monkeypatch, workflow)
@@ -2486,7 +2512,7 @@ async def test_edit_workflow_refuses_a_managed_workflow(monkeypatch):
 
 
 @pytest.mark.anyio
-@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_rejects_stale_revision(monkeypatch):
     workflow_id = uuid.uuid4()
     workflow = SimpleNamespace(
@@ -2603,7 +2629,7 @@ def test_parse_workflow_edit_request_rejects_removing_trigger_status(
         ("/case_trigger", "/case_trigger/status"),
     ],
 )
-@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_rejects_trigger_parent_replace_that_omits_status(
     monkeypatch,
     patch_path,
@@ -2646,7 +2672,7 @@ async def test_edit_workflow_rejects_trigger_parent_replace_that_omits_status(
 
 
 @pytest.mark.anyio
-@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_rejects_unknown_nested_fields(monkeypatch):
     workflow_id = uuid.uuid4()
     workflow = SimpleNamespace(
@@ -2724,7 +2750,7 @@ async def test_edit_workflow_rejects_unknown_nested_fields(monkeypatch):
         ),
     ],
 )
-@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_rejects_excluded_nested_fields_in_parent_replace(
     monkeypatch,
     patch_ops,
