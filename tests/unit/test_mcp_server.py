@@ -1868,6 +1868,46 @@ async def test_edit_workflow_refreshes_related_state_before_response_revision(
 
 
 @pytest.mark.anyio
+async def test_edit_workflow_needs_workflow_update(monkeypatch):
+    """A viewer can't edit a workflow (or its case trigger) over MCP: the
+    tool needs `workflow:update`, as `PUT /workflows/{id}/draft` does."""
+    viewer = Role(
+        type="user",
+        service_id="tracecat-mcp",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"workflow:read"}),
+    )
+
+    async def _resolve(_workspace_id: Any) -> tuple[uuid.UUID | None, Role]:
+        return viewer.workspace_id, viewer
+
+    opened = MagicMock()
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server.WorkflowsManagementService, "with_session", opened)
+
+    with pytest.raises(ToolError, match="Missing required scope: workflow:update"):
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(viewer.workspace_id),
+            workflow_id=str(uuid.uuid4()),
+            base_revision="any",
+            patch_ops=[
+                {
+                    "op": "replace",
+                    "path": "/case_trigger",
+                    "value": {
+                        "status": "online",
+                        "event_types": ["case_created"],
+                        "tag_filters": [],
+                    },
+                }
+            ],
+        )
+    opened.assert_not_called()
+
+
+@pytest.mark.anyio
 @pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_validate_only_does_not_persist(monkeypatch):
     workflow_id = uuid.uuid4()
