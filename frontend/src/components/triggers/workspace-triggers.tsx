@@ -54,7 +54,7 @@ export function WorkspaceTriggers() {
             <EmptyTitle>No triggers yet</EmptyTitle>
             <EmptyDescription>
               A trigger starts workflows and agents: on a schedule, or when an
-              outside event arrives, such as a new file in an S3 bucket.
+              outside event arrives, such as a new file in object storage.
               {canCreate === true ? " Create one with Create trigger." : ""}
             </EmptyDescription>
           </EmptyHeader>
