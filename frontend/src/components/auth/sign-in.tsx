@@ -8,6 +8,7 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { AuthDiscoverResponse } from "@/client"
 import { ApiError, authDiscoverAuthMethod } from "@/client"
+import { AuthLogo, AuthTerms } from "@/components/auth/auth-branding"
 import { OidcOAuthButton } from "@/components/auth/oauth-buttons"
 import { SamlSSOButton } from "@/components/auth/saml"
 import { Icons } from "@/components/icons"
@@ -154,9 +155,15 @@ export function SignIn({
   }
 
   return (
-    <div className={cn("flex w-full items-center justify-center", className)}>
+    <div
+      className={cn(
+        "container flex size-full items-center justify-center",
+        className
+      )}
+    >
       <div className="flex w-full flex-1 flex-col justify-center gap-2 px-8 sm:max-w-md">
         <CardHeader className="items-center space-y-2 text-center">
+          <AuthLogo organizationSlug={organizationSlug} />
           <CardTitle className="text-2xl">Sign into your account</CardTitle>
           <CardDescription>
             {discoveredMethod === "basic"
@@ -207,6 +214,7 @@ export function SignIn({
             </div>
           </CardFooter>
         )}
+        <AuthTerms organizationSlug={organizationSlug} />
       </div>
     </div>
   )

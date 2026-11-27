@@ -26,7 +26,6 @@ import {
   DEFAULT_PRIMARY_COLOR,
   foregroundHslTriplet,
   HEX_COLOR_PATTERN,
-  TRACECAT_TAGLINE,
 } from "@/lib/branding"
 import { cn } from "@/lib/utils"
 
@@ -128,10 +127,7 @@ function BrandingPreview({
             className="h-8 w-auto max-w-24 object-contain"
           />
         ) : (
-          <div className="space-y-0.5">
-            <p className="text-sm font-semibold">Tracecat</p>
-            <p className="text-[11px] opacity-60">{TRACECAT_TAGLINE}</p>
-          </div>
+          <p className="text-sm font-semibold">Tracecat</p>
         )}
       </div>
       <div className="flex items-center gap-3">
@@ -139,10 +135,10 @@ function BrandingPreview({
           className="rounded-md px-3 py-1.5 text-xs font-medium"
           style={{ backgroundColor: color, color: foreground }}
         >
-          Sign in
+          Button
         </span>
         <span className="text-xs underline" style={{ color }}>
-          Terms of Service
+          Link
         </span>
         <span
           className="ml-auto size-4 rounded-full border-4"
@@ -270,8 +266,8 @@ export function OrgSettingsBrandingForm() {
               <div className="space-y-0.5">
                 <p className="text-sm font-medium">Organization logo</p>
                 <p className="text-sm text-muted-foreground">
-                  Shown on sign-in and sign-up in place of the Tracecat logo and
-                  tagline. PNG, JPEG, WebP, or SVG, up to 256 KB.
+                  Shown on sign-in and sign-up in place of the Tracecat logo.
+                  PNG, JPEG, WebP, or SVG, up to 256 KB.
                 </p>
               </div>
             </div>

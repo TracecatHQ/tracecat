@@ -7,7 +7,6 @@ export const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/
 export const DEFAULT_PRIMARY_COLOR = "#6E7ED8"
 
 /** One-liner shown beside the Tracecat logo on the sign-in pages. */
-export const TRACECAT_TAGLINE = "Agentic security automation platform"
 
 function hexToRgb(hex: string): [number, number, number] {
   const value = Number.parseInt(hex.slice(1), 16)

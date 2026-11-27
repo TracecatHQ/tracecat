@@ -2,7 +2,6 @@
 
 import { useSearchParams } from "next/navigation"
 import { Suspense } from "react"
-import { AuthLayout } from "@/components/auth/auth-layout"
 import { SignUp } from "@/components/auth/sign-up"
 import { CenteredSpinner } from "@/components/loading/spinner"
 
@@ -12,9 +11,13 @@ function SignUpContent() {
   const organizationSlug = searchParams?.get("org") ?? null
 
   return (
-    <AuthLayout organizationSlug={organizationSlug}>
-      <SignUp returnUrl={returnUrl} organizationSlug={organizationSlug} />
-    </AuthLayout>
+    <div className="flex size-full items-center justify-center">
+      <SignUp
+        className="flex size-16 w-full justify-center"
+        returnUrl={returnUrl}
+        organizationSlug={organizationSlug}
+      />
+    </div>
   )
 }
 

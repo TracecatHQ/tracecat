@@ -14,7 +14,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel
-from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException
@@ -770,12 +769,6 @@ async def check_health() -> HealthResponse:
     return HealthResponse(status="ok")
 
 
-async def check_ready(session: AsyncDBSessionBypass) -> HealthResponse:
-    """Readiness: the API can reach its database."""
-    await session.execute(text("SELECT 1"))
-    return HealthResponse(status="ok")
-
-
 def create_app(**kwargs) -> FastAPI:
     if config.TRACECAT__ALLOW_ORIGINS is not None:
         allow_origins = config.TRACECAT__ALLOW_ORIGINS.split(",")
@@ -1004,7 +997,6 @@ def create_app(**kwargs) -> FastAPI:
     app.add_api_route("/", root, methods=["GET"], include_in_schema=False)
     app.add_api_route("/info", info, methods=["GET"], include_in_schema=False)
     app.add_api_route("/health", check_health, methods=["GET"], tags=["public"])
-    app.add_api_route("/ready", check_ready, methods=["GET"], tags=["public"])
     app.add_api_route("/version", get_app_version, methods=["GET"], tags=["info"])
     include_api_extension_routers(app)
     get_channel_bot_admin()  # Fail startup on two installed channel bot admins.

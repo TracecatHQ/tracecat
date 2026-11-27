@@ -788,7 +788,6 @@ import type {
   ProvidersListProvidersData,
   ProvidersListProvidersResponse,
   PublicCheckHealthResponse,
-  PublicCheckReadyResponse,
   PublicHandleChannelEventData,
   PublicHandleChannelEventResponse,
   PublicHandleSlackOauthCallbackData,
@@ -20180,20 +20179,6 @@ export const publicCheckHealth =
     return __request(OpenAPI, {
       method: "GET",
       url: "/health",
-    })
-  }
-
-/**
- * Check Ready
- * Readiness: the API can reach its database.
- * @returns HealthResponse Successful Response
- * @throws ApiError
- */
-export const publicCheckReady =
-  (): CancelablePromise<PublicCheckReadyResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/ready",
     })
   }
 

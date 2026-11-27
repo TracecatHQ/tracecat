@@ -3,7 +3,6 @@
  */
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
-import type { ReactNode } from "react"
 import HomePage from "@/app/page"
 import SignInPage from "@/app/sign-in/[[...sign-in]]/page"
 import WorkspaceLayout from "@/app/workspaces/layout"
@@ -104,8 +103,8 @@ jest.mock("@/components/auth/scope-guard", () => ({
   useScopeCheck: () => true,
 }))
 
-jest.mock("@/components/auth/auth-layout", () => ({
-  AuthLayout: ({ children }: { children: ReactNode }) => <>{children}</>,
+jest.mock("@/hooks/use-branding", () => ({
+  usePublicBranding: () => ({ branding: null, brandingIsLoading: false }),
 }))
 
 jest.mock("@/components/branding/branding-style", () => ({

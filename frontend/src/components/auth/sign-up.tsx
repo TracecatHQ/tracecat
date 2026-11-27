@@ -8,6 +8,7 @@ import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { ApiError } from "@/client"
+import { AuthLogo, AuthTerms } from "@/components/auth/auth-branding"
 import { Icons } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
@@ -104,9 +105,15 @@ export function SignUp({
 
   if (!showBasicAuth) {
     return (
-      <div className={cn("flex w-full items-center justify-center", className)}>
+      <div
+        className={cn(
+          "container flex size-full items-center justify-center",
+          className
+        )}
+      >
         <div className="flex w-full flex-1 flex-col justify-center gap-2 px-8 sm:max-w-md">
           <CardHeader className="items-center space-y-2 text-center">
+            <AuthLogo organizationSlug={organizationSlug} />
             <CardTitle className="text-2xl">Sign up unavailable</CardTitle>
             <CardDescription>
               Password sign-up is disabled. Continue with sign in.
@@ -123,9 +130,15 @@ export function SignUp({
   }
 
   return (
-    <div className={cn("flex w-full items-center justify-center", className)}>
+    <div
+      className={cn(
+        "container flex size-full items-center justify-center",
+        className
+      )}
+    >
       <div className="flex w-full flex-1 flex-col justify-center gap-2 px-8 sm:max-w-md">
         <CardHeader className="items-center space-y-2 text-center">
+          <AuthLogo organizationSlug={organizationSlug} />
           <CardTitle className="text-2xl">Create an account</CardTitle>
           <CardDescription>
             Enter your email below to create an account
@@ -142,6 +155,7 @@ export function SignUp({
             </Link>
           </div>
         </CardContent>
+        <AuthTerms organizationSlug={organizationSlug} />
       </div>
     </div>
   )

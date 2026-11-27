@@ -22002,8 +22002,6 @@ export type OrganizationGetOrganizationBrandingResponse = BrandingRead
 
 export type PublicCheckHealthResponse = HealthResponse
 
-export type PublicCheckReadyResponse = HealthResponse
-
 export type InfoGetAppVersionResponse = AppVersionRead
 
 export type $OpenApiTs = {
@@ -32838,16 +32836,6 @@ export type $OpenApiTs = {
     }
   }
   "/health": {
-    get: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: HealthResponse
-      }
-    }
-  }
-  "/ready": {
     get: {
       res: {
         /**
