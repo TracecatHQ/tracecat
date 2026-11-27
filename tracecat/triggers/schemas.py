@@ -283,7 +283,11 @@ TriggerConfigRead = Annotated[
 class TriggerCreate(Schema):
     name: Name
     config: TriggerConfig
-    status: TriggerStatus = Field(default=TriggerStatus.OFFLINE)
+    status: TriggerStatus = Field(
+        default=TriggerStatus.OFFLINE,
+        description="Offline when omitted, except for a webhook: its webhook"
+        " already exists and keeps its current status unless this is given.",
+    )
 
 
 class TriggerUpdate(Schema):

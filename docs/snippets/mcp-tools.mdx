@@ -284,7 +284,7 @@
 
   For `{"kind": "schedule", "workflow_id": ..., "cron": "0 9 * * *"}` (or `"every": "PT1H"` instead of `cron`, plus optional `offset`, `start_at`, `end_at`, `timeout` seconds and `inputs`), this creates the workflow's schedule, bound to that workflow; the workflow must have been saved. It needs `schedule:create`, `schedule:read` and `workflow:execute`. A schedule's target is fixed: `create_trigger_binding` refuses one.
 
-  For `{"kind": "webhook", "workflow_id": ...}` (plus optional `methods`, `allowlisted_cidrs` and `include_headers`), this makes the workflow's existing webhook a trigger with `status`, bound to that workflow. Settings you leave out keep the webhook's saved values. The webhook URL does not change. It needs `workflow:update` and `workflow:execute`, and fails if the webhook already is a trigger. Its target is fixed too. Manage its API key with the workflow's webhook.
+  For `{"kind": "webhook", "workflow_id": ...}` (plus optional `methods`, `allowlisted_cidrs` and `include_headers`), this makes the workflow's existing webhook a trigger, bound to that workflow. Settings you leave out keep the webhook's saved values, and so does its status unless you pass `status`. The webhook URL does not change. It needs `workflow:update` and `workflow:execute`, and fails if the webhook already is a trigger. Its target is fixed too. Manage its API key with the workflow's webhook.
 </ResponseField>
 
 <ResponseField name="update_trigger" type="tool">

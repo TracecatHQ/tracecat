@@ -165,7 +165,7 @@ for callers without `trigger:update`.
 - `update_event_source(workspace_id, source_id, name=None, config=None, status=None)`
 - `list_triggers(workspace_id, kind=None, source_id=None, workflow_id=None, agent_preset_id=None, limit=..., cursor=None)`
 - `get_trigger(workspace_id, trigger_id)`
-- `create_trigger(workspace_id, name, config, status="offline")`
+- `create_trigger(workspace_id, name, config, status=None)`
 - `update_trigger(workspace_id, trigger_id, name=None, config=None, status=None)`
 - `create_trigger_binding(workspace_id, trigger_id, target, status="online")`
 - `update_trigger_binding(workspace_id, trigger_id, binding_id, status=None, instruction=None)`
@@ -192,7 +192,8 @@ webhook; it is listed as a trigger once it has been turned on (or made a
 trigger with `create_trigger`), and stays listed when it goes offline.
 Creating one makes the workflow's existing webhook a trigger with the
 methods, allowlist and header setting given (settings left out keep their
-saved values); its URL does not change. That needs `workflow:update` and
+saved values, and the webhook keeps its on/off status unless `status` is
+passed); its URL does not change. That needs `workflow:update` and
 `workflow:execute`. Renaming it or updating its config or status needs
 `workflow:update` on top of `trigger:update`, and a config sets only the
 settings it names. The API key stays

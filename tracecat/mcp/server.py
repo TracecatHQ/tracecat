@@ -7137,7 +7137,7 @@ async def create_trigger(
     workspace_id: uuid.UUID,
     name: str,
     config: TriggerConfig,
-    status: Literal["online", "offline"] = "offline",
+    status: Literal["online", "offline"] | None = None,
 ) -> TriggerRead:
     """Create a trigger. Add targets with `create_trigger_binding`.
 
@@ -7156,8 +7156,9 @@ async def create_trigger(
 
     For `{"kind": "webhook", "workflow_id": ...}` (plus optional `methods`,
     `allowlisted_cidrs` and `include_headers`), this makes the workflow's
-    existing webhook a trigger with `status`, bound to that workflow.
-    Settings you leave out keep the webhook's saved values. The webhook URL does not change. It needs
+    existing webhook a trigger, bound to that workflow. Settings you leave
+    out keep the webhook's saved values, and so does its status unless you
+    pass `status`. The webhook URL does not change. It needs
     `workflow:update` and `workflow:execute`, and fails if the webhook already
     is a trigger. Its target is fixed too. Manage its API key with the
     workflow's webhook.
@@ -7166,14 +7167,21 @@ async def create_trigger(
         workspace_id: The workspace ID.
         name: A display name.
         config: The trigger kind and its settings.
-        status: `"online"` fires; `"offline"` (default) does not.
+        status: `"online"` fires; `"offline"` does not. Omit it for the
+            default: offline, except a webhook keeps its current status.
 
     Returns the new trigger as JSON, in the same shape as `get_trigger`.
     """
     async with _triggers_service(
         workspace_id, "create trigger", "trigger:create"
     ) as svc:
-        params = TriggerCreate(name=name, config=config, status=TriggerStatus(status))
+        # Omitted stays out of the request, so a live webhook is not turned
+        # off by the default.
+        params = (
+            TriggerCreate(name=name, config=config, status=TriggerStatus(status))
+            if status is not None
+            else TriggerCreate(name=name, config=config)
+        )
         trigger = await svc.create_trigger(params)
         return await svc.get_trigger(trigger.id)
 

@@ -14056,6 +14056,9 @@ export type TriggerCreate = {
     | ObjectStorageTriggerConfig
     | ScheduleTriggerConfig
     | WebhookTriggerConfig
+  /**
+   * Offline when omitted, except for a webhook: its webhook already exists and keeps its current status unless this is given.
+   */
   status?: TriggerStatus
 }
 

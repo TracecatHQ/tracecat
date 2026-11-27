@@ -45588,6 +45588,8 @@ export const $TriggerCreate = {
     },
     status: {
       $ref: "#/components/schemas/TriggerStatus",
+      description:
+        "Offline when omitted, except for a webhook: its webhook already exists and keeps its current status unless this is given.",
       default: "offline",
     },
   },

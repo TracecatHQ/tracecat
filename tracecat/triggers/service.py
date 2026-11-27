@@ -661,7 +661,12 @@ class TriggersService(BaseWorkspaceService):
                 role=self.role,
                 session=self.session,
                 workflow_id=WorkflowUUID.new(config.workflow_id),
-                params=_webhook_update(config, params.status),
+                # The webhook already exists and may be live: only a status
+                # the caller gave changes it, never the default.
+                params=_webhook_update(
+                    config,
+                    params.status if "status" in params.model_fields_set else None,
+                ),
                 trigger_name=params.name,
             )
         except TracecatNotFoundError as e:

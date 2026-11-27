@@ -344,6 +344,43 @@ async def test_creating_in_the_tab_applies_the_settings(
     )
 
 
+async def test_creating_for_a_live_unlinked_webhook_keeps_it_online(
+    session: AsyncSession, svc_workspace: Workspace, triggers: TriggersService
+) -> None:
+    """Security r11: a webhook can be online with no trigger row (left by
+    the backfill, or turned on by the previous release mid-rollout). Making
+    it a trigger without a status must not turn it off."""
+    live = await _add_workflow(session, svc_workspace.id, "Live", webhook="online")
+
+    created = await triggers.create_trigger(
+        TriggerCreate(name="Live webhook", config=_config(live))
+    )
+
+    webhook = await _webhook(session, live)
+    trigger, _ = await _rows(session, created.id)
+    assert (webhook.status, webhook.trigger_id, trigger.status) == (
+        "online",
+        created.id,
+        "online",
+    )
+
+
+async def test_creating_with_an_explicit_offline_turns_it_off(
+    session: AsyncSession, svc_workspace: Workspace, triggers: TriggersService
+) -> None:
+    live = await _add_workflow(session, svc_workspace.id, "Live", webhook="online")
+
+    created = await triggers.create_trigger(
+        TriggerCreate(
+            name="Live webhook", config=_config(live), status=TriggerStatus.OFFLINE
+        )
+    )
+
+    webhook = await _webhook(session, live)
+    trigger, _ = await _rows(session, created.id)
+    assert (webhook.status, trigger.status) == ("offline", "offline")
+
+
 async def test_a_webhook_becomes_a_trigger_once(
     session: AsyncSession, triggers: TriggersService, workflow: SimpleNamespace
 ) -> None:

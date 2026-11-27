@@ -52,6 +52,11 @@ export function WebhookTriggerForm({
   // The workflow whose saved settings the fields hold. A create replaces
   // every setting, so it waits until they are this workflow's.
   const [loadedFor, setLoadedFor] = useState("")
+  // The picked webhook's on/off status. Creating keeps it: a live webhook
+  // stays live.
+  const [loadedStatus, setLoadedStatus] = useState<"online" | "offline" | null>(
+    null
+  )
   // Counts settings reads. Only the latest pick's read may fill the fields:
   // an earlier read of the same workflow can land after the user edited them.
   const readRef = useRef(0)
@@ -73,6 +78,7 @@ export function WebhookTriggerForm({
     readRef.current += 1
     const read = readRef.current
     setLoadedFor("")
+    setLoadedStatus(null)
     setFormError(null)
     // A rejection belongs to the previous pick's allowlist.
     setCidrError(null)
@@ -88,6 +94,7 @@ export function WebhookTriggerForm({
         }))
       )
       setIncludeHeaders(webhook.include_headers ?? false)
+      setLoadedStatus(webhook.status)
       setLoadedFor(id)
     } catch (error) {
       if (readRef.current === read) {
@@ -184,6 +191,11 @@ export function WebhookTriggerForm({
           Uses this workflow&apos;s webhook and its URL, which don&apos;t
           change. It also shows on the workflow&apos;s Webhook panel.
         </p>
+        {loadedStatus === "online" ? (
+          <p className="text-xs text-muted-foreground">
+            This webhook is online and stays online.
+          </p>
+        ) : null}
       </div>
       <fieldset disabled={locked} className="space-y-4">
         <WebhookIncludeHeadersToggle

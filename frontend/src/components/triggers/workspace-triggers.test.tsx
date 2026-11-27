@@ -1133,6 +1133,39 @@ describe("Webhook triggers", () => {
     ).toHaveTextContent("GET")
   })
 
+  it("says a live webhook stays online and sends no status", async () => {
+    const user = userEvent.setup()
+    workflows = [{ id: "wf_alert", title: "Alert intake", version: null }]
+    jest.mocked(triggersGetWebhook).mockResolvedValue({
+      id: "webhook-1",
+      secret: "synthetic-secret",
+      status: "online",
+      methods: ["POST"],
+      allowlisted_cidrs: [],
+      include_headers: false,
+      workflow_id: "wf_alert",
+      url: WEBHOOK_URL,
+    })
+    jest.mocked(triggersCreateTrigger).mockResolvedValue(WEBHOOK_TRIGGER)
+
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
+
+    await user.click(screen.getByRole("button", { name: /Webhook/ }))
+    await user.type(screen.getByLabelText("Name"), "Alert intake webhook")
+    await user.click(screen.getByRole("combobox", { name: "Workflow" }))
+    await user.click(
+      await screen.findByRole("option", { name: "Alert intake" })
+    )
+    expect(
+      await screen.findByText("This webhook is online and stays online.")
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Create trigger" }))
+
+    await waitFor(() => expect(triggersCreateTrigger).toHaveBeenCalledTimes(1))
+    const [call] = jest.mocked(triggersCreateTrigger).mock.calls
+    expect(call[0].requestBody).not.toHaveProperty("status")
+  })
+
   it("starts from the workflow's saved webhook settings", async () => {
     const user = userEvent.setup()
     workflows = [{ id: "wf_alert", title: "Alert intake", version: null }]

@@ -65,7 +65,8 @@ export const TRIGGER_KINDS: Record<TriggerKind, TriggerKindDefinition> = {
       delete: ["workflow:update"],
     },
     namePlaceholder: "Alert intake",
-    createdHint: "Put it online to start accepting requests at its URL.",
+    createdHint:
+      "It keeps the webhook's on/off status. If it's offline, put it online to start accepting requests at its URL.",
     deleteDescription:
       "This turns the workflow's webhook off and removes it from this list. The webhook, its settings and its URL stay on the workflow; turning it on again lists it here again.",
     fixedTargets:

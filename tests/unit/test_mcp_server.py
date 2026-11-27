@@ -10389,6 +10389,8 @@ async def test_trigger_tools_take_the_webhook_kind(
     params = call.args[0]
     assert params.config.kind is mcp_server.TriggerKind.WEBHOOK
     assert params.config.workflow_id == workflow_id
+    # No status given: the webhook keeps its own (a live one stays live).
+    assert "status" not in params.model_fields_set
     assert params.config.methods == ["GET", "POST"]
     assert params.config.allowlisted_cidrs == ["10.0.0.1/32"]
     [list_call] = list_triggers.await_args_list
