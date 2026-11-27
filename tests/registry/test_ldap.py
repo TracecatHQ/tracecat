@@ -12,6 +12,7 @@ import ldap3
 import pytest
 from ldap3.core.exceptions import LDAPException
 from tracecat_registry._internal import secrets as registry_secrets
+from tracecat_registry.integrations import ldap3 as ldap3_integration
 from tracecat_registry.integrations.ldap3 import search_entries
 
 from tests import conftest as test_conftest
@@ -236,3 +237,41 @@ def test_live_search_returns_all_attributes(
     assert "cn" in attrs
     assert attrs["uid"] == ["tracecat.test"]
     assert attrs["mail"] == ["tracecat@example.com"]
+
+
+def test_live_search_follows_paged_results(
+    live_ldap_server: dict[str, Any],
+    configure_ldap_secrets,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = ldap3.Server(
+        live_ldap_server["host"],
+        port=live_ldap_server["port"],
+        get_info=ldap3.NONE,
+    )
+    ou_dn = f"ou=Paged,{LDAP_BASE_DN}"
+    uids = {f"paged.{i}" for i in range(5)}
+    conn = ldap3.Connection(
+        server,
+        user=live_ldap_server["user"],
+        password=live_ldap_server["password"],
+        auto_bind=True,
+    )
+    try:
+        conn.add(ou_dn, ["organizationalUnit", "top"], {"ou": "Paged"})
+        _assert_ldap_result(conn, ok_codes={0, 68}, operation="add paged OU")
+        for uid in uids:
+            conn.add(
+                f"uid={uid},{ou_dn}",
+                ["inetOrgPerson", "organizationalPerson", "person", "top"],
+                {"cn": uid, "sn": "Paged", "uid": uid},
+            )
+            _assert_ldap_result(conn, ok_codes={0, 68}, operation="add paged user")
+    finally:
+        conn.unbind()
+
+    monkeypatch.setattr(ldap3_integration, "LDAP_SEARCH_PAGE_SIZE", 2)
+    results = _run_search({"base_dn": ou_dn, "filter": "(objectClass=person)"})
+    assert {entry["attributes"]["uid"][0] for entry in results} == uids
+
+    assert _run_search({"base_dn": ou_dn, "filter": "(uid=missing)"}) == []

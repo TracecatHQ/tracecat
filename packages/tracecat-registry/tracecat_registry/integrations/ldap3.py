@@ -12,6 +12,7 @@ from typing import Annotated, Any, Protocol
 
 import ldap3
 import orjson
+from ldap3.core.results import RESULT_SUCCESS
 from pydantic import Field
 
 from tracecat_registry import RegistrySecret, registry, secrets
@@ -29,6 +30,9 @@ ldap_secret = RegistrySecret(
     - `LDAP_USER`
     - `LDAP_PASSWORD`
 """
+
+PAGED_RESULTS_OID = "1.2.840.113556.1.4.319"
+LDAP_SEARCH_PAGE_SIZE = 500
 
 
 class LdapConnectionProtocol(Protocol):
@@ -152,16 +156,24 @@ class LdapClient:
         """
         connection = self._get_connection()
 
-        result = connection.search(
-            search_base=search_base,
-            search_filter=search_filter,
-            search_scope=ldap3.SUBTREE,
-            attributes=ldap3.ALL_ATTRIBUTES,
-        )
+        # Servers cap unpaged results (Active Directory MaxPageSize defaults to
+        # 1,000) and return the first entries with sizeLimitExceeded, so follow
+        # the RFC 2696 paged results cookie until the server stops returning one.
+        entries: list[dict[str, Any]] = []
+        cookie: bytes | None = None
+        while True:
+            connection.search(
+                search_base=search_base,
+                search_filter=search_filter,
+                search_scope=ldap3.SUBTREE,
+                attributes=ldap3.ALL_ATTRIBUTES,
+                paged_size=LDAP_SEARCH_PAGE_SIZE,
+                paged_cookie=cookie,
+            )
+            result = connection.result
+            if result.get("result") != RESULT_SUCCESS:
+                raise RuntimeError(f"LDAP search failed: {result}")
 
-        if result:
-            # Format entries as list of dicts with dn and attributes
-            entries = []
             for entry in connection.entries:
                 # Use entry_to_json() to handle serialization of ldap3 types
                 entry_json = orjson.loads(entry.entry_to_json())
@@ -172,11 +184,10 @@ class LdapClient:
                     }
                 )
 
-            return entries
-        else:
-            # Search operation failed - check connection.result for error details
-            error_msg = f"LDAP search failed: {connection.result}"
-            raise RuntimeError(error_msg)
+            paged_control = (result.get("controls") or {}).get(PAGED_RESULTS_OID)
+            cookie = paged_control["value"]["cookie"] if paged_control else None
+            if not cookie:
+                return entries
 
 
 def get_ldap_secrets() -> dict[str, Any]:
