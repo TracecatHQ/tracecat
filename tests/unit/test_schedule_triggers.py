@@ -297,6 +297,12 @@ def test_default_names_tell_a_workflows_schedules_apart() -> None:
     assert default_trigger_name(None, every=timedelta(minutes=5)) == (
         "Schedule (every 5m)"
     )
+    assert default_trigger_name("Fast", every=timedelta(milliseconds=500)) == (
+        "Fast schedule (every 0.5s)"
+    )
+    assert default_trigger_name("Odd", every=timedelta(minutes=1, seconds=1.25)) == (
+        "Odd schedule (every 1m 1.25s)"
+    )
     long = default_trigger_name("x" * 400, cron="*/5 * * * *")
     assert len(long) == 255
     assert long.endswith(" schedule (*/5 * * * *)")

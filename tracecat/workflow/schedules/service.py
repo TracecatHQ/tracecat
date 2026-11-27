@@ -40,14 +40,19 @@ _NAME_MAX = 255
 
 
 def _describe_interval(every: timedelta) -> str:
-    """A compact interval such as "1d 2h" or "30m"."""
-    seconds = int(every.total_seconds())
+    """A compact interval such as "1d 2h", "30m" or "0.5s"."""
+    whole = int(every.total_seconds())
+    fraction = every.total_seconds() - whole
     parts: list[str] = []
-    for unit, size in (("d", 86_400), ("h", 3_600), ("m", 60), ("s", 1)):
-        count, seconds = divmod(seconds, size)
+    for unit, size in (("d", 86_400), ("h", 3_600), ("m", 60)):
+        count, whole = divmod(whole, size)
         if count:
             parts.append(f"{count}{unit}")
-    return " ".join(parts) or "0s"
+    # Seconds keep any fraction: a 500 ms interval is "0.5s", not "0s".
+    seconds = round(whole + fraction, 3)
+    if seconds or not parts:
+        parts.append(f"{seconds:g}s")
+    return " ".join(parts)
 
 
 def default_trigger_name(

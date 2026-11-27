@@ -2,6 +2,7 @@
 
 import { CheckIcon } from "@radix-ui/react-icons"
 import * as ipaddr from "ipaddr.js"
+import { type ComponentProps, forwardRef } from "react"
 import { z } from "zod"
 import { $WebhookMethod, $WebhookStatus, type WebhookMethod } from "@/client"
 import { CustomTagInput, type Tag } from "@/components/tags-input"
@@ -130,16 +131,24 @@ export const webhookFormSchema = z.object({
 
 export type WebhookForm = z.infer<typeof webhookFormSchema>
 
-/** Turns passing request headers and metadata to the trigger on or off. */
-export function WebhookIncludeHeadersToggle({
-  checked,
-  onCheckedChange,
-  disabled,
-}: {
-  checked: boolean
-  onCheckedChange: (checked: boolean) => void
-  disabled?: boolean
-}) {
+/**
+ * Turns passing request headers and metadata to the trigger on or off. Other
+ * props (such as the `id` and `aria-*` a `FormControl` adds) go to the switch.
+ */
+export const WebhookIncludeHeadersToggle = forwardRef<
+  HTMLButtonElement,
+  {
+    checked: boolean
+    onCheckedChange: (checked: boolean) => void
+    disabled?: boolean
+  } & Omit<
+    ComponentProps<typeof Switch>,
+    "checked" | "onCheckedChange" | "disabled"
+  >
+>(function WebhookIncludeHeadersToggle(
+  { checked, onCheckedChange, disabled, ...switchProps },
+  ref
+) {
   return (
     <div className="flex items-center justify-between gap-4 rounded-md border p-3">
       <div className="space-y-1">
@@ -152,6 +161,8 @@ export function WebhookIncludeHeadersToggle({
       </div>
       <Switch
         aria-label="Include request headers"
+        {...switchProps}
+        ref={ref}
         checked={checked}
         onCheckedChange={onCheckedChange}
         className="data-[state=checked]:bg-emerald-500"
@@ -159,26 +170,33 @@ export function WebhookIncludeHeadersToggle({
       />
     </div>
   )
-}
+})
 
-/** Picks the HTTP methods a webhook accepts. Hands back the toggled list. */
-export function WebhookMethodsSelect({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: WebhookMethod[]
-  onChange: (methods: WebhookMethod[]) => void
-  disabled?: boolean
-}) {
+/**
+ * Picks the HTTP methods a webhook accepts. Hands back the toggled list.
+ * Other props (such as a `FormControl`'s `id` and `aria-*`) go to the button.
+ */
+export const WebhookMethodsSelect = forwardRef<
+  HTMLButtonElement,
+  {
+    value: WebhookMethod[]
+    onChange: (methods: WebhookMethod[]) => void
+    disabled?: boolean
+  } & Omit<ComponentProps<typeof Button>, "value" | "onChange" | "disabled">
+>(function WebhookMethodsSelect(
+  { value, onChange, disabled, ...buttonProps },
+  ref
+) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
+          aria-label="Allowed HTTP methods"
+          {...buttonProps}
+          ref={ref}
           variant="outline"
           className="justify-between w-full text-xs"
           disabled={disabled}
-          aria-label="Allowed HTTP methods"
         >
           {value.length > 0
             ? [...value].sort().join(", ")
@@ -215,21 +233,30 @@ export function WebhookMethodsSelect({
       </DropdownMenuContent>
     </DropdownMenu>
   )
-}
+})
 
-/** The IP allowlist entries. Hands back the raw tags; callers normalize. */
+/**
+ * The IP allowlist entries. Hands back the raw tags; callers normalize.
+ * Other props (such as a `FormControl`'s `id` and `aria-*`) go to the input.
+ */
 export function WebhookAllowlistInput({
   tags,
   onTagsChange,
   disabled,
+  ...inputProps
 }: {
   tags: Tag[]
   onTagsChange: (tags: Tag[]) => void
   disabled?: boolean
-}) {
+} & Omit<
+  ComponentProps<typeof CustomTagInput>,
+  "tags" | "setTags" | "disabled"
+>) {
   return (
     <CustomTagInput
+      aria-label="IP allowlist"
       placeholder="Enter an IP address or CIDR. Allow all IPs by default."
+      {...inputProps}
       tags={tags}
       disabled={disabled}
       setTags={(next) => {

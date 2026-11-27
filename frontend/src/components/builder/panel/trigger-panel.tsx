@@ -578,11 +578,13 @@ export function WebhookControls({
             name="include_headers"
             render={({ field }) => (
               <FormItem>
-                <WebhookIncludeHeadersToggle
-                  checked={field.value}
-                  onCheckedChange={handleIncludeHeadersChange}
-                  disabled={isUpdatingWebhook}
-                />
+                <FormControl>
+                  <WebhookIncludeHeadersToggle
+                    checked={field.value}
+                    onCheckedChange={handleIncludeHeadersChange}
+                    disabled={isUpdatingWebhook}
+                  />
+                </FormControl>
               </FormItem>
             )}
           />

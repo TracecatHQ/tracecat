@@ -148,7 +148,7 @@ tools are open to every plan; reading, creating or changing a trigger needs its
 kind's entitlement (`object_triggers` for `object_storage`, none for
 `schedule` and `webhook`), and `list_triggers` leaves out the kinds the plan
 lacks and counts them in `locked` (kind, entitlement, count). A `schedule` trigger also needs `schedule:read` to be read or listed,
-and a `webhook` trigger `workflow:read` (its `url` holds the webhook secret, as
+and a `webhook` trigger needs `workflow:read` (its `url` holds the webhook secret, as
 in `get_webhook`).
 Scopes: list and get tools need `trigger:read`; `create_event_source` and
 `create_trigger` need `trigger:create`; the update tools and
