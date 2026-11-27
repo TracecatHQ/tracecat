@@ -701,6 +701,15 @@ def _users_router() -> APIRouter:
     verification, like the other privileged platform admin actions.
     """
     users_router = fastapi_users.get_users_router(UserRead, UserUpdate)
+    # PATCH /users/me lives in tracecat.auth.router: the fastapi-users version
+    # accepts email and password changes without the current password.
+    users_router.routes = [
+        route
+        for route in users_router.routes
+        if not (
+            isinstance(route, APIRoute) and route.name == "users:patch_current_user"
+        )
+    ]
     for route in users_router.routes:
         if not isinstance(route, APIRoute):
             continue

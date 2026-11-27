@@ -868,6 +868,32 @@ class OrgService(BaseOrgService):
             )
         return updated_user
 
+    @require_scope("org:member:update")
+    @audit_log(resource_type="organization_member", action="update")
+    async def change_member_email(self, user_id: UserID, email: str) -> User:
+        """Change a member's sign-in email and sign them out everywhere.
+
+        A member who also belongs to another organization can only be changed
+        by a platform superuser, so one tenant's admin can't take over another
+        tenant's login.
+
+        Raises:
+            NoResultFound: If the user isn't a member of this organization.
+            TracecatAuthorizationError: If the member is a superuser.
+            CredentialChangeError: If the member belongs to another
+                organization or the new email can't be used.
+        """
+        user = await self.get_member(user_id)
+        if user.is_superuser:
+            raise TracecatAuthorizationError("Cannot change a superuser's email")
+        exclusive_to_org = (
+            None if self.role.is_platform_superuser else self.organization_id
+        )
+        async with self._manager() as user_manager:
+            return await user_manager.set_email(
+                user, new_email=email, organization_id=exclusive_to_org
+            )
+
     @audit_log(resource_type="organization", action="delete")
     @require_scope("org:delete")
     async def delete_organization(self, *, confirmation: str | None) -> None:
