@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +29,12 @@ from tracecat.exceptions import (
 from tracecat.network import DisallowedUrlError
 from tracecat.outbound import create_outbound_http_client
 
+type ReasoningEffort = Literal["low", "medium", "high"]
+
+# Providers whose ``reasoning_effort`` lowers reasoning. Others (e.g. Anthropic
+# adaptive thinking) treat it as a request to turn thinking on.
+_REASONING_EFFORT_PROVIDERS = frozenset({"openai", "azure_openai"})
+
 
 class LLMCompletionError(RuntimeError):
     """Raised when a lightweight LLM completion request fails."""
@@ -41,6 +47,7 @@ async def complete(
     session: AsyncSession,
     role: Role,
     max_tokens: int | None = None,
+    reasoning_effort: ReasoningEffort | None = None,
     timeout_seconds: float = 8.0,
 ) -> str:
     """Single-turn LLM completion against the org's default model.
@@ -48,6 +55,9 @@ async def complete(
     Resolves the default model and credentials internally. Routes through
     LiteLLM (normal) or directly to the upstream (passthrough). Returns
     the raw text content.
+
+    ``reasoning_effort`` is sent only to OpenAI-family providers through
+    LiteLLM, which drops it for models that do not reason.
 
     Raises:
         LLMCompletionError: If the provider request fails, returns an
@@ -77,6 +87,8 @@ async def complete(
         ) from e
     if not creds:
         raise TracecatNotFoundError("No credentials for default model")
+    if model_selection.model_provider not in _REASONING_EFFORT_PROVIDERS:
+        reasoning_effort = None
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -95,6 +107,7 @@ async def complete(
                     base_url=gateway_runtime.base_url,
                     api_key=gateway_runtime.api_key,
                     max_tokens=max_tokens,
+                    model_label=model_selection.model_name,
                     timeout_seconds=timeout_seconds,
                 )
             else:
@@ -118,6 +131,8 @@ async def complete(
                     messages=messages,
                     token=token,
                     max_tokens=max_tokens,
+                    reasoning_effort=reasoning_effort,
+                    model_label=model_selection.model_name,
                     timeout_seconds=timeout_seconds,
                 )
     except TimeoutError as e:
@@ -142,11 +157,15 @@ async def _call_litellm(
     messages: list[dict[str, str]],
     token: str,
     max_tokens: int | None,
+    reasoning_effort: ReasoningEffort | None,
+    model_label: str,
     timeout_seconds: float,
 ) -> str:
     body: dict[str, Any] = {"messages": messages}
     if max_tokens is not None:
         body["max_tokens"] = max_tokens
+    if reasoning_effort is not None:
+        body["reasoning_effort"] = reasoning_effort
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         resp = await client.post(
             f"{TRACECAT__LITELLM_BASE_URL.rstrip('/')}/chat/completions",
@@ -154,7 +173,7 @@ async def _call_litellm(
             json=body,
         )
         resp.raise_for_status()
-    return _extract_chat_completion_content(resp)
+    return _extract_chat_completion_content(resp, model_label=model_label)
 
 
 async def _call_passthrough(
@@ -164,6 +183,7 @@ async def _call_passthrough(
     base_url: str | None,
     api_key: str | None,
     max_tokens: int | None,
+    model_label: str,
     timeout_seconds: float,
 ) -> str:
     if not base_url:
@@ -186,15 +206,22 @@ async def _call_passthrough(
             json=body,
         )
         resp.raise_for_status()
-    return _extract_chat_completion_content(resp)
+    return _extract_chat_completion_content(resp, model_label=model_label)
 
 
-def _extract_chat_completion_content(resp: httpx.Response) -> str:
+def _extract_chat_completion_content(resp: httpx.Response, *, model_label: str) -> str:
     try:
         data = resp.json()
-        content = data["choices"][0]["message"]["content"]
+        choice = data["choices"][0]
+        content = choice["message"]["content"]
     except (KeyError, IndexError, TypeError, ValueError) as e:
-        raise LLMCompletionError("LLM completion response was malformed") from e
-    if not isinstance(content, str):
-        raise LLMCompletionError("LLM completion response content was not text")
+        raise LLMCompletionError(
+            f"LLM completion response was malformed (model={model_label})"
+        ) from e
+    if not isinstance(content, str) or not content.strip():
+        finish_reason = choice.get("finish_reason")
+        raise LLMCompletionError(
+            "LLM completion response had no text "
+            f"(model={model_label}, finish_reason={finish_reason})"
+        )
     return content

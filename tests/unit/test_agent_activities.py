@@ -1951,19 +1951,21 @@ class TestCreateSessionActivity:
             mock_agent_session,
             created,
         )
-        session_service.auto_title_session_on_first_prompt = AsyncMock()
-
-        result = await create_session_activity(input)
+        with patch(
+            "tracecat.agent.session.activities.schedule_auto_title"
+        ) as schedule_auto_title:
+            result = await create_session_activity(input)
 
         assert result.success is True
         if created:
-            session_service.auto_title_session_on_first_prompt.assert_awaited_once_with(
-                mock_agent_session,
-                "Investigate login failures",
+            schedule_auto_title.assert_called_once_with(
+                session_id=mock_agent_session.id,
+                user_prompt="Investigate login failures",
                 expected_title=mock_agent_session.title,
+                role=session_service.role,
             )
         else:
-            session_service.auto_title_session_on_first_prompt.assert_not_awaited()
+            schedule_auto_title.assert_not_called()
 
 
 class TestLoadSessionActivity:

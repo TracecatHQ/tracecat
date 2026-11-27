@@ -11,6 +11,9 @@ TITLE_MAX_WORDS = 8
 TITLE_MAX_CHARS = 60
 TITLE_GEN_TIMEOUT_SECONDS = 15.0
 TITLE_PROMPT_MAX_CHARS = 2000
+# Reasoning models spend output tokens before any visible text, so a tight
+# budget can leave an empty reply. The sanitizer still caps the title.
+TITLE_MAX_OUTPUT_TOKENS = 1024
 
 _SYSTEM_PROMPT = (
     "Generate a concise chat title from the user's first message.\n"
@@ -64,7 +67,16 @@ async def generate_session_title(
         system_prompt=_SYSTEM_PROMPT,
         session=session,
         role=role,
-        max_tokens=30,
+        max_tokens=TITLE_MAX_OUTPUT_TOKENS,
+        reasoning_effort="low",
         timeout_seconds=timeout_seconds,
     )
     return sanitize_session_title(raw) if raw else None
+
+
+def fallback_session_title(user_prompt: str) -> str | None:
+    """Title from the prompt's first non-empty line, for when generation fails."""
+    for line in user_prompt.splitlines():
+        if title := sanitize_session_title(line):
+            return title
+    return None

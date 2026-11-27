@@ -6,7 +6,9 @@ import pytest
 
 from tracecat.agent.session.title_generator import (
     TITLE_MAX_CHARS,
+    TITLE_MAX_OUTPUT_TOKENS,
     TITLE_MAX_WORDS,
+    fallback_session_title,
     generate_session_title,
     sanitize_session_title,
 )
@@ -88,3 +90,30 @@ async def test_generate_session_title_returns_none_for_empty_sanitized_output() 
             )
             is None
         )
+
+
+@pytest.mark.anyio
+async def test_generate_session_title_leaves_room_for_reasoning() -> None:
+    llm_complete = AsyncMock(return_value="Investigate login failures")
+    with patch("tracecat.agent.session.title_generator.llm_complete", llm_complete):
+        await generate_session_title(
+            user_prompt="Users cannot sign in",
+            session=AsyncMock(),
+            role=AsyncMock(),
+        )
+
+    assert llm_complete.await_args is not None
+    kwargs = llm_complete.await_args.kwargs
+    assert kwargs["max_tokens"] == TITLE_MAX_OUTPUT_TOKENS
+    assert kwargs["reasoning_effort"] == "low"
+
+
+def test_fallback_session_title_uses_first_non_empty_line() -> None:
+    assert (
+        fallback_session_title("\n\n  Why are logins failing?\nMore detail here")
+        == "Why are logins failing?"
+    )
+    assert fallback_session_title("one two three four five six seven eight nine") == (
+        "one two three four five six seven eight"
+    )
+    assert fallback_session_title(" \n\t ") is None

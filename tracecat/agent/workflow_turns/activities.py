@@ -42,7 +42,7 @@ from tracecat.agent.preset.activities import (
 )
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.schemas import AgentSessionCreate
-from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.session.service import AgentSessionService, schedule_auto_title
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import (
     AgentConfig,
@@ -340,10 +340,11 @@ async def prepare_workflow_agent_turn_activity(
                     )
                 )
                 if created:
-                    await service.auto_title_session_on_first_prompt(
-                        agent_session,
-                        agent_args.user_prompt,
+                    schedule_auto_title(
+                        session_id=agent_session.id,
+                        user_prompt=agent_args.user_prompt,
                         expected_title=agent_session.title,
+                        role=service.role,
                     )
             admitting = SessionTurnContext(
                 db=service.session,

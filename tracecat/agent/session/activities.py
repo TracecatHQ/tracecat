@@ -29,6 +29,7 @@ from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import (
     AgentSessionService,
     refuse_channel_envelope,
+    schedule_auto_title,
 )
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.stream.artifacts import artifact_stream_event
@@ -265,10 +266,11 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
             # Avoid duplicate title generation when run_turn already attempted
             # first-prompt auto-title before spawning this workflow.
             if created and input.initial_user_prompt is not None:
-                await service.auto_title_session_on_first_prompt(
-                    agent_session,
-                    input.initial_user_prompt,
+                schedule_auto_title(
+                    session_id=agent_session.id,
+                    user_prompt=input.initial_user_prompt,
                     expected_title=agent_session.title,
+                    role=service.role,
                 )
 
         if created:

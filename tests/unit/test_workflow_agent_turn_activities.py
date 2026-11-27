@@ -213,7 +213,7 @@ def _service(
         execution_role=role,
         get_session=AsyncMock(return_value=existing),
         get_or_create_session=AsyncMock(side_effect=get_or_create_session),
-        auto_title_session_on_first_prompt=AsyncMock(),
+        schedule_auto_title=Mock(),
         prepare_new_turn=AsyncMock(side_effect=prepare_new_turn),
     )
 
@@ -235,6 +235,7 @@ def _activity_env(service: SimpleNamespace, *, selected: str) -> Iterator[AsyncM
             return_value=InstalledBackend(),
         ),
         patch(f"{ACTIVITIES}.require_session_backend_entitlement", AsyncMock()),
+        patch(f"{ACTIVITIES}.schedule_auto_title", service.schedule_auto_title),
     ):
         yield select
 
@@ -296,7 +297,13 @@ async def test_selected_backend_runs_the_action_with_its_own_config() -> None:
     assert created.backend_id == "external"
     assert created.entity_type is AgentSessionEntity.WORKFLOW
     assert created.entity_id == args.entity_id
-    service.auto_title_session_on_first_prompt.assert_awaited_once()
+    # Titling runs in the background, not before the turn is reserved.
+    service.schedule_auto_title.assert_called_once_with(
+        session_id=args.agent_args.session_id,
+        user_prompt="Triage this alert",
+        expected_title=args.title,
+        role=service.role,
+    )
     # The turn runs on the action's configuration, not the session's.
     assert service.prepare_new_turn.await_args.kwargs["config"] is (
         args.agent_args.config
@@ -331,7 +338,7 @@ async def test_existing_session_keeps_its_own_backend() -> None:
     select.assert_not_awaited()
     # The session the backend choice loaded is the one the turn runs in.
     service.get_or_create_session.assert_not_awaited()
-    service.auto_title_session_on_first_prompt.assert_not_awaited()
+    service.schedule_auto_title.assert_not_called()
     assert turn.session_id == existing.id
 
 

@@ -278,3 +278,66 @@ async def test_auto_title_preserves_manual_rename_after_scheduling(
     generate_title.assert_not_awaited()
     session.execute.assert_not_awaited()
     session.commit.assert_awaited_once()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "generated",
+    [
+        AsyncMock(side_effect=LLMCompletionError("no text")),
+        AsyncMock(return_value=None),
+    ],
+    ids=["error", "empty"],
+)
+async def test_auto_title_falls_back_to_prompt_for_chats(
+    role: Role, generated: AsyncMock
+) -> None:
+    session = AsyncMock()
+    session.execute.return_value = SimpleNamespace(
+        scalar_one_or_none=lambda: uuid.uuid4()
+    )
+    service = AgentSessionService(session, role)
+    agent_session = AgentSession(
+        workspace_id=role.workspace_id,
+        title="Chat 3",
+        entity_type="copilot",
+    )
+    agent_session.id = uuid.uuid4()
+
+    with patch("tracecat.agent.session.service.generate_session_title", generated):
+        await service.auto_title_session_on_first_prompt(
+            agent_session,
+            "Why are logins failing?\nHere are the logs",
+            expected_title=agent_session.title,
+        )
+
+    assert agent_session.title == "Why are logins failing?"
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_auto_title_keeps_workflow_title_when_generation_fails(
+    role: Role,
+) -> None:
+    session = AsyncMock()
+    service = AgentSessionService(session, role)
+    agent_session = AgentSession(
+        workspace_id=role.workspace_id,
+        title="Workflow agent",
+        entity_type="workflow",
+        entity_id=uuid.uuid4(),
+    )
+    agent_session.id = uuid.uuid4()
+
+    with patch(
+        "tracecat.agent.session.service.generate_session_title",
+        AsyncMock(return_value=None),
+    ):
+        await service.auto_title_session_on_first_prompt(
+            agent_session,
+            "You are a triage agent. Alert: ${{ TRIGGER.alert }}",
+            expected_title=agent_session.title,
+        )
+
+    assert agent_session.title == "Workflow agent"
+    session.execute.assert_not_awaited()

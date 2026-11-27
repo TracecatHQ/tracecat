@@ -126,7 +126,10 @@ from tracecat.agent.session.schemas import (
     AgentSessionRead,
     AgentSessionUpdate,
 )
-from tracecat.agent.session.title_generator import generate_session_title
+from tracecat.agent.session.title_generator import (
+    fallback_session_title,
+    generate_session_title,
+)
 from tracecat.agent.session.types import (
     AgentSessionEntity,
     PreparedAgentTurn,
@@ -225,6 +228,17 @@ _MESSAGE_ADMISSION_TRIES = 5
 _SHARED_WHEN_OWNERLESS = frozenset(
     {AgentSessionEntity.EXTERNAL_CHANNEL, AgentSessionEntity.AGENT_PRESET}
 )
+# Session kinds whose first prompt a person typed, so its first line reads as a
+# title when generation fails. Workflow prompts are templates and keep theirs.
+_PROMPT_FALLBACK_TITLE_ENTITIES = frozenset(
+    {
+        AgentSessionEntity.WORKSPACE_CHAT,
+        AgentSessionEntity.CASE,
+        AgentSessionEntity.AGENT_PRESET,
+        AgentSessionEntity.AGENT_PRESET_BUILDER,
+        AgentSessionEntity.EXTERNAL_CHANNEL,
+    }
+)
 
 
 def _require_parent_session(agent_session: AgentSession) -> None:
@@ -288,6 +302,30 @@ def _finalize_auto_title_task(
             error=str(exc),
             error_type=type(exc).__name__,
         )
+
+
+def schedule_auto_title(
+    *,
+    session_id: uuid.UUID,
+    user_prompt: str,
+    expected_title: str,
+    role: Role,
+) -> None:
+    """Title a committed session in the background, off the caller's hot path.
+
+    Runs on the current event loop with its own database session. Best-effort:
+    a process exit before it finishes leaves the placeholder title.
+    """
+    task = asyncio.create_task(
+        _auto_title_session(
+            session_id=session_id,
+            user_prompt=user_prompt,
+            expected_title=expected_title,
+            role=role,
+        )
+    )
+    _background_tasks.add(task)
+    task.add_done_callback(partial(_finalize_auto_title_task, session_id=session_id))
 
 
 def _retried_channel_message(ui_message: Any) -> ChannelMessage | None:
@@ -1778,6 +1816,7 @@ class AgentSessionService(BaseWorkspaceService):
             old_title_length=len(old_title),
         )
 
+        title_source = "model"
         try:
             service_role = self.role.model_copy(
                 update={
@@ -1810,7 +1849,11 @@ class AgentSessionService(BaseWorkspaceService):
                 error=str(e),
                 error_type=type(e).__name__,
             )
-            return
+            new_title = None
+
+        if not new_title and entity_type in _PROMPT_FALLBACK_TITLE_ENTITIES:
+            new_title = fallback_session_title(prompt)
+            title_source = "prompt_fallback"
 
         if not new_title:
             logger.info(
@@ -1872,6 +1915,7 @@ class AgentSessionService(BaseWorkspaceService):
                 prompt_length=len(prompt),
                 old_title_length=len(old_title),
                 new_title_length=len(new_title),
+                title_source=title_source,
             )
             return
 
@@ -2246,17 +2290,11 @@ class AgentSessionService(BaseWorkspaceService):
             # Spawn after the workflow starts so a rejected/failed turn never
             # renames the session.
             if should_auto_title and user_prompt is not None:
-                task = asyncio.create_task(
-                    _auto_title_session(
-                        session_id=session_id,
-                        user_prompt=_display_text(user_prompt, origin=origin),
-                        expected_title=expected_title,
-                        role=self.role,
-                    )
-                )
-                _background_tasks.add(task)
-                task.add_done_callback(
-                    partial(_finalize_auto_title_task, session_id=session_id)
+                schedule_auto_title(
+                    session_id=session_id,
+                    user_prompt=_display_text(user_prompt, origin=origin),
+                    expected_title=expected_title,
+                    role=self.role,
                 )
 
     async def _prompt_origin_run_id(
