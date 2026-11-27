@@ -24,7 +24,7 @@ from tracecat.webhooks.dependencies import (
     validate_workflow_definition,
 )
 from tracecat.webhooks.router import _incoming_webhook
-from tracecat.webhooks.schemas import _normalize_cidrs
+from tracecat.webhooks.schemas import normalize_cidrs
 
 _JSON_BODY = orjson.dumps({"key": "value", "number": 42})
 _NDJSON_BODY = b'{"line": 1}\n{"line": 2}'
@@ -125,7 +125,7 @@ class TestParseWebhookPayload:
 class TestWebhookNetworkHelpers:
     def test_normalize_cidrs(self):
         cidrs = ["192.168.1.0/24", "192.168.1.0/24", "10.0.0.1", "10.0.0.1/32"]
-        normalized = _normalize_cidrs(cidrs)
+        normalized = normalize_cidrs(cidrs)
         assert normalized == ["192.168.1.0/24", "10.0.0.1/32"]
 
     def test_ip_allowed_positive(self):
@@ -136,7 +136,7 @@ class TestWebhookNetworkHelpers:
 
     def test_normalize_cidrs_rejects_ipv6(self):
         with pytest.raises(ValueError, match="Only IPv4"):
-            _normalize_cidrs(["2001:db8::/32"])
+            normalize_cidrs(["2001:db8::/32"])
 
 
 class TestValidateIncomingWebhook:

@@ -3,12 +3,10 @@
 import "react18-json-view/src/style.css"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { CheckIcon, DotsHorizontalIcon } from "@radix-ui/react-icons"
-import * as ipaddr from "ipaddr.js"
+import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import {
   BanIcon,
   CalendarClockIcon,
-  ChevronDownIcon,
   ClipboardListIcon,
   KeyRoundIcon,
   MoreHorizontalIcon,
@@ -20,10 +18,7 @@ import {
 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
-import { z } from "zod"
 import {
-  $WebhookMethod,
-  $WebhookStatus,
   ApiError,
   type CaseEventType,
   type SchedulesCreateScheduleData,
@@ -45,10 +40,12 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { ReadOnlyFieldset } from "@/components/managed/read-only-fieldset"
 import { AlertNotification } from "@/components/notifications"
 import {
-  CustomTagInput,
-  MultiTagCommandInput,
-  type Tag,
-} from "@/components/tags-input"
+  ScheduleFormFields,
+  type ScheduleInputs,
+  scheduleInputsToSettings,
+  useScheduleForm,
+} from "@/components/schedules/schedule-form-fields"
+import { MultiTagCommandInput, type Tag } from "@/components/tags-input"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -61,7 +58,6 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
-import { Calendar } from "@/components/ui/calendar"
 import {
   Dialog,
   DialogBody,
@@ -91,18 +87,6 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -121,6 +105,15 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import {
+  normalizeCidrTags,
+  WebhookAllowlistHint,
+  WebhookAllowlistInput,
+  type WebhookForm,
+  WebhookIncludeHeadersToggle,
+  WebhookMethodsSelect,
+  webhookFormSchema,
+} from "@/components/webhooks/webhook-form-fields"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useFormsAccess } from "@/hooks/use-forms-access"
 import {
@@ -133,94 +126,11 @@ import {
   useUpdateWebhook,
   useUpsertCaseTrigger,
 } from "@/lib/hooks"
-import {
-  durationSchema,
-  durationToHumanReadable,
-  durationToISOString,
-} from "@/lib/time"
+import { durationToHumanReadable } from "@/lib/time"
 import { cn } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspaceId } from "@/providers/workspace-id"
-
-const HTTP_METHODS: readonly WebhookMethod[] = $WebhookMethod.enum
-
-const toCanonicalString = (address: ipaddr.IPv4 | ipaddr.IPv6): string => {
-  const maybeNormalized =
-    (address as ipaddr.IPv6).toNormalizedString?.() ?? address.toString()
-  return maybeNormalized
-}
-
-const validateAndNormalizeCidr = (
-  value: string
-): { normalized: string } | { error: string } => {
-  try {
-    const [address, prefixLength] = ipaddr.parseCIDR(value)
-    if (address.kind() !== "ipv4") {
-      throw new Error("Only IPv4 CIDR ranges are supported")
-    }
-    const normalized = `${toCanonicalString(address)}/${prefixLength}`
-    return { normalized }
-  } catch {
-    try {
-      const address = ipaddr.parse(value)
-      if (address.kind() !== "ipv4") {
-        throw new Error("Only IPv4 addresses are supported")
-      }
-      const prefixLength = 32
-      const normalized = `${toCanonicalString(address)}/${prefixLength}`
-      return { normalized }
-    } catch {
-      return {
-        error: `Invalid IPv4 address or CIDR: "${value}"`,
-      }
-    }
-  }
-}
-
-const webhookFormSchema = z.object({
-  status: z.enum($WebhookStatus.enum),
-  methods: z
-    .array(z.enum($WebhookMethod.enum))
-    .min(1, "At least one method is required"),
-  allowlisted_cidrs: z
-    .array(
-      z.object({
-        id: z.string(),
-        text: z.string().trim().min(1, "Invalid IP address or CIDR"),
-      })
-    )
-    .superRefine((cidrs, ctx) => {
-      for (const cidr of cidrs) {
-        const result = validateAndNormalizeCidr(cidr.text)
-        if ("error" in result) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: result.error,
-          })
-          return
-        }
-      }
-    })
-    .transform((cidrs) => {
-      const normalized = new Map<string, Tag>()
-      for (const cidr of cidrs) {
-        const result = validateAndNormalizeCidr(cidr.text)
-        if ("error" in result) {
-          continue
-        }
-        const value = result.normalized
-        if (!normalized.has(value)) {
-          normalized.set(value, { id: value, text: value })
-        }
-      }
-      return Array.from(normalized.values())
-    })
-    .default([]),
-  include_headers: z.boolean().default(false),
-})
-
-type WebhookForm = z.infer<typeof webhookFormSchema>
 
 const extractApiErrorMessage = (error: unknown, fallback: string): string => {
   if (error instanceof ApiError) {
@@ -446,41 +356,22 @@ export function WebhookControls({
         return
       }
 
-      const normalized = new Map<string, Tag>()
-      let firstError: string | null = null
-
-      for (const tag of newTags) {
-        const trimmed = tag.text.trim()
-        if (!trimmed) {
-          firstError ??= "Invalid IP address or CIDR"
-          continue
-        }
-        const result = validateAndNormalizeCidr(trimmed)
-        if ("error" in result) {
-          firstError ??= result.error
-          continue
-        }
-        const canonical = result.normalized
-        if (!normalized.has(canonical)) {
-          normalized.set(canonical, { id: canonical, text: canonical })
-        }
-      }
-
-      if (firstError) {
+      const result = normalizeCidrTags(newTags)
+      if ("error" in result) {
         form.setError("allowlisted_cidrs", {
           type: "manual",
-          message: firstError,
+          message: result.error,
         })
         toast({
           title: "Invalid IP allowlist entry",
-          description: firstError,
+          description: result.error,
           variant: "destructive",
         })
         return
       }
 
       form.clearErrors("allowlisted_cidrs")
-      const normalizedValues = Array.from(normalized.values())
+      const normalizedValues = result.tags
       form.setValue("allowlisted_cidrs", normalizedValues, {
         shouldDirty: true,
         shouldValidate: true,
@@ -687,26 +578,13 @@ export function WebhookControls({
             name="include_headers"
             render={({ field }) => (
               <FormItem>
-                <div className="flex items-center justify-between gap-4 rounded-md border p-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs font-semibold">
-                      Include request headers
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      Pass request headers and metadata to TRIGGER as{" "}
-                      <code>{"{ status_code, headers, data }"}</code> instead of
-                      just the body
-                    </p>
-                  </div>
-                  <FormControl>
-                    <Switch
-                      checked={field.value}
-                      onCheckedChange={handleIncludeHeadersChange}
-                      className="data-[state=checked]:bg-emerald-500"
-                      disabled={isUpdatingWebhook}
-                    />
-                  </FormControl>
-                </div>
+                <FormControl>
+                  <WebhookIncludeHeadersToggle
+                    checked={field.value}
+                    onCheckedChange={handleIncludeHeadersChange}
+                    disabled={isUpdatingWebhook}
+                  />
+                </FormControl>
               </FormItem>
             )}
           />
@@ -720,50 +598,11 @@ export function WebhookControls({
                   <span>Allowed HTTP methods</span>
                 </FormLabel>
                 <FormControl>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className="justify-between w-full text-xs"
-                        disabled={isUpdatingWebhook}
-                      >
-                        {field.value.length > 0
-                          ? field.value.sort().join(", ")
-                          : "Select HTTP methods"}
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      style={{
-                        width: "var(--radix-dropdown-menu-trigger-width)",
-                      }}
-                      align="start"
-                      sideOffset={4}
-                    >
-                      {HTTP_METHODS.map((method) => (
-                        <DropdownMenuItem
-                          key={method}
-                          onClick={() => {
-                            const newMethods = field.value.includes(method)
-                              ? field.value.filter((m) => m !== method)
-                              : [...field.value, method]
-
-                            handleMethodsChange(newMethods)
-                          }}
-                          className="w-full text-xs"
-                        >
-                          <CheckIcon
-                            className={cn(
-                              "mr-2 size-4",
-                              field.value.includes(method)
-                                ? "opacity-100"
-                                : "opacity-0"
-                            )}
-                          />
-                          <span>{method}</span>
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  <WebhookMethodsSelect
+                    value={field.value}
+                    onChange={handleMethodsChange}
+                    disabled={isUpdatingWebhook}
+                  />
                 </FormControl>
                 <FormMessage className="text-xs" />
               </FormItem>
@@ -779,24 +618,14 @@ export function WebhookControls({
                   <span>IP allowlist</span>
                 </FormLabel>
                 <FormControl>
-                  <CustomTagInput
-                    {...field}
-                    placeholder="Enter an IP address or CIDR. Allow all IPs by default."
+                  <WebhookAllowlistInput
                     tags={field.value}
-                    setTags={(newTags) =>
-                      handleAllowlistedCidrsChange(
-                        Array.isArray(newTags) ? newTags : []
-                      )
-                    }
+                    onTagsChange={handleAllowlistedCidrsChange}
                   />
                 </FormControl>
                 <FormMessage className="text-xs" />
                 <FormDescription className="text-xs">
-                  Press{" "}
-                  <kbd className="px-1 py-0.5 text-[10px] font-semibold bg-muted border rounded tracking-tighter">
-                    Enter ↵
-                  </kbd>{" "}
-                  to add a new entry.
+                  <WebhookAllowlistHint />
                 </FormDescription>
               </FormItem>
             )}
@@ -1583,171 +1412,13 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
   )
 }
 
-const ISO_8601_DURATION_REGEX =
-  /^P(?!$)(\d+(?:\.\d+)?Y)?(\d+(?:\.\d+)?M)?(\d+(?:\.\d+)?W)?(\d+(?:\.\d+)?D)?(T(\d+(?:\.\d+)?H)?(\d+(?:\.\d+)?M)?(\d+(?:\.\d+)?S)?)?$/
-
-const BASIC_CRON_REGEX = /^(\S+\s+){4,5}\S+$/
-
-const durationNumber = z.coerce.number().int().nonnegative().catch(0)
-
-const rawDurationSchema = z.object({
-  years: durationNumber,
-  months: durationNumber,
-  weeks: durationNumber,
-  days: durationNumber,
-  hours: durationNumber,
-  minutes: durationNumber,
-  seconds: durationNumber,
-})
-
-const scheduleInputsSchema = z
-  .object({
-    mode: z.enum(["interval", "cron"]).default("interval"),
-    duration: rawDurationSchema,
-    cronExpression: z.string().optional(),
-    timeout: z.number().optional(),
-    offset: z.string().optional(),
-    startAt: z.string().optional(),
-    endAt: z.string().optional(),
-  })
-  .superRefine((values, ctx) => {
-    if (values.mode === "interval") {
-      try {
-        // Validates at least one component and positive numbers
-        durationSchema.parse(values.duration)
-      } catch (error) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["duration.seconds"],
-          message:
-            error instanceof Error
-              ? error.message
-              : "Please provide a valid interval duration.",
-        })
-      }
-
-      if (values.offset && values.offset.trim() !== "") {
-        if (!ISO_8601_DURATION_REGEX.test(values.offset)) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["offset"],
-            message:
-              "Must be a valid ISO 8601 duration string (e.g., PT1H, P1D, PT30M)",
-          })
-        }
-      }
-    } else {
-      const cron = values.cronExpression?.trim()
-      if (!cron) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["cronExpression"],
-          message: "Cron expression is required for cron schedules.",
-        })
-      } else if (!BASIC_CRON_REGEX.test(cron)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["cronExpression"],
-          message: "Enter a valid cron expression with 5 or 6 fields.",
-        })
-      }
-
-      if (values.offset) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["offset"],
-          message: "Offset is only supported for interval schedules.",
-        })
-      }
-    }
-
-    const startAt = values.startAt?.trim()
-    const endAt = values.endAt?.trim()
-
-    const parseDate = (value: string) => {
-      const parsed = Date.parse(value)
-      return Number.isNaN(parsed) ? null : parsed
-    }
-
-    if (startAt) {
-      if (parseDate(startAt) === null) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["startAt"],
-          message: "Enter a valid start date and time.",
-        })
-      }
-    }
-
-    if (endAt) {
-      if (parseDate(endAt) === null) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["endAt"],
-          message: "Enter a valid end date and time.",
-        })
-      }
-    }
-
-    if (startAt && endAt) {
-      const start = parseDate(startAt)
-      const end = parseDate(endAt)
-      if (start !== null && end !== null && start > end) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["endAt"],
-          message: "End time must be after the start time.",
-        })
-      }
-    }
-  })
-type DurationType =
-  | "duration.years"
-  | "duration.months"
-  | "duration.days"
-  | "duration.hours"
-  | "duration.minutes"
-  | "duration.seconds"
-type ScheduleInputs = z.infer<typeof scheduleInputsSchema>
-
 export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
   const { createSchedule } = useSchedules(workflowId)
   const workspaceId = useWorkspaceId()
   const { workflow } = useWorkflow()
   const hasVersion = !!workflow?.version
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [startDatePickerOpen, setStartDatePickerOpen] = useState(false)
-  const [endDatePickerOpen, setEndDatePickerOpen] = useState(false)
-  const form = useForm<ScheduleInputs>({
-    resolver: zodResolver(scheduleInputsSchema),
-    defaultValues: {
-      mode: "interval",
-      duration: {
-        years: 0,
-        months: 0,
-        weeks: 0,
-        days: 0,
-        hours: 0,
-        minutes: 0,
-        seconds: 0,
-      },
-      cronExpression: "",
-      timeout: undefined,
-      offset: "",
-      startAt: "",
-      endAt: "",
-    },
-  })
-  const mode = form.watch("mode")
-
-  useEffect(() => {
-    if (mode === "cron") {
-      form.setValue("offset", "")
-      form.clearErrors(["offset"])
-    } else {
-      form.clearErrors(["cronExpression"])
-    }
-  }, [form, mode])
+  const form = useScheduleForm()
 
   const onSubmit = async (values: ScheduleInputs) => {
     if (!hasVersion) {
@@ -1759,49 +1430,10 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
       return
     }
 
-    const { mode, duration, cronExpression, timeout, offset, startAt, endAt } =
-      values
     try {
       const payload: SchedulesCreateScheduleData["requestBody"] = {
         workflow_id: workflowId,
-      }
-
-      const sanitizedTimeout =
-        typeof timeout === "number" && !Number.isNaN(timeout)
-          ? timeout
-          : undefined
-      if (sanitizedTimeout !== undefined) {
-        payload.timeout = sanitizedTimeout
-      }
-
-      if (mode === "interval") {
-        const parsedDuration = durationSchema.parse(duration)
-        payload.every = durationToISOString(parsedDuration)
-        if (offset && offset.trim() !== "") {
-          payload.offset = offset
-        }
-      } else {
-        const cron = cronExpression?.trim()
-        if (cron) {
-          payload.cron = cron
-        }
-      }
-
-      const convertDateTime = (value?: string) => {
-        const trimmed = value?.trim()
-        if (!trimmed) return undefined
-        const parsed = Date.parse(trimmed)
-        return Number.isNaN(parsed) ? undefined : new Date(parsed).toISOString()
-      }
-
-      const startAtIso = convertDateTime(startAt)
-      if (startAtIso) {
-        payload.start_at = startAtIso
-      }
-
-      const endAtIso = convertDateTime(endAt)
-      if (endAtIso) {
-        payload.end_at = endAtIso
+        ...scheduleInputsToSettings(values),
       }
 
       const response = await createSchedule({
@@ -1871,378 +1503,7 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
             })}
           >
             <DialogBody>
-              <div className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="mode"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs capitalize text-foreground/80">
-                        Schedule Type
-                      </FormLabel>
-                      <FormDescription className="text-xs">
-                        Choose between interval-based or cron-based scheduling.
-                      </FormDescription>
-                      <FormControl>
-                        <Select
-                          value={field.value}
-                          onValueChange={field.onChange}
-                        >
-                          <SelectTrigger className="text-xs capitalize">
-                            <SelectValue placeholder="Select schedule type" />
-                          </SelectTrigger>
-                          <SelectContent className="text-xs">
-                            <SelectItem value="interval">Interval</SelectItem>
-                            <SelectItem value="cron">Cron</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                {mode === "interval" && (
-                  <div className="grid grid-cols-2 gap-2">
-                    {[
-                      "duration.years",
-                      "duration.months",
-                      "duration.days",
-                      "duration.hours",
-                      "duration.minutes",
-                      "duration.seconds",
-                    ].map((unit) => (
-                      <FormField
-                        key={unit}
-                        control={form.control}
-                        name={unit as DurationType}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-xs capitalize text-foreground/80">
-                              {unit.split(".")[1]}
-                            </FormLabel>
-                            <FormControl>
-                              <Input
-                                type="number"
-                                className="text-xs capitalize"
-                                placeholder={unit}
-                                value={Math.max(0, Number(field.value || 0))}
-                                {...form.register(unit as DurationType, {
-                                  valueAsNumber: true,
-                                })}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    ))}
-                  </div>
-                )}
-
-                {mode === "cron" && (
-                  <FormField
-                    control={form.control}
-                    name="cronExpression"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-xs capitalize text-foreground/80">
-                          Cron Expression
-                        </FormLabel>
-                        <FormDescription className="text-xs">
-                          Standard 5 or 6 field cron format, e.g.{" "}
-                          <code className="font-mono">0 0 * * *</code>.
-                        </FormDescription>
-                        <FormControl>
-                          <Input
-                            type="text"
-                            className="text-xs font-mono"
-                            placeholder="0 0 * * *"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                )}
-
-                <FormField
-                  key="timeout"
-                  control={form.control}
-                  name="timeout"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs capitalize text-foreground/80">
-                        Timeout
-                      </FormLabel>
-                      <FormDescription className="text-xs">
-                        The maximum time in seconds the workflow can run for.
-                        Default is 0 (no timeout).
-                      </FormDescription>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          className="text-xs capitalize"
-                          placeholder="Timeout (seconds)"
-                          {...field}
-                          onChange={(e) =>
-                            field.onChange(
-                              e.target.value
-                                ? parseFloat(e.target.value)
-                                : undefined
-                            )
-                          }
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                {mode === "interval" && (
-                  <FormField
-                    key="offset"
-                    control={form.control}
-                    name="offset"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-xs capitalize text-foreground/80">
-                          Offset
-                        </FormLabel>
-                        <FormDescription className="text-xs">
-                          Optional delay before the first execution. Use ISO
-                          8601 duration format: PT1H (1 hour), P1D (1 day),
-                          PT30M (30 minutes).
-                        </FormDescription>
-                        <FormControl>
-                          <Input
-                            type="text"
-                            className="text-xs"
-                            placeholder="PT1H (optional)"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                )}
-
-                <FormField
-                  key="startAt"
-                  control={form.control}
-                  name="startAt"
-                  render={({ field }) => {
-                    const dateValue = field.value
-                      ? new Date(field.value)
-                      : undefined
-                    const timeValue = field.value
-                      ? new Date(field.value).toTimeString().slice(0, 8)
-                      : ""
-
-                    const handleDateChange = (date: Date | undefined) => {
-                      if (!date) {
-                        field.onChange("")
-                        setStartDatePickerOpen(false)
-                        return
-                      }
-
-                      const currentTime = field.value
-                        ? new Date(field.value).toTimeString().slice(0, 8)
-                        : "00:00:00"
-                      const [hours, minutes, seconds] = currentTime.split(":")
-                      date.setHours(
-                        Number.parseInt(hours),
-                        Number.parseInt(minutes),
-                        Number.parseInt(seconds)
-                      )
-                      field.onChange(date.toISOString())
-                      setStartDatePickerOpen(false)
-                    }
-
-                    const handleTimeChange = (
-                      e: React.ChangeEvent<HTMLInputElement>
-                    ) => {
-                      const timeStr = e.target.value
-                      const currentDate = field.value
-                        ? new Date(field.value)
-                        : new Date()
-
-                      const [hours, minutes, seconds] = timeStr.split(":")
-                      currentDate.setHours(
-                        Number.parseInt(hours || "0"),
-                        Number.parseInt(minutes || "0"),
-                        Number.parseInt(seconds || "0")
-                      )
-                      field.onChange(currentDate.toISOString())
-                    }
-
-                    return (
-                      <FormItem>
-                        <FormLabel className="text-xs capitalize text-foreground/80">
-                          Start after
-                        </FormLabel>
-                        <FormDescription className="text-xs">
-                          Optional earliest date and time to begin running this
-                          schedule.
-                        </FormDescription>
-                        <FormControl>
-                          <div className="flex gap-4">
-                            <div className="flex flex-col gap-3">
-                              <Popover
-                                open={startDatePickerOpen}
-                                onOpenChange={setStartDatePickerOpen}
-                              >
-                                <PopoverTrigger asChild>
-                                  <Button
-                                    variant="outline"
-                                    className="w-32 justify-between font-normal text-xs"
-                                  >
-                                    {dateValue
-                                      ? dateValue.toLocaleDateString()
-                                      : "Select date"}
-                                    <ChevronDownIcon className="size-4" />
-                                  </Button>
-                                </PopoverTrigger>
-                                <PopoverContent
-                                  className="w-auto overflow-hidden p-0"
-                                  align="start"
-                                  portal={true}
-                                >
-                                  <Calendar
-                                    mode="single"
-                                    selected={dateValue}
-                                    captionLayout="dropdown"
-                                    onSelect={handleDateChange}
-                                  />
-                                </PopoverContent>
-                              </Popover>
-                            </div>
-                            <div className="flex flex-col gap-3">
-                              <Input
-                                type="time"
-                                step="1"
-                                value={timeValue}
-                                onChange={handleTimeChange}
-                                className="bg-background text-xs appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
-                              />
-                            </div>
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )
-                  }}
-                />
-
-                <FormField
-                  key="endAt"
-                  control={form.control}
-                  name="endAt"
-                  render={({ field }) => {
-                    const dateValue = field.value
-                      ? new Date(field.value)
-                      : undefined
-                    const timeValue = field.value
-                      ? new Date(field.value).toTimeString().slice(0, 8)
-                      : ""
-
-                    const handleDateChange = (date: Date | undefined) => {
-                      if (!date) {
-                        field.onChange("")
-                        setEndDatePickerOpen(false)
-                        return
-                      }
-
-                      const currentTime = field.value
-                        ? new Date(field.value).toTimeString().slice(0, 8)
-                        : "00:00:00"
-                      const [hours, minutes, seconds] = currentTime.split(":")
-                      date.setHours(
-                        Number.parseInt(hours),
-                        Number.parseInt(minutes),
-                        Number.parseInt(seconds)
-                      )
-                      field.onChange(date.toISOString())
-                      setEndDatePickerOpen(false)
-                    }
-
-                    const handleTimeChange = (
-                      e: React.ChangeEvent<HTMLInputElement>
-                    ) => {
-                      const timeStr = e.target.value
-                      const currentDate = field.value
-                        ? new Date(field.value)
-                        : new Date()
-
-                      const [hours, minutes, seconds] = timeStr.split(":")
-                      currentDate.setHours(
-                        Number.parseInt(hours || "0"),
-                        Number.parseInt(minutes || "0"),
-                        Number.parseInt(seconds || "0")
-                      )
-                      field.onChange(currentDate.toISOString())
-                    }
-
-                    return (
-                      <FormItem>
-                        <FormLabel className="text-xs capitalize text-foreground/80">
-                          End by
-                        </FormLabel>
-                        <FormDescription className="text-xs">
-                          Optional latest date and time after which the schedule
-                          will stop running.
-                        </FormDescription>
-                        <FormControl>
-                          <div className="flex gap-4">
-                            <div className="flex flex-col gap-3">
-                              <Popover
-                                open={endDatePickerOpen}
-                                onOpenChange={setEndDatePickerOpen}
-                              >
-                                <PopoverTrigger asChild>
-                                  <Button
-                                    variant="outline"
-                                    className="w-32 justify-between font-normal text-xs"
-                                  >
-                                    {dateValue
-                                      ? dateValue.toLocaleDateString()
-                                      : "Select date"}
-                                    <ChevronDownIcon className="size-4" />
-                                  </Button>
-                                </PopoverTrigger>
-                                <PopoverContent
-                                  className="w-auto overflow-hidden p-0"
-                                  align="start"
-                                  portal={true}
-                                >
-                                  <Calendar
-                                    mode="single"
-                                    selected={dateValue}
-                                    captionLayout="dropdown"
-                                    onSelect={handleDateChange}
-                                  />
-                                </PopoverContent>
-                              </Popover>
-                            </div>
-                            <div className="flex flex-col gap-3">
-                              <Input
-                                type="time"
-                                step="1"
-                                value={timeValue}
-                                onChange={handleTimeChange}
-                                className="bg-background text-xs appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
-                              />
-                            </div>
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )
-                  }}
-                />
-              </div>
+              <ScheduleFormFields form={form} />
             </DialogBody>
             <DialogFooter>
               <Button size="sm" type="submit" variant="default">

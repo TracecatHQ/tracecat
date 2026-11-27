@@ -14,6 +14,7 @@ from tracecat.db.models import (
     AgentPreset,
     ObjectStorageTrigger,
     Trigger,
+    TriggerBinding,
     Workflow,
     Workspace,
 )
@@ -53,6 +54,16 @@ TOPIC = "arn:aws:sns:us-east-1:123456789012:bucket-events"
 
 def _sns(topic: str = TOPIC) -> AwsSnsSourceConfig:
     return AwsSnsSourceConfig(kind=EventSourceKind.AWS_SNS, topic_arn=topic)
+
+
+@pytest.fixture(autouse=True)
+def entitled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give the org object storage triggers; the service checks each kind's."""
+
+    async def _entitled(self: TriggersService, entitlement: object) -> bool:
+        return True
+
+    monkeypatch.setattr(TriggersService, "has_entitlement", _entitled)
 
 
 @pytest.fixture
@@ -101,6 +112,12 @@ async def preset(session: AsyncSession, svc_workspace: Workspace) -> AgentPreset
     session.add(preset)
     await session.commit()
     return preset
+
+
+def _os(config: object) -> ObjectStorageTriggerConfigRead:
+    """Narrow a read config to the object storage kind."""
+    assert isinstance(config, ObjectStorageTriggerConfigRead)
+    return config
 
 
 async def _trigger(service: TriggersService, prefix: str = "") -> uuid.UUID:
@@ -238,7 +255,7 @@ async def test_trigger_header_and_settings_round_trip(
         ),
     )
     updated = await service.get_trigger(trigger_id)
-    assert updated.config.key_prefix == "other/"
+    assert _os(updated.config).key_prefix == "other/"
     assert updated.status is TriggerStatus.ONLINE
     assert updated.updated_at >= read.updated_at
 
@@ -275,7 +292,7 @@ async def test_workspaces_cannot_see_or_change_each_others_rows(
     service: TriggersService, other_service: TriggersService
 ) -> None:
     trigger_id = await _trigger(service)
-    source_id = (await service.get_trigger(trigger_id)).config.source_id
+    source_id = _os((await service.get_trigger(trigger_id)).config).source_id
 
     for call in (
         other_service.get_trigger(trigger_id),
@@ -457,7 +474,7 @@ async def test_list_triggers_filters_and_returns_bindings_in_one_page(
     everything = await service.list_triggers(PageParams())
     assert [t.id for t in everything.items] == [unbound, to_agent, to_workflow]
     assert [len(t.bindings) for t in everything.items] == [0, 1, 1]
-    assert {t.config.source_name for t in everything.items} == {"bucket"}
+    assert {_os(t.config).source_name for t in everything.items} == {"bucket"}
 
     by_workflow = await service.list_triggers(
         PageParams(), workflow_id=WorkflowUUID.new(workflow.id)
@@ -466,11 +483,83 @@ async def test_list_triggers_filters_and_returns_bindings_in_one_page(
     by_agent = await service.list_triggers(PageParams(), agent_preset_id=preset.id)
     assert [t.id for t in by_agent.items] == [to_agent]
 
-    source_id = by_agent.items[0].config.source_id
+    source_id = _os(by_agent.items[0].config).source_id
     by_source = await service.list_triggers(PageParams(), source_id=source_id)
     assert [t.id for t in by_source.items] == [to_agent]
     by_kind = await service.list_triggers(PageParams(), kind=TriggerKind.OBJECT_STORAGE)
     assert len(by_kind.items) == 3
+
+
+async def test_rows_of_a_kind_this_version_does_not_know_are_skipped(
+    service: TriggersService,
+    session: AsyncSession,
+    svc_workspace: Workspace,
+    workflow: Workflow,
+) -> None:
+    """A newer version's kind (rolling deploy, rollback) never fails a read."""
+    known = await _trigger(service)
+    future = Trigger(
+        id=uuid.uuid4(),
+        workspace_id=svc_workspace.id,
+        kind="future_kind",
+        name="from a newer version",
+        status=TriggerStatus.ONLINE.value,
+    )
+    session.add(future)
+    await session.flush()
+    binding = TriggerBinding(
+        workspace_id=svc_workspace.id,
+        trigger_id=future.id,
+        target_type=TriggerTargetType.WORKFLOW.value,
+        workflow_id=workflow.id,
+        status=TriggerStatus.ONLINE.value,
+    )
+    session.add(binding)
+    await session.commit()
+    future_id, binding_id, workflow_id = future.id, binding.id, workflow.id
+
+    page = await service.list_triggers(PageParams(limit=1))
+    assert [t.id for t in page.items] == [known]
+    assert not page.has_more
+    by_workflow = await service.list_triggers(
+        PageParams(), workflow_id=WorkflowUUID.new(workflow.id)
+    )
+    assert by_workflow.items == []
+
+    workflow_target = WorkflowBindingTarget(
+        type=TriggerTargetType.WORKFLOW, workflow_id=WorkflowUUID.new(workflow.id)
+    )
+    for call in (
+        service.get_trigger(future_id),
+        service.update_trigger(future_id, TriggerUpdate(name="x")),
+        service.delete_trigger(future_id),
+        service.create_binding(future_id, TriggerBindingCreate(target=workflow_target)),
+        service.update_binding(
+            future_id, binding_id, TriggerBindingUpdate(status=TriggerStatus.OFFLINE)
+        ),
+        service.delete_binding(future_id, binding_id),
+    ):
+        with pytest.raises(TriggerError) as exc:
+            await call
+        assert exc.value.code is TriggerErrorCode.NOT_FOUND
+
+    # Left as the newer version wrote it.
+    stored = await session.execute(
+        select(Trigger.name, Trigger.kind, Trigger.status).where(
+            Trigger.id == future_id
+        )
+    )
+    assert stored.tuples().all() == [
+        ("from a newer version", "future_kind", TriggerStatus.ONLINE.value)
+    ]
+    kept = await session.execute(
+        select(
+            TriggerBinding.id, TriggerBinding.workflow_id, TriggerBinding.status
+        ).where(TriggerBinding.trigger_id == future_id)
+    )
+    assert kept.tuples().all() == [
+        (binding_id, workflow_id, TriggerStatus.ONLINE.value)
+    ]
 
 
 async def test_making_a_binding_live_needs_the_right_to_run_its_target(
@@ -638,7 +727,7 @@ async def test_gated_writes_take_the_workspace_config_lock(
 ) -> None:
     """Writes whose scope check reads other rows serialize on one lock."""
     trigger_id = await _trigger(service)
-    source_id = (await service.get_trigger(trigger_id)).config.source_id
+    source_id = _os((await service.get_trigger(trigger_id)).config).source_id
     keys: list[int] = []
     real_lock = trigger_service.pg_advisory_xact_lock
 

@@ -2,8 +2,12 @@
 
 import { AlertTriangleIcon } from "lucide-react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
-import { CopyButton } from "@/components/copy-button"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { CopyableValue } from "@/components/triggers/object-storage/copyable-value"
+import {
+  describeEventSource,
+  getEventSourceProvider,
+} from "@/components/triggers/object-storage/event-source-providers"
 import { describeTriggerError } from "@/components/triggers/trigger-errors"
 import {
   SubscriptionStatusLabel,
@@ -15,8 +19,8 @@ import { toast } from "@/components/ui/use-toast"
 import { useEventSource, useTriggerMutations } from "@/hooks/use-triggers"
 
 /**
- * An SNS event source: where to point the subscription, whether SNS has
- * confirmed it, and how to set it up safely.
+ * An event source: where its provider delivers, whether the feed is
+ * confirmed, and the provider's setup steps (`EVENT_SOURCE_PROVIDERS`).
  */
 export function EventSourcePanel({
   workspaceId,
@@ -48,10 +52,7 @@ export function EventSourcePanel({
     )
   }
 
-  const topicArn = source.config.topic_arn
-  const subscribeCommand = source.endpoint_url
-    ? `aws sns subscribe --topic-arn ${shellQuote(topicArn)} --protocol https --notification-endpoint ${shellQuote(source.endpoint_url)}`
-    : null
+  const provider = getEventSourceProvider(source.kind)
 
   async function setOnline(online: boolean) {
     try {
@@ -76,7 +77,7 @@ export function EventSourcePanel({
         <div className="min-w-0 space-y-1">
           <p className="text-sm font-medium">{source.name}</p>
           <p className="truncate font-mono text-xs text-muted-foreground">
-            {topicArn}
+            {describeEventSource(source)}
           </p>
           <div className="flex items-center gap-4 pt-1">
             <SubscriptionStatusLabel status={source.subscription_status} />
@@ -107,42 +108,19 @@ export function EventSourcePanel({
         ) : (
           <p className="text-xs text-muted-foreground">
             Hidden. Only members who can change triggers (trigger:update) can
-            see the URL SNS delivers to.
+            see the URL {provider?.sender ?? "the provider"} delivers to.
           </p>
         )}
       </div>
 
-      <div className="space-y-2">
-        <p className="text-xs font-medium">Set up the SNS topic</p>
-        <ol className="list-decimal space-y-1.5 pl-4 text-xs text-muted-foreground">
-          <li>
-            Send the bucket's object created events to this topic (S3 event
-            notifications).
-          </li>
-          <li>
-            Subscribe the endpoint URL to the topic with the HTTPS protocol. The
-            state above changes to confirmed once the subscription is confirmed.
-          </li>
-          <li>
-            Leave raw message delivery off, so SNS sends its signed message
-            envelope rather than the bare S3 event.
-          </li>
-          <li>
-            Set a delivery retry policy that keeps retrying for 1 hour, so a
-            short outage doesn't drop events.
-          </li>
-          <li>
-            Add a dead-letter queue (SQS) to the subscription to keep the events
-            SNS gives up on.
-          </li>
-        </ol>
-        {subscribeCommand ? (
-          <CopyableValue
-            value={subscribeCommand}
-            toastMessage="Command copied"
-          />
-        ) : null}
-      </div>
+      {provider ? (
+        <provider.Setup source={source} />
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          This version of Tracecat can't show setup steps for {source.kind}{" "}
+          sources.
+        </p>
+      )}
 
       <Alert>
         <AlertTriangleIcon className="size-4" />
@@ -158,34 +136,6 @@ export function EventSourcePanel({
           another prefix or to another bucket.
         </AlertDescription>
       </Alert>
-    </div>
-  )
-}
-
-/** Single-quote a value for a POSIX shell command line. */
-export function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", `'"'"'`)}'`
-}
-
-function CopyableValue({
-  value,
-  toastMessage,
-}: {
-  value: string
-  toastMessage: string
-}) {
-  return (
-    <div className="flex min-w-0 max-w-full items-start gap-3 rounded-md bg-muted/60 px-3 py-2.5">
-      <code className="min-w-0 flex-1 whitespace-pre-wrap break-all font-mono text-xs text-foreground/90 select-all">
-        {value}
-      </code>
-      <CopyButton
-        value={value}
-        toastMessage={toastMessage}
-        tooltipMessage="Copy"
-        className="size-6 shrink-0"
-        iconClassName="size-4 text-foreground/70"
-      />
     </div>
   )
 }

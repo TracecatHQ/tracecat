@@ -20,13 +20,16 @@ members here, a detail table if it has settings, its source kinds in
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
-from typing import Annotated, Literal
+from datetime import datetime, timedelta
+from typing import Annotated, Any, Literal, Self
 
-from pydantic import Field, StringConstraints
+from pydantic import Field, StringConstraints, field_validator, model_validator
 
 from tracecat.core.schemas import Schema
-from tracecat.identifiers.workflow import AnyWorkflowID
+from tracecat.identifiers.schedules import ScheduleUUID
+from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowID
+from tracecat.pagination import CursorPaginatedResponse
+from tracecat.tiers.enums import Entitlement
 from tracecat.triggers.enums import (
     EventSourceKind,
     SubscriptionStatus,
@@ -34,6 +37,12 @@ from tracecat.triggers.enums import (
     TriggerStatus,
     TriggerTargetType,
 )
+from tracecat.webhooks.schemas import (
+    WebhookApiKeyRead,
+    WebhookMethod,
+    normalize_cidrs,
+)
+from tracecat.workflow.schedules.schemas import check_cron, check_schedule_spec
 
 # Commercial, GovCloud and China partitions. FIFO topics cannot deliver to
 # HTTPS endpoints, so the name allows no ".fifo" suffix.
@@ -132,16 +141,153 @@ class ObjectStorageTriggerConfigRead(ObjectStorageTriggerConfig):
     source_name: str = Field(description="The event source's display name")
 
 
-TriggerConfig = Annotated[ObjectStorageTriggerConfig, Field(discriminator="kind")]
+class _ScheduleSettings(Schema):
+    """When a schedule runs and with what, as on ``/schedules``.
+
+    Validation lives on the input model only: a read shows the row as
+    ``/schedules`` left it (an update there can leave both cron and interval
+    set), and one odd row must not fail a whole list.
+    """
+
+    cron: str | None = Field(
+        default=None, description="A cron expression. Set this or `every`."
+    )
+    every: timedelta | None = Field(
+        default=None, description="ISO 8601 interval. Set this or `cron`."
+    )
+    offset: timedelta | None = Field(
+        default=None,
+        description="ISO 8601 delay before the first interval run. Interval only.",
+    )
+    start_at: datetime | None = Field(
+        default=None, description="ISO 8601 datetime before which it does not run"
+    )
+    end_at: datetime | None = Field(
+        default=None, description="ISO 8601 datetime after which it stops"
+    )
+    timeout: float = Field(
+        default=0,
+        ge=0,
+        description="Most seconds each run may take. 0 means no timeout.",
+    )
+    inputs: dict[str, Any] | None = Field(
+        default=None, description="The workflow's trigger inputs for each run"
+    )
+
+
+class ScheduleTriggerConfig(_ScheduleSettings):
+    """Run a workflow on a cron expression or a fixed interval.
+
+    The settings of the workflow's schedule (``/schedules``), which the
+    trigger shows and edits. Until schedules start their targets through
+    bindings, the trigger's one target is this workflow and cannot change.
+    """
+
+    kind: Literal[TriggerKind.SCHEDULE]
+    workflow_id: AnyWorkflowID = Field(
+        description="The workflow the schedule runs. Fixed after create."
+    )
+
+    @field_validator("cron")
+    @classmethod
+    def _valid_cron(cls, cron: str | None) -> str | None:
+        # A blank cron is no cron, so the one-spec check below catches it.
+        if cron is not None and not cron.strip():
+            return None
+        return check_cron(cron)
+
+    @model_validator(mode="after")
+    def _one_spec(self) -> Self:
+        check_schedule_spec(self.cron, self.every)
+        return self
+
+
+class ScheduleTriggerConfigRead(_ScheduleSettings):
+    kind: Literal[TriggerKind.SCHEDULE]
+    workflow_id: WorkflowID = Field(description="The workflow the schedule runs")
+    schedule_id: ScheduleUUID = Field(
+        description="The schedule's ID in `/schedules`, which does not change"
+    )
+
+
+class WebhookTriggerConfig(Schema):
+    """Run a workflow for each request to its webhook URL.
+
+    The settings of the workflow's webhook (``/workflows/{id}/webhook``),
+    which the trigger shows and edits. Every workflow has one webhook; it
+    becomes a trigger when it is turned on. Until webhooks start their targets
+    through bindings, the trigger's one target is this workflow and cannot
+    change. The API key is managed on the workflow's webhook only. Settings
+    left out of a create or update keep the webhook's saved values.
+    """
+
+    kind: Literal[TriggerKind.WEBHOOK]
+    workflow_id: AnyWorkflowID = Field(
+        description="The workflow whose webhook this is. Fixed after create."
+    )
+    methods: list[WebhookMethod] = Field(
+        default_factory=lambda: ["POST"],
+        min_length=1,
+        description="HTTP methods the webhook accepts",
+    )
+    allowlisted_cidrs: list[str] = Field(
+        default_factory=list,
+        description="IPv4 addresses or CIDR ranges allowed to call the webhook."
+        " Empty allows every address.",
+    )
+    include_headers: bool = Field(
+        default=False,
+        description="Pass request headers and metadata to the workflow, not"
+        " only the body",
+    )
+
+    @field_validator("allowlisted_cidrs")
+    @classmethod
+    def _valid_cidrs(cls, cidrs: list[str]) -> list[str]:
+        return normalize_cidrs(cidrs)
+
+
+class WebhookTriggerConfigRead(Schema):
+    """The webhook as ``/workflows/{id}/webhook`` shows it.
+
+    Readable only with ``workflow:read``, the scope that shows the same URL on
+    the workflow page.
+    """
+
+    kind: Literal[TriggerKind.WEBHOOK]
+    workflow_id: WorkflowID = Field(description="The workflow the webhook runs")
+    webhook_id: uuid.UUID = Field(description="The webhook's ID, which does not change")
+    methods: list[str] = Field(description="HTTP methods the webhook accepts")
+    allowlisted_cidrs: list[str] = Field(
+        description="Addresses allowed to call the webhook. Empty allows all."
+    )
+    include_headers: bool
+    url: str = Field(description="The webhook URL. It contains the webhook's secret.")
+    api_key: WebhookApiKeyRead | None = Field(
+        description="The webhook's API key, if it has one (preview only)"
+    )
+
+
+TriggerConfig = Annotated[
+    ObjectStorageTriggerConfig | ScheduleTriggerConfig | WebhookTriggerConfig,
+    Field(discriminator="kind"),
+]
 TriggerConfigRead = Annotated[
-    ObjectStorageTriggerConfigRead, Field(discriminator="kind")
+    ObjectStorageTriggerConfigRead
+    | ScheduleTriggerConfigRead
+    | WebhookTriggerConfigRead,
+    Field(discriminator="kind"),
 ]
 
 
 class TriggerCreate(Schema):
     name: Name
     config: TriggerConfig
-    status: TriggerStatus = Field(default=TriggerStatus.OFFLINE)
+    status: TriggerStatus = Field(
+        default=TriggerStatus.OFFLINE,
+        description="Offline when omitted, except for a webhook: its webhook"
+        " already exists and keeps its current status unless this is given.",
+    )
 
 
 class TriggerUpdate(Schema):
@@ -175,6 +321,24 @@ class TriggerRead(Schema):
     bindings: list[TriggerBindingRead]
     created_at: datetime
     updated_at: datetime
+
+
+class LockedTriggerCount(Schema):
+    """Triggers of one kind that a list leaves out because the plan lacks
+    the kind's feature."""
+
+    kind: TriggerKind
+    entitlement: Entitlement = Field(description="The plan feature the kind needs")
+    count: int = Field(description="How many such triggers match the list's filters")
+
+
+class TriggerListResponse(CursorPaginatedResponse[TriggerRead]):
+    locked: list[LockedTriggerCount] = Field(
+        default_factory=list,
+        description="Triggers matching the filters that are not listed because"
+        " the plan lacks their kind's feature, counted per kind. They are kept"
+        " and come back when the plan has the feature again.",
+    )
 
 
 # ----- Bindings -----

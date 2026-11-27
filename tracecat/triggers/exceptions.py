@@ -1,7 +1,7 @@
 """Errors for the trigger API."""
 
 from fastapi import Request, Response, status
-from fastapi.responses import ORJSONResponse
+from fastapi.responses import JSONResponse
 
 from tracecat.exceptions import TracecatException
 from tracecat.triggers.enums import TriggerErrorCode
@@ -25,7 +25,7 @@ async def trigger_error_handler(request: Request, exc: Exception) -> Response:
     """Answer a ``TriggerError`` with its status, code and message."""
     if not isinstance(exc, TriggerError):
         raise exc
-    return ORJSONResponse(
+    return JSONResponse(
         status_code=_STATUS_BY_CODE[exc.code],
         content={"detail": {"code": exc.code.value, "message": str(exc)}},
     )

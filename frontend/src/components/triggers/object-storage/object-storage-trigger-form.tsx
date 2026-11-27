@@ -1,6 +1,13 @@
 "use client"
 
 import { useState } from "react"
+import type { EventSourceKind } from "@/client"
+import {
+  describeEventSource,
+  EVENT_SOURCE_PROVIDER_LIST,
+  EVENT_SOURCE_PROVIDERS,
+  type ProviderDraft,
+} from "@/components/triggers/object-storage/event-source-providers"
 import { describeTriggerError } from "@/components/triggers/trigger-errors"
 import type { TriggerKindFormProps } from "@/components/triggers/trigger-kind-types"
 import { Input } from "@/components/ui/input"
@@ -19,8 +26,9 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 type SourceMode = "existing" | "new"
 
 /**
- * Settings for a new object storage trigger: an SNS event source (picked or
- * created here) and a key prefix.
+ * Settings for a new object storage trigger: an event source (picked, or
+ * created here after picking its storage provider) and a key prefix. Every
+ * provider detail comes from `EVENT_SOURCE_PROVIDERS`.
  */
 export function ObjectStorageTriggerForm({
   formId,
@@ -34,7 +42,11 @@ export function ObjectStorageTriggerForm({
   const [chosenMode, setChosenMode] = useState<SourceMode | null>(null)
   const [sourceId, setSourceId] = useState("")
   const [sourceName, setSourceName] = useState("")
-  const [topicArn, setTopicArn] = useState("")
+  const [providerKind, setProviderKind] = useState<EventSourceKind>(
+    EVENT_SOURCE_PROVIDER_LIST[0].kind
+  )
+  const provider = EVENT_SOURCE_PROVIDERS[providerKind]
+  const [draft, setDraft] = useState<ProviderDraft>(provider.emptyDraft)
   const [keyPrefix, setKeyPrefix] = useState("")
   const [formError, setFormError] = useState<string | null>(null)
 
@@ -57,18 +69,22 @@ export function ObjectStorageTriggerForm({
     if (mode === "existing") {
       return sourceId
     }
+    const config = provider.buildConfig(draft)
+    if (typeof config === "string") {
+      throw new Error(config)
+    }
     const created = await createEventSource.mutateAsync({
       name: sourceName.trim(),
-      config: { kind: "aws_sns", topic_arn: topicArn.trim() },
+      config,
       // A source starts nothing until a trigger reading it is online.
       status: "online",
     })
     // If the trigger itself fails, a retry reuses this source instead of
-    // hitting the one-source-per-topic rule.
+    // hitting the provider's one-source-per-feed rule.
     setChosenMode("existing")
     setSourceId(created.id)
     setSourceName("")
-    setTopicArn("")
+    setDraft(provider.emptyDraft)
     return created.id
   }
 
@@ -105,7 +121,7 @@ export function ObjectStorageTriggerForm({
             }}
             options={[
               { value: "existing", content: "Existing" },
-              { value: "new", content: "New SNS topic" },
+              { value: "new", content: "New source" },
             ]}
           />
         </div>
@@ -127,7 +143,7 @@ export function ObjectStorageTriggerForm({
                 >
                   <span>{source.name}</span>
                   <span className="ml-2 font-mono text-muted-foreground">
-                    {source.config.topic_arn}
+                    {describeEventSource(source)}
                   </span>
                 </SelectItem>
               ))}
@@ -135,6 +151,30 @@ export function ObjectStorageTriggerForm({
           </Select>
         ) : (
           <div className="space-y-3">
+            <Select
+              value={providerKind}
+              onValueChange={(next) => {
+                const kind = next as EventSourceKind
+                setProviderKind(kind)
+                setDraft(EVENT_SOURCE_PROVIDERS[kind].emptyDraft)
+              }}
+              disabled={busy}
+            >
+              <SelectTrigger className="text-xs" aria-label="Provider">
+                <SelectValue placeholder="Select a provider" />
+              </SelectTrigger>
+              <SelectContent>
+                {EVENT_SOURCE_PROVIDER_LIST.map((option) => (
+                  <SelectItem
+                    key={option.kind}
+                    value={option.kind}
+                    className="text-xs"
+                  >
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Input
               aria-label="Event source name"
               className="text-xs"
@@ -145,19 +185,11 @@ export function ObjectStorageTriggerForm({
               disabled={busy}
               onChange={(event) => setSourceName(event.target.value)}
             />
-            <Input
-              aria-label="SNS topic ARN"
-              className="font-mono text-xs"
-              placeholder="arn:aws:sns:us-east-1:123456789012:bucket-events"
-              value={topicArn}
-              required
+            <provider.Fields
+              draft={draft}
+              onDraftChange={setDraft}
               disabled={busy}
-              onChange={(event) => setTopicArn(event.target.value)}
             />
-            <p className="text-xs text-muted-foreground">
-              The standard SNS topic your bucket publishes object events to.
-              FIFO topics can't deliver to HTTPS endpoints.
-            </p>
           </div>
         )}
       </div>

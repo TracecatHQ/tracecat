@@ -16,6 +16,7 @@ from sse_starlette.sse import AppStatus
 from tracecat.db.engine import verify_rls_enforceable_login
 from tracecat.db.roles import UnsafeDatabaseLoginError
 from tracecat.logger import logger
+from tracecat.logger.redaction import install_uvicorn_url_secret_redaction
 from tracecat.mcp.config import (
     TRACECAT_MCP__GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
     TRACECAT_MCP__HOST,
@@ -36,6 +37,8 @@ def _run_mcp_server() -> None:
     # SIGTERM, which drops in-flight tool results. Let uvicorn's graceful
     # shutdown timeout bound the drain instead.
     AppStatus.disable_automatic_graceful_drain()
+    # The OAuth callback carries the authorization code and state in its query.
+    install_uvicorn_url_secret_redaction()
     module.mcp.run(
         transport="streamable-http",
         host=TRACECAT_MCP__HOST,

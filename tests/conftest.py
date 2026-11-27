@@ -127,6 +127,33 @@ MCP_TOKEN_REVOKER_MIGRATION = (
 )
 
 
+_MIGRATIONS = Path(__file__).resolve().parents[1] / "alembic" / "versions"
+# Migrations whose database trigger keeps a kind's ``trigger`` row in step with
+# its settings table.
+TRIGGER_SYNC_MIGRATIONS = (
+    _MIGRATIONS / "61ebd010e726_link_schedules_to_triggers.py",
+    _MIGRATIONS / "fa8c621ea06a_link_webhooks_to_triggers.py",
+)
+
+
+def _install_trigger_sync(conn: Any) -> None:
+    """Install the production triggers that keep trigger rows in step.
+
+    One per trigger kind with its own settings table (schedules, webhooks).
+    The SQL comes from the migrations that define them, as for the MCP token
+    revoker below.
+    """
+    for path in TRIGGER_SYNC_MIGRATIONS:
+        spec = importlib.util.spec_from_file_location(path.stem, path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Unable to load {path}")
+        migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(migration)
+        conn.execute(text(migration.SYNC_FUNCTION_SQL))
+        conn.execute(text(migration.DROP_SYNC_TRIGGER_SQL))
+        conn.execute(text(migration.SYNC_TRIGGER_SQL))
+
+
 def _install_membership_token_revoker(conn: Any) -> None:
     """Install the production trigger that revokes MCP tokens on member removal.
 
@@ -469,6 +496,7 @@ def db() -> Iterator[None]:
             Base.metadata.create_all(conn)
             _install_case_number_allocator(conn)
             _install_membership_token_revoker(conn)
+            _install_trigger_sync(conn)
         yield
     finally:
         if test_engine is not None:
@@ -505,6 +533,7 @@ def default_org(db: None, env_sandbox: None) -> Iterator[None]:
             Base.metadata.create_all(conn)
             _install_case_number_allocator(conn)
             _install_membership_token_revoker(conn)
+            _install_trigger_sync(conn)
 
         with Session(sync_engine) as session:
             base_org_slug = f"test-org-{TEST_ORG_ID.hex[:8]}"

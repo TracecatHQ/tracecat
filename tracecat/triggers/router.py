@@ -15,7 +15,7 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.identifiers.workflow import OptionalAnyWorkflowIDQuery
 from tracecat.pagination import CursorPaginatedResponse, PageParams, PaginationError
-from tracecat.triggers.dependencies import require_triggers_enabled
+from tracecat.triggers.dependencies import require_event_sources_enabled
 from tracecat.triggers.enums import TriggerKind
 from tracecat.triggers.schemas import (
     EventSourceCreate,
@@ -25,17 +25,19 @@ from tracecat.triggers.schemas import (
     TriggerBindingRead,
     TriggerBindingUpdate,
     TriggerCreate,
+    TriggerListResponse,
     TriggerRead,
     TriggerUpdate,
 )
 from tracecat.triggers.service import TriggersService, read_event_source
 
-_GATES = [Depends(require_triggers_enabled)]
-
 event_sources_router = APIRouter(
-    prefix="/event-sources", tags=["triggers"], dependencies=_GATES
+    prefix="/event-sources",
+    tags=["triggers"],
+    dependencies=[Depends(require_event_sources_enabled)],
 )
-triggers_router = APIRouter(prefix="/triggers", tags=["triggers"], dependencies=_GATES)
+# Open to every plan: the service checks each trigger kind's entitlement.
+triggers_router = APIRouter(prefix="/triggers", tags=["triggers"])
 
 PageQuery = Annotated[PageParams, Depends()]
 
@@ -117,11 +119,12 @@ async def list_triggers(
     kind: TriggerKind | None = Query(default=None),
     source_id: uuid.UUID | None = Query(default=None),
     agent_preset_id: uuid.UUID | None = Query(default=None),
-) -> CursorPaginatedResponse[TriggerRead]:
+) -> TriggerListResponse:
     """List triggers newest first, each with its config and bindings.
 
     ``workflow_id`` or ``agent_preset_id`` keeps the triggers bound to that
-    target.
+    target. ``locked`` counts the matching triggers left out because the plan
+    lacks their kind's feature.
     """
     service = TriggersService(session, role)
     return await _paged(
@@ -136,13 +139,19 @@ async def list_triggers(
 
 
 @triggers_router.post(
-    "", status_code=status.HTTP_201_CREATED, responses=_errors(400, 404)
+    "", status_code=status.HTTP_201_CREATED, responses=_errors(400, 404, 409)
 )
 @require_scope("trigger:create")
 async def create_trigger(
     *, role: WorkspaceActorRouteRole, session: AsyncDBSession, params: TriggerCreate
 ) -> TriggerRead:
-    """Create a trigger. It has no bindings yet."""
+    """Create a trigger.
+
+    An ``object_storage`` trigger starts with no bindings. A ``schedule``
+    trigger creates the workflow's schedule (as ``POST /schedules`` does) and
+    comes bound to that workflow; it also needs ``schedule:create``,
+    ``schedule:read`` and ``workflow:execute``.
+    """
     service = TriggersService(session, role)
     trigger = await service.create_trigger(params)
     return await service.get_trigger(trigger.id)
@@ -179,7 +188,11 @@ async def update_trigger(
 async def delete_trigger(
     *, role: WorkspaceActorRouteRole, session: AsyncDBSession, trigger_id: uuid.UUID
 ) -> None:
-    """Delete a trigger and its bindings."""
+    """Delete a trigger and its bindings.
+
+    For a ``schedule`` trigger this deletes the schedule, and needs
+    ``schedule:delete``.
+    """
     await TriggersService(session, role).delete_trigger(trigger_id)
 
 
@@ -189,7 +202,7 @@ async def delete_trigger(
 @triggers_router.post(
     "/{trigger_id}/bindings",
     status_code=status.HTTP_201_CREATED,
-    responses=_errors(404, 409),
+    responses=_errors(400, 404, 409),
 )
 @require_scope("trigger:update")
 async def create_trigger_binding(
@@ -234,7 +247,7 @@ async def update_trigger_binding(
 @triggers_router.delete(
     "/{trigger_id}/bindings/{binding_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    responses=_errors(404),
+    responses=_errors(400, 404),
 )
 @require_scope("trigger:delete")
 async def delete_trigger_binding(

@@ -19203,69 +19203,6 @@ export const $CursorPaginatedResponse_TableRowRead_ = {
   title: "CursorPaginatedResponse[TableRowRead]",
 } as const
 
-export const $CursorPaginatedResponse_TriggerRead_ = {
-  properties: {
-    items: {
-      items: {
-        $ref: "#/components/schemas/TriggerRead",
-      },
-      type: "array",
-      title: "Items",
-    },
-    next_cursor: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Next Cursor",
-      description: "Cursor for next page",
-    },
-    prev_cursor: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Prev Cursor",
-      description: "Cursor for previous page",
-    },
-    has_more: {
-      type: "boolean",
-      title: "Has More",
-      description: "Whether more items exist",
-      default: false,
-    },
-    has_previous: {
-      type: "boolean",
-      title: "Has Previous",
-      description: "Whether previous items exist",
-      default: false,
-    },
-    total_estimate: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Total Estimate",
-      description: "Estimated total count from table statistics",
-    },
-  },
-  type: "object",
-  required: ["items"],
-  title: "CursorPaginatedResponse[TriggerRead]",
-} as const
-
 export const $CursorPaginatedResponse_WorkflowReadMinimal_ = {
   properties: {
     items: {
@@ -20877,6 +20814,33 @@ export const $EmbeddingModelRead = {
   title: "EmbeddingModelRead",
   description:
     "Public metadata needed for status and bounded chunk preparation.",
+} as const
+
+export const $Entitlement = {
+  type: "string",
+  enum: [
+    "custom_registry",
+    "git_sync",
+    "agent_addons",
+    "case_addons",
+    "rbac_addons",
+    "service_accounts",
+    "workspace_chat",
+    "multi_workspace",
+    "watchtower",
+    "external_secret_stores",
+    "agent_channels",
+    "semantic_search",
+    "forms",
+    "tunnels",
+    "agent_runtime_preview",
+    "agent_runtime_workflows",
+    "agent_channels_preview",
+    "object_triggers",
+    "custom_branding",
+  ],
+  title: "Entitlement",
+  description: "Available feature entitlements.",
 } as const
 
 export const $EntitlementsDict = {
@@ -26547,6 +26511,28 @@ export const $LibrarySkillSourceRead = {
   title: "LibrarySkillSourceRead",
   description:
     "Library group, maintainer, and optional upstream location of a skill.",
+} as const
+
+export const $LockedTriggerCount = {
+  properties: {
+    kind: {
+      $ref: "#/components/schemas/TriggerKind",
+    },
+    entitlement: {
+      $ref: "#/components/schemas/Entitlement",
+      description: "The plan feature the kind needs",
+    },
+    count: {
+      type: "integer",
+      title: "Count",
+      description: "How many such triggers match the list's filters",
+    },
+  },
+  type: "object",
+  required: ["kind", "entitlement", "count"],
+  title: "LockedTriggerCount",
+  description: `Triggers of one kind that a list leaves out because the plan lacks
+the kind's feature.`,
 } as const
 
 export const $LoginMethodsRead = {
@@ -36302,6 +36288,231 @@ export const $ScheduleSearch = {
   title: "ScheduleSearch",
 } as const
 
+export const $ScheduleTriggerConfig = {
+  properties: {
+    cron: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Cron",
+      description: "A cron expression. Set this or `every`.",
+    },
+    every: {
+      anyOf: [
+        {
+          type: "string",
+          format: "duration",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Every",
+      description: "ISO 8601 interval. Set this or `cron`.",
+    },
+    offset: {
+      anyOf: [
+        {
+          type: "string",
+          format: "duration",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Offset",
+      description:
+        "ISO 8601 delay before the first interval run. Interval only.",
+    },
+    start_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Start At",
+      description: "ISO 8601 datetime before which it does not run",
+    },
+    end_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "End At",
+      description: "ISO 8601 datetime after which it stops",
+    },
+    timeout: {
+      type: "number",
+      minimum: 0,
+      title: "Timeout",
+      description: "Most seconds each run may take. 0 means no timeout.",
+      default: 0,
+    },
+    inputs: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inputs",
+      description: "The workflow's trigger inputs for each run",
+    },
+    kind: {
+      type: "string",
+      const: "schedule",
+      title: "Kind",
+    },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}",
+        },
+      ],
+      title: "Workflow Id",
+      description: "The workflow the schedule runs. Fixed after create.",
+    },
+  },
+  type: "object",
+  required: ["kind", "workflow_id"],
+  title: "ScheduleTriggerConfig",
+  description: `Run a workflow on a cron expression or a fixed interval.
+
+The settings of the workflow's schedule (\`\`/schedules\`\`), which the
+trigger shows and edits. Until schedules start their targets through
+bindings, the trigger's one target is this workflow and cannot change.`,
+} as const
+
+export const $ScheduleTriggerConfigRead = {
+  properties: {
+    cron: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Cron",
+      description: "A cron expression. Set this or `every`.",
+    },
+    every: {
+      anyOf: [
+        {
+          type: "string",
+          format: "duration",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Every",
+      description: "ISO 8601 interval. Set this or `cron`.",
+    },
+    offset: {
+      anyOf: [
+        {
+          type: "string",
+          format: "duration",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Offset",
+      description:
+        "ISO 8601 delay before the first interval run. Interval only.",
+    },
+    start_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Start At",
+      description: "ISO 8601 datetime before which it does not run",
+    },
+    end_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "End At",
+      description: "ISO 8601 datetime after which it stops",
+    },
+    timeout: {
+      type: "number",
+      minimum: 0,
+      title: "Timeout",
+      description: "Most seconds each run may take. 0 means no timeout.",
+      default: 0,
+    },
+    inputs: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inputs",
+      description: "The workflow's trigger inputs for each run",
+    },
+    kind: {
+      type: "string",
+      const: "schedule",
+      title: "Kind",
+    },
+    workflow_id: {
+      type: "string",
+      title: "Workflow Id",
+      description: "The workflow the schedule runs",
+    },
+    schedule_id: {
+      type: "string",
+      title: "Schedule Id",
+      description: "The schedule's ID in `/schedules`, which does not change",
+    },
+  },
+  type: "object",
+  required: ["kind", "workflow_id", "schedule_id"],
+  title: "ScheduleTriggerConfigRead",
+} as const
+
 export const $ScheduleUpdate = {
   properties: {
     inputs: {
@@ -45358,17 +45569,27 @@ export const $TriggerCreate = {
         {
           $ref: "#/components/schemas/ObjectStorageTriggerConfig",
         },
+        {
+          $ref: "#/components/schemas/ScheduleTriggerConfig",
+        },
+        {
+          $ref: "#/components/schemas/WebhookTriggerConfig",
+        },
       ],
       title: "Config",
       discriminator: {
         propertyName: "kind",
         mapping: {
           object_storage: "#/components/schemas/ObjectStorageTriggerConfig",
+          schedule: "#/components/schemas/ScheduleTriggerConfig",
+          webhook: "#/components/schemas/WebhookTriggerConfig",
         },
       },
     },
     status: {
       $ref: "#/components/schemas/TriggerStatus",
+      description:
+        "Offline when omitted, except for a webhook: its webhook already exists and keeps its current status unless this is given.",
       default: "offline",
     },
   },
@@ -45379,10 +45600,82 @@ export const $TriggerCreate = {
 
 export const $TriggerKind = {
   type: "string",
-  enum: ["object_storage"],
+  enum: ["object_storage", "schedule", "webhook"],
   title: "TriggerKind",
   description:
     "What a trigger listens to. Each kind has its own source and config.",
+} as const
+
+export const $TriggerListResponse = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/TriggerRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+    locked: {
+      items: {
+        $ref: "#/components/schemas/LockedTriggerCount",
+      },
+      type: "array",
+      title: "Locked",
+      description:
+        "Triggers matching the filters that are not listed because the plan lacks their kind's feature, counted per kind. They are kept and come back when the plan has the feature again.",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "TriggerListResponse",
 } as const
 
 export const $TriggerRead = {
@@ -45407,12 +45700,20 @@ export const $TriggerRead = {
         {
           $ref: "#/components/schemas/ObjectStorageTriggerConfigRead",
         },
+        {
+          $ref: "#/components/schemas/ScheduleTriggerConfigRead",
+        },
+        {
+          $ref: "#/components/schemas/WebhookTriggerConfigRead",
+        },
       ],
       title: "Config",
       discriminator: {
         propertyName: "kind",
         mapping: {
           object_storage: "#/components/schemas/ObjectStorageTriggerConfigRead",
+          schedule: "#/components/schemas/ScheduleTriggerConfigRead",
+          webhook: "#/components/schemas/WebhookTriggerConfigRead",
         },
       },
     },
@@ -45491,11 +45792,19 @@ export const $TriggerUpdate = {
             {
               $ref: "#/components/schemas/ObjectStorageTriggerConfig",
             },
+            {
+              $ref: "#/components/schemas/ScheduleTriggerConfig",
+            },
+            {
+              $ref: "#/components/schemas/WebhookTriggerConfig",
+            },
           ],
           discriminator: {
             propertyName: "kind",
             mapping: {
               object_storage: "#/components/schemas/ObjectStorageTriggerConfig",
+              schedule: "#/components/schemas/ScheduleTriggerConfig",
+              webhook: "#/components/schemas/WebhookTriggerConfig",
             },
           },
         },
@@ -48713,6 +49022,139 @@ export const $WebhookStoredObjectInlineResponse = {
   type: "object",
   required: ["kind", "value"],
   title: "WebhookStoredObjectInlineResponse",
+} as const
+
+export const $WebhookTriggerConfig = {
+  properties: {
+    kind: {
+      type: "string",
+      const: "webhook",
+      title: "Kind",
+    },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}",
+        },
+      ],
+      title: "Workflow Id",
+      description: "The workflow whose webhook this is. Fixed after create.",
+    },
+    methods: {
+      items: {
+        $ref: "#/components/schemas/WebhookMethod",
+      },
+      type: "array",
+      minItems: 1,
+      title: "Methods",
+      description: "HTTP methods the webhook accepts",
+    },
+    allowlisted_cidrs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Allowlisted Cidrs",
+      description:
+        "IPv4 addresses or CIDR ranges allowed to call the webhook. Empty allows every address.",
+    },
+    include_headers: {
+      type: "boolean",
+      title: "Include Headers",
+      description:
+        "Pass request headers and metadata to the workflow, not only the body",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["kind", "workflow_id"],
+  title: "WebhookTriggerConfig",
+  description: `Run a workflow for each request to its webhook URL.
+
+The settings of the workflow's webhook (\`\`/workflows/{id}/webhook\`\`),
+which the trigger shows and edits. Every workflow has one webhook; it
+becomes a trigger when it is turned on. Until webhooks start their targets
+through bindings, the trigger's one target is this workflow and cannot
+change. The API key is managed on the workflow's webhook only. Settings
+left out of a create or update keep the webhook's saved values.`,
+} as const
+
+export const $WebhookTriggerConfigRead = {
+  properties: {
+    kind: {
+      type: "string",
+      const: "webhook",
+      title: "Kind",
+    },
+    workflow_id: {
+      type: "string",
+      title: "Workflow Id",
+      description: "The workflow the webhook runs",
+    },
+    webhook_id: {
+      type: "string",
+      format: "uuid",
+      title: "Webhook Id",
+      description: "The webhook's ID, which does not change",
+    },
+    methods: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Methods",
+      description: "HTTP methods the webhook accepts",
+    },
+    allowlisted_cidrs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Allowlisted Cidrs",
+      description: "Addresses allowed to call the webhook. Empty allows all.",
+    },
+    include_headers: {
+      type: "boolean",
+      title: "Include Headers",
+    },
+    url: {
+      type: "string",
+      title: "Url",
+      description: "The webhook URL. It contains the webhook's secret.",
+    },
+    api_key: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WebhookApiKeyRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "The webhook's API key, if it has one (preview only)",
+    },
+  },
+  type: "object",
+  required: [
+    "kind",
+    "workflow_id",
+    "webhook_id",
+    "methods",
+    "allowlisted_cidrs",
+    "include_headers",
+    "url",
+    "api_key",
+  ],
+  title: "WebhookTriggerConfigRead",
+  description: `The webhook as \`\`/workflows/{id}/webhook\`\` shows it.
+
+Readable only with \`\`workflow:read\`\`, the scope that shows the same URL on
+the workflow page.`,
 } as const
 
 export const $WebhookUpdate = {

@@ -18,13 +18,15 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from pydantic import BaseModel
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from temporalio import activity
 from temporalio.api.enums.v1 import EventType, IndexedValueType
 from temporalio.api.history.v1 import HistoryEvent
 from temporalio.api.operatorservice.v1 import AddSearchAttributesRequest
 from temporalio.client import WorkflowFailureError, WorkflowHandle
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import Worker
+from temporalio.worker import Replayer, Worker
 
 from tests.shared import TEST_WF_ID, generate_test_exec_id
 from tracecat import config
@@ -43,10 +45,21 @@ from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import Organization, OrganizationTier, Tier
 from tracecat.dsl._converter import get_data_converter
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
-from tracecat.dsl.schemas import ActionRetryPolicy, ActionStatement, RunActionInput
+from tracecat.dsl.init_activities import resolve_run_limits_activity
+from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
+from tracecat.dsl.schemas import (
+    ActionRetryPolicy,
+    ActionStatement,
+    GatherArgs,
+    RunActionInput,
+    ScatterArgs,
+)
+from tracecat.dsl.worker import get_activities, new_sandbox_runner
+from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.executor import activities as executor_activities
 from tracecat.executor.activities import ExecutorActivities
 from tracecat.feature_flags.enums import FeatureFlag
+from tracecat.identifiers import OrganizationID
 from tracecat.redis import client as redis_client_module
 from tracecat.redis.client import get_redis_client
 from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorOwner
@@ -866,3 +879,205 @@ async def test_overloaded_executor_defers_without_using_a_retry(
     assert gate._breaker_open_until == 0.0
     store = await LeaseStore.create()
     assert await store.in_use(org_id, ConcurrencyResource.ACTIONS) == 0
+
+
+class _PreThrottleRunLimitsSnapshot(BaseModel):
+    """The run-limits snapshot as recorded before ``max_concurrent_actions``."""
+
+    max_action_executions_per_workflow: int | None = None
+
+
+@activity.defn(name="resolve_run_limits_activity")
+async def _pre_throttle_run_limits(
+    _org_id: OrganizationID,
+) -> _PreThrottleRunLimitsSnapshot:
+    """Record the old snapshot shape, as a run started before the run throttle."""
+    return _PreThrottleRunLimitsSnapshot()
+
+
+def _pre_throttle_dsl_activities() -> list[Callable[..., Any]]:
+    return [
+        *(a for a in get_activities() if a is not resolve_run_limits_activity),
+        _pre_throttle_run_limits,
+    ]
+
+
+def _fan_out_dsl(items: int) -> DSLInput:
+    return DSLInput(
+        title="fanout",
+        description="fanout",
+        entrypoint=DSLEntrypoint(ref="scatter"),
+        actions=[
+            ActionStatement(
+                ref="scatter",
+                action="core.transform.scatter",
+                args=ScatterArgs(collection=list(range(items))).model_dump(),
+            ),
+            ActionStatement(
+                ref="item",
+                action="core.transform.reshape",
+                depends_on=["scatter"],
+                args={"value": "${{ ACTIONS.scatter.result }}"},
+            ),
+            ActionStatement(
+                ref="gather",
+                action="core.transform.gather",
+                depends_on=["item"],
+                args=GatherArgs(items="${{ ACTIONS.item.result }}").model_dump(),
+            ),
+        ],
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _ActionCounts:
+    """Temporal actions a run spent on its executor dispatches."""
+
+    attempts: int
+    busy: int
+    timers_started: int
+    signals: Counter[str]
+    max_outstanding: int
+
+
+async def _action_counts(handle: WorkflowHandle[Any, Any]) -> _ActionCounts:
+    history = await _history(handle)
+    executor_activities_by_id: set[int] = set()
+    outstanding = 0
+    max_outstanding = 0
+    signals: Counter[str] = Counter()
+    for event in history:
+        match event.event_type:
+            case EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED:
+                attrs = event.activity_task_scheduled_event_attributes
+                if attrs.activity_type.name == EXECUTE_ACTION:
+                    executor_activities_by_id.add(event.event_id)
+                    outstanding += 1
+                    max_outstanding = max(max_outstanding, outstanding)
+            case EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED:
+                scheduled = (
+                    event.activity_task_completed_event_attributes.scheduled_event_id
+                )
+                if scheduled in executor_activities_by_id:
+                    outstanding -= 1
+            case EventType.EVENT_TYPE_ACTIVITY_TASK_FAILED:
+                scheduled = (
+                    event.activity_task_failed_event_attributes.scheduled_event_id
+                )
+                if scheduled in executor_activities_by_id:
+                    outstanding -= 1
+            case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED:
+                attrs = event.workflow_execution_signaled_event_attributes
+                signals[attrs.signal_name] += 1
+            case _:
+                pass
+    return _ActionCounts(
+        attempts=len(executor_activities_by_id),
+        busy=await _busy_count(handle),
+        timers_started=len(_timers(history)),
+        signals=signals,
+        max_outstanding=max_outstanding,
+    )
+
+
+async def _replay(env: WorkflowEnvironment, handle: WorkflowHandle[Any, Any]) -> None:
+    result = await Replayer(
+        workflows=[DSLWorkflow],
+        workflow_runner=new_sandbox_runner(),
+        data_converter=env.client.data_converter,
+        interceptors=[RuntimeErrorAttributionInterceptor()],
+    ).replay_workflow(await handle.fetch_history(), raise_on_replay_failure=False)
+    assert result.replay_failure is None
+
+
+FAN_OUT_ITEMS = 200
+FAN_OUT_LIMIT = 5
+FAN_OUT_ITEM_SECONDS = 0.01
+
+
+async def _run_fan_out(
+    env: WorkflowEnvironment,
+    role: Role,
+    dsl_worker: Worker,
+    executor_worker: Worker,
+    fake_actions: FakeActions,
+    name: str,
+) -> WorkflowHandle[Any, Any]:
+    async def run_briefly(_ref: str) -> None:
+        await asyncio.sleep(FAN_OUT_ITEM_SECONDS)
+
+    fake_actions.on_start = run_briefly
+    async with dsl_worker, executor_worker:
+        handle = await _start(env, role, _fan_out_dsl(FAN_OUT_ITEMS), name)
+        await handle.result()
+    assert len(fake_actions.started) == FAN_OUT_ITEMS
+    return handle
+
+
+@pytest.mark.anyio
+async def test_run_throttle_keeps_a_fan_out_at_the_org_limit_without_bounces(
+    env: WorkflowEnvironment,
+    test_role: Role,
+    test_worker_factory: Callable[..., Worker],
+    limits_enabled: None,
+    fake_actions: FakeActions,
+) -> None:
+    """200 items at limit 5: one attempt per item, no bounce, timer or signal."""
+    org_id = test_role.organization_id
+    assert org_id is not None
+    await _configure_org_limits(org_id, max_concurrent_actions=FAN_OUT_LIMIT)
+    dsl_worker, executor_worker = _workers(env, test_worker_factory)
+
+    handle = await _run_fan_out(
+        env, test_role, dsl_worker, executor_worker, fake_actions, "throttled"
+    )
+
+    counts = await _action_counts(handle)
+    print(f"fan-out with the run throttle: {counts}")
+    assert counts.max_outstanding == FAN_OUT_LIMIT
+    assert fake_actions.max_running[str(org_id)] <= FAN_OUT_LIMIT
+    assert counts.attempts == FAN_OUT_ITEMS
+    assert counts.busy == 0
+    assert counts.timers_started == 0
+    assert counts.signals == Counter()
+    # A new history with the run throttle replays.
+    await _replay(env, handle)
+
+
+@pytest.mark.anyio
+async def test_fan_out_recorded_before_the_run_throttle_replays_unchanged(
+    env: WorkflowEnvironment,
+    test_role: Role,
+    test_worker_factory: Callable[..., Worker],
+    limits_enabled: None,
+    fake_actions: FakeActions,
+) -> None:
+    """A run whose snapshot predates the field has no throttle, and its history replays.
+
+    This is also the baseline for the throttled fan-out: the gate bounces the
+    run's own dispatches, each costing an attempt, and probes add timers and
+    admission signals.
+    """
+    org_id = test_role.organization_id
+    assert org_id is not None
+    await _configure_org_limits(org_id, max_concurrent_actions=FAN_OUT_LIMIT)
+    dsl_worker = test_worker_factory(
+        env.client, activities=_pre_throttle_dsl_activities()
+    )
+    executor_worker = test_worker_factory(
+        env.client,
+        activities=[ExecutorActivities.execute_action_activity],
+        task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+    )
+
+    handle = await _run_fan_out(
+        env, test_role, dsl_worker, executor_worker, fake_actions, "unthrottled"
+    )
+
+    counts = await _action_counts(handle)
+    print(f"fan-out without the run throttle: {counts}")
+    assert fake_actions.max_running[str(org_id)] <= FAN_OUT_LIMIT
+    assert counts.max_outstanding > FAN_OUT_LIMIT
+    assert counts.busy > 0
+    assert counts.attempts == FAN_OUT_ITEMS + counts.busy
+    await _replay(env, handle)

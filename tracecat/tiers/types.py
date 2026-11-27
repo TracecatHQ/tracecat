@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Annotated, TypedDict
 
 from pydantic import Field
+
+from tracecat.tiers.enums import ConcurrencyLimitName
 
 
 class EntitlementsDict(TypedDict, total=False):
@@ -158,3 +161,14 @@ class ConcurrencyUsage:
 
     in_use: int
     observed_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class TierLimitChange:
+    """One tier field that declared limits change."""
+
+    tier_id: uuid.UUID
+    tier_name: str
+    field: ConcurrencyLimitName
+    old: int | None
+    new: int | None

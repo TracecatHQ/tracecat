@@ -35,7 +35,8 @@ const TRIGGERS_PAGE_SIZE = 50
 // The API's page cap. Sources are one per SNS topic, so a workspace has few.
 const SOURCES_PAGE_SIZE = 200
 
-function triggersQueryKey(workspaceId: string) {
+/** The query key prefix of every trigger read in a workspace. */
+export function triggersQueryKey(workspaceId: string) {
   return ["workspace-triggers", workspaceId] as const
 }
 
@@ -68,6 +69,9 @@ export function useTriggers(
   })
   return {
     triggers: query.data?.pages.flatMap((page) => page.items) ?? [],
+    // Triggers the plan hides, counted per kind. Every page counts the same
+    // filters, so the first page's count holds for the whole list.
+    locked: query.data?.pages[0]?.locked ?? [],
     isLoading: query.isLoading,
     error: query.error as TracecatApiError | null,
     hasNextPage: query.hasNextPage,
@@ -150,9 +154,21 @@ export function useTriggerMutations(workspaceId: string) {
   const meta = { suppressErrorToast: true }
 
   function invalidateTriggers() {
-    return queryClient.invalidateQueries({
-      queryKey: triggersQueryKey(workspaceId),
-    })
+    return Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: triggersQueryKey(workspaceId),
+      }),
+      // A schedule trigger is a workflow schedule: the workflow page's
+      // Schedules panel (`useSchedules`) shows the same rows.
+      queryClient.invalidateQueries({
+        predicate: (query) => query.queryKey[1] === "schedules",
+      }),
+      // A webhook trigger is a workflow's webhook: the workflow page reads it
+      // from the workflow (`["workflow", id]`).
+      queryClient.invalidateQueries({
+        predicate: (query) => query.queryKey[0] === "workflow",
+      }),
+    ])
   }
 
   function invalidateSources() {

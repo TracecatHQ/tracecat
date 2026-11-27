@@ -40,7 +40,6 @@ import orjson
 import yaml
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
-from fastmcp.server.middleware.error_handling import ErrorHandlingMiddleware
 from fastmcp.server.middleware.logging import LoggingMiddleware
 from fastmcp.server.middleware.rate_limiting import RateLimitingMiddleware
 from google.protobuf.json_format import MessageToDict
@@ -247,6 +246,7 @@ from tracecat.mcp.config import (
 )
 from tracecat.mcp.json_patch import apply_json_patch_operations
 from tracecat.mcp.middleware import (
+    MCPErrorHandlingMiddleware,
     MCPInputSizeLimitMiddleware,
     MCPRequestAuditMiddleware,
     MCPTimeoutMiddleware,
@@ -259,6 +259,7 @@ from tracecat.mcp.schemas import (
     LayoutPosition,
     LayoutViewport,
     MCPPaginatedResponse,
+    MCPTriggerListResponse,
     MCPTruncationInfo,
     MCPTruncationSummary,
     ValidationResponse,
@@ -2789,7 +2790,7 @@ mcp.add_middleware(MCPRequestAuditMiddleware())
 mcp.add_middleware(WatchtowerMonitorMiddleware())
 mcp.add_middleware(MCPTimeoutMiddleware())
 mcp.add_middleware(
-    ErrorHandlingMiddleware(include_traceback=False, transform_errors=True)
+    MCPErrorHandlingMiddleware(include_traceback=False, transform_errors=True)
 )
 mcp.add_middleware(
     LoggingMiddleware(methods=["tools/call"], include_payload_length=True)
@@ -6884,18 +6885,23 @@ async def update_form(
 
 @asynccontextmanager
 async def _triggers_service(
-    workspace_id: uuid.UUID, action: str, *scopes: str
+    workspace_id: uuid.UUID,
+    action: str,
+    *scopes: str,
+    event_sources: bool = False,
 ) -> AsyncIterator[TriggersService]:
     """Open the triggers service for one trigger tool call and map its errors.
 
-    Checks, in order: the caller's workspace role, the triggers entitlement,
-    and the scopes. Any error raised inside the block, the tool's own
-    included, reaches the client as a ``ToolError``.
+    Checks, in order: the caller's workspace role, the event sources
+    entitlement (``event_sources`` tools only, as on their routes), and the
+    scopes. Trigger tools are open to every plan: the service checks each
+    trigger kind's entitlement, and lists leave out the kinds the plan lacks. Any error raised inside the block,
+    the tool's own included, reaches the client as a ``ToolError``.
     """
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         async with TriggersService.with_session(role=role) as svc:
-            if not await svc.has_entitlement(TRIGGERS_ENTITLEMENT):
+            if event_sources and not await svc.has_entitlement(TRIGGERS_ENTITLEMENT):
                 raise EntitlementRequired(TRIGGERS_ENTITLEMENT.value)
             check_scopes(role, *scopes)
             yield svc
@@ -6941,7 +6947,7 @@ async def list_event_sources(
     subscription_status, subscription_ref, endpoint_url) and the cursor fields.
     """
     async with _triggers_service(
-        workspace_id, "list event sources", "trigger:read"
+        workspace_id, "list event sources", "trigger:read", event_sources=True
     ) as svc:
         page = await svc.list_event_sources(
             PageParams(limit=_trigger_page_limit(limit), cursor=cursor)
@@ -6972,7 +6978,7 @@ async def get_event_source(
     `subscription_ref` is also null without `trigger:update`.
     """
     async with _triggers_service(
-        workspace_id, "get event source", "trigger:read"
+        workspace_id, "get event source", "trigger:read", event_sources=True
     ) as svc:
         source = await svc.get_event_source(_coerce_uuid_arg(source_id, "source_id"))
         return read_event_source(source, svc.role)
@@ -7002,7 +7008,7 @@ async def create_event_source(
     Returns the new source as JSON, in the same shape as `get_event_source`.
     """
     async with _triggers_service(
-        workspace_id, "create event source", "trigger:create"
+        workspace_id, "create event source", "trigger:create", event_sources=True
     ) as svc:
         params = EventSourceCreate(
             name=name, config=config, status=TriggerStatus(status)
@@ -7037,7 +7043,7 @@ async def update_event_source(
     Returns the saved source as JSON.
     """
     async with _triggers_service(
-        workspace_id, "update event source", "trigger:update"
+        workspace_id, "update event source", "trigger:update", event_sources=True
     ) as svc:
         params = EventSourceUpdate(
             name=name,
@@ -7053,18 +7059,23 @@ async def update_event_source(
 @mcp.tool()
 async def list_triggers(
     workspace_id: uuid.UUID,
-    kind: Literal["object_storage"] | None = None,
+    kind: Literal["object_storage", "schedule", "webhook"] | None = None,
     source_id: uuid.UUID | None = None,
     workflow_id: MCPWorkflowUUID | None = None,
     agent_preset_id: uuid.UUID | None = None,
     limit: int = config.TRACECAT__LIMIT_DEFAULT,
     cursor: str | None = None,
-) -> MCPPaginatedResponse[TriggerRead]:
+) -> MCPTriggerListResponse:
     """List triggers newest first, each with its config and bindings.
 
     A trigger is a rule over events; its bindings start a Workflow or an Agent
     for each matching event. Kind `object_storage` fires once per object
-    created in its source whose key starts with `config.key_prefix`.
+    created in its source whose key starts with `config.key_prefix`. Kind
+    `schedule` is a workflow schedule (the same one a workflow's `schedules`
+    holds): it runs its one bound workflow on `config.cron` or `config.every`.
+    Kind `webhook` is a workflow's webhook (the one `get_webhook` shows),
+    listed once it has been turned on: it runs its one bound workflow for each
+    request to `config.url`.
 
     Args:
         workspace_id: The workspace ID.
@@ -7077,7 +7088,14 @@ async def list_triggers(
 
     Returns JSON with `items` (id, kind, name, status, config, bindings with
     target_type, target_id and target_name) and the cursor fields. An
-    `object_storage` config holds source_id, source_name and key_prefix.
+    `object_storage` config holds source_id, source_name and key_prefix. A
+    `schedule` config holds schedule_id, workflow_id, cron or every, offset,
+    start_at, end_at, timeout and inputs. A `webhook` config holds webhook_id,
+    workflow_id, methods, allowlisted_cidrs, include_headers, url (it contains
+    the webhook's secret) and api_key (preview only). Schedules need
+    `schedule:read` and webhooks `workflow:read` to be listed. Triggers of a
+    kind the plan lacks (such as `object_storage` without `object_triggers`)
+    are not listed but counted in `locked` (kind, entitlement, count).
     """
     async with _triggers_service(workspace_id, "list triggers", "trigger:read") as svc:
         page = await svc.list_triggers(
@@ -7087,12 +7105,13 @@ async def list_triggers(
             workflow_id=WorkflowUUID.new(workflow_id) if workflow_id else None,
             agent_preset_id=agent_preset_id,
         )
-    return MCPPaginatedResponse(
+    return MCPTriggerListResponse(
         items=page.items,
         next_cursor=page.next_cursor,
         prev_cursor=page.prev_cursor,
         has_more=page.has_more,
         has_previous=page.has_previous,
+        locked=page.locked,
     )
 
 
@@ -7118,27 +7137,51 @@ async def create_trigger(
     workspace_id: uuid.UUID,
     name: str,
     config: TriggerConfig,
-    status: Literal["online", "offline"] = "offline",
+    status: Literal["online", "offline"] | None = None,
 ) -> TriggerRead:
     """Create a trigger. Add targets with `create_trigger_binding`.
 
     For `{"kind": "object_storage", "source_id": ..., "key_prefix": "..."}`,
     the source must be an event source of this workspace that delivers object
     events (kind `aws_sns`). An empty `key_prefix` matches every key. A
-    workflow that writes under the prefix it watches triggers itself.
+    workflow that writes under the prefix it watches triggers itself. Needs
+    the `object_triggers` plan feature.
+
+    For `{"kind": "schedule", "workflow_id": ..., "cron": "0 9 * * *"}` (or
+    `"every": "PT1H"` instead of `cron`, plus optional `offset`, `start_at`,
+    `end_at`, `timeout` seconds and `inputs`), this creates the workflow's
+    schedule, bound to that workflow; the workflow must have been saved. It
+    needs `schedule:create`, `schedule:read` and `workflow:execute`. A
+    schedule's target is fixed: `create_trigger_binding` refuses one.
+
+    For `{"kind": "webhook", "workflow_id": ...}` (plus optional `methods`,
+    `allowlisted_cidrs` and `include_headers`), this makes the workflow's
+    existing webhook a trigger, bound to that workflow. Settings you leave
+    out keep the webhook's saved values, and so does its status unless you
+    pass `status`. The webhook URL does not change. It needs
+    `workflow:update` and `workflow:execute`, and fails if the webhook already
+    is a trigger. Its target is fixed too. Manage its API key with the
+    workflow's webhook.
 
     Args:
         workspace_id: The workspace ID.
         name: A display name.
         config: The trigger kind and its settings.
-        status: `"online"` fires; `"offline"` (default) does not.
+        status: `"online"` fires; `"offline"` does not. Omit it for the
+            default: offline, except a webhook keeps its current status.
 
     Returns the new trigger as JSON, in the same shape as `get_trigger`.
     """
     async with _triggers_service(
         workspace_id, "create trigger", "trigger:create"
     ) as svc:
-        params = TriggerCreate(name=name, config=config, status=TriggerStatus(status))
+        # Omitted stays out of the request, so a live webhook is not turned
+        # off by the default.
+        params = (
+            TriggerCreate(name=name, config=config, status=TriggerStatus(status))
+            if status is not None
+            else TriggerCreate(name=name, config=config)
+        )
         trigger = await svc.create_trigger(params)
         return await svc.get_trigger(trigger.id)
 
@@ -7155,7 +7198,15 @@ async def update_trigger(
 
     There is no delete tool: take a trigger offline instead. Turning a trigger
     online or changing an online trigger's config also needs `workflow:execute`
-    or `agent:execute` for the targets of its online bindings.
+    or `agent:execute` for the targets of its online bindings. A `schedule`
+    trigger's name, config and status are written through its schedule, so
+    any change to one also needs `schedule:update` (which grants
+    `schedule:read`); a config replaces every schedule setting, and its
+    `workflow_id` must stay the same. A `webhook` trigger's name, config and
+    status are written through its webhook (as `update_webhook` does), so
+    any change needs `workflow:update` on top of `trigger:update`; a config
+    sets the methods, allowlisted_cidrs and include_headers it names (the
+    rest keep their values), and its `workflow_id` must stay the same.
 
     Args:
         workspace_id: The workspace ID.
@@ -7194,7 +7245,8 @@ async def create_trigger_binding(
     `{"type": "agent", "agent_preset_id": ..., "instruction": "..."}` starts a
     new session of the preset's current version with the instruction; the
     event is added to the first message as data. Needs `agent:execute`.
-    A trigger can be bound to the same target only once.
+    A trigger can be bound to the same target only once. A `schedule` or
+    `webhook` trigger's one target is its own workflow; it takes no other.
 
     Args:
         workspace_id: The workspace ID.
@@ -7228,7 +7280,9 @@ async def update_trigger_binding(
     There is no delete tool: take a binding offline instead. Turning a binding
     online or changing its instruction needs `workflow:execute` or
     `agent:execute` for its target, as creating it does. The target
-    cannot change; add a new binding for another target.
+    cannot change; add a new binding for another target. A `schedule` or
+    `webhook` trigger's binding cannot change: take the trigger offline
+    instead.
 
     Args:
         workspace_id: The workspace ID.
