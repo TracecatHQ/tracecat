@@ -48,8 +48,9 @@ export function WebhookTriggerForm({
   // The workflow whose saved settings the fields hold. A create replaces
   // every setting, so it waits until they are this workflow's.
   const [loadedFor, setLoadedFor] = useState("")
-  // The workflow picked last: an earlier pick's slower read must not win.
-  const pickedRef = useRef("")
+  // Counts settings reads. Only the latest pick's read may fill the fields:
+  // an earlier read of the same workflow can land after the user edited them.
+  const readRef = useRef(0)
 
   const listed = workflows ?? []
   let placeholder = "Select a workflow"
@@ -65,13 +66,14 @@ export function WebhookTriggerForm({
   // an offline webhook may already have an allowlist.
   async function handleWorkflowChange(id: string) {
     setWorkflowId(id)
-    pickedRef.current = id
+    readRef.current += 1
+    const read = readRef.current
     setLoadedFor("")
     setFormError(null)
     setLoadingWebhook(true)
     try {
       const webhook = await triggersGetWebhook({ workspaceId, workflowId: id })
-      if (pickedRef.current !== id) return
+      if (readRef.current !== read) return
       setMethods(webhook.methods?.length ? webhook.methods : ["POST"])
       setCidrs(
         (webhook.allowlisted_cidrs ?? []).map((cidr) => ({
@@ -82,7 +84,7 @@ export function WebhookTriggerForm({
       setIncludeHeaders(webhook.include_headers ?? false)
       setLoadedFor(id)
     } catch (error) {
-      if (pickedRef.current === id) {
+      if (readRef.current === read) {
         // Clear the pick: choosing the same workflow again is the retry,
         // and a select reports no change for its current value.
         setWorkflowId("")
@@ -91,7 +93,7 @@ export function WebhookTriggerForm({
         )
       }
     } finally {
-      if (pickedRef.current === id) {
+      if (readRef.current === read) {
         setLoadingWebhook(false)
       }
     }

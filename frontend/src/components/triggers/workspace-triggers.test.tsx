@@ -990,6 +990,54 @@ describe("Webhook triggers", () => {
     )
   })
 
+  it("ignores a late read of a workflow picked again", async () => {
+    const user = userEvent.setup()
+    workflows = [
+      { id: "wf_alert", title: "Alert intake", version: null },
+      { id: "wf_other", title: "Other", version: null },
+    ]
+    const settings = (methods: WebhookRead["methods"]): WebhookRead => ({
+      id: "webhook-1",
+      secret: "synthetic-secret",
+      status: "offline",
+      methods,
+      allowlisted_cidrs: [],
+      include_headers: false,
+      workflow_id: "wf_alert",
+      url: WEBHOOK_URL,
+    })
+    let releaseFirst: (value: WebhookRead) => void = () => {}
+    jest
+      .mocked(triggersGetWebhook)
+      .mockReturnValueOnce(
+        new Promise<WebhookRead>((resolve) => {
+          releaseFirst = resolve
+        }) as never
+      )
+      .mockResolvedValueOnce(settings(["POST"]))
+      .mockResolvedValueOnce(settings(["GET"]))
+
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
+
+    await user.click(screen.getByRole("button", { name: /Webhook/ }))
+    for (const title of ["Alert intake", "Other", "Alert intake"]) {
+      await user.click(screen.getByRole("combobox", { name: "Workflow" }))
+      await user.click(await screen.findByRole("option", { name: title }))
+    }
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Allowed HTTP methods" })
+      ).toHaveTextContent("GET")
+    )
+
+    // The first read of Alert intake lands last; it must not win.
+    releaseFirst(settings(["POST"]))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(
+      screen.getByRole("button", { name: "Allowed HTTP methods" })
+    ).toHaveTextContent("GET")
+  })
+
   it("starts from the workflow's saved webhook settings", async () => {
     const user = userEvent.setup()
     workflows = [{ id: "wf_alert", title: "Alert intake", version: null }]
