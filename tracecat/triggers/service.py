@@ -436,7 +436,8 @@ class TriggersService(BaseWorkspaceService):
                 # the same order as /schedules, so the header must not be
                 # dirtied (and flushed) here first.
                 await self._update_schedule_trigger(trigger, params)
-                await self.session.refresh(trigger)
+                # Committed: nothing after this may fail and report the
+                # change as failed. Callers read the trigger back themselves.
                 return trigger
             if params.name is not None:
                 trigger.name = params.name

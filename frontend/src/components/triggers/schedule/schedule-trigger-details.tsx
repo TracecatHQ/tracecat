@@ -6,16 +6,21 @@ import type { TriggerKindDetailsProps } from "@/components/triggers/trigger-kind
 import { durationToHumanReadable } from "@/lib/time"
 import { workflowUuidToShortId } from "@/lib/workflow-ids"
 
-/** "0 9 * * *" or "Every 1 hour", for the list and the detail page. */
+/**
+ * "0 9 * * *" or "Every 1 hour", for the list and the detail page. A schedule
+ * that `/schedules` left with both shows both: which one runs depends on which
+ * was set last, which the row doesn't record.
+ */
 export function describeSchedule(trigger: TriggerRead): string {
   if (trigger.config.kind !== "schedule") {
     return ""
   }
   const { cron, every } = trigger.config
-  if (cron) {
-    return cron
+  const interval = every ? `Every ${humanDuration(every)}` : ""
+  if (cron && interval) {
+    return `${cron} or ${interval.toLowerCase()}`
   }
-  return every ? `Every ${humanDuration(every)}` : ""
+  return cron || interval
 }
 
 function humanDuration(duration: string): string {

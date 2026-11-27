@@ -157,10 +157,8 @@ def _linked(engine: Engine) -> dict[uuid.UUID, tuple[Any, ...]]:
 def _backfill(engine: Engine) -> None:
     """Rerun the backfill as the contract release will: one transaction,
     workflows locked first."""
-    migration = _migration()
     with engine.begin() as conn:
-        conn.execute(text(migration.LOCK_WORKFLOWS_SQL))
-        conn.execute(text(migration.BACKFILL_SQL))
+        _migration().backfill(conn)
 
 
 def _count(engine: Engine, table: str) -> int:

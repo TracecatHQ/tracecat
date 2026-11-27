@@ -21,6 +21,7 @@ import {
   getEventSourceProvider,
   shellQuote,
 } from "@/components/triggers/object-storage/event-source-providers"
+import { describeSchedule } from "@/components/triggers/schedule/schedule-trigger-details"
 import { TriggerDetail } from "@/components/triggers/trigger-detail"
 import { WorkspaceTriggers } from "@/components/triggers/workspace-triggers"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -706,6 +707,17 @@ describe("EventSourcePanel for an unknown provider", () => {
       await screen.findByText(/can't show setup steps for gcs_pubsub sources/)
     ).toBeInTheDocument()
     expect(screen.getByText("gcs_pubsub")).toBeInTheDocument()
+  })
+})
+
+describe("describeSchedule", () => {
+  it("shows both when cron and interval are both stored", () => {
+    const both = {
+      ...SCHEDULE_TRIGGER,
+      config: { ...SCHEDULE_TRIGGER.config, every: "PT1H" },
+    } as TriggerRead
+    expect(describeSchedule(SCHEDULE_TRIGGER)).toBe("0 9 * * *")
+    expect(describeSchedule(both)).toMatch(/^0 9 \* \* \* or every /)
   })
 })
 

@@ -18,8 +18,8 @@ status change is copied to ``trigger.status``.
 
 Rolling deploy: the previous release still creates schedules without a
 ``trigger`` row while this one rolls out. Those stay out of the Triggers tab
-until the next release reruns ``LOCK_WORKFLOWS_SQL`` and ``BACKFILL_SQL`` in
-one transaction (they are idempotent) and makes the column NOT NULL. This release adopts such a schedule when it next updates it.
+until the next release reruns ``backfill`` (it is idempotent) and makes the
+column NOT NULL. This release adopts such a schedule when it next updates it.
 
 The downgrade deletes the ``schedule`` trigger rows (the previous release
 cannot read that kind) and drops what the upgrade added. Schedules themselves
@@ -27,6 +27,8 @@ are untouched either way.
 """
 
 from collections.abc import Sequence
+
+import sqlalchemy as sa
 
 from alembic import op
 
@@ -72,10 +74,11 @@ SYNC_TRIGGER_SQL = (
 )
 DROP_SYNC_TRIGGER_SQL = f"DROP TRIGGER IF EXISTS {_SYNC_TRIGGER} ON public.schedule"
 
-# Run first, in the backfill's transaction: lock the workflows of the schedules
-# about to be backfilled, in ID order. App writes lock the workflow and then
-# the schedule; the backfill locks schedules and its binding inserts need a
-# key-share lock on their workflow, so without this the two could deadlock.
+# Run first, in the backfill's transaction (see ``backfill``): lock the
+# workflows of the schedules about to be backfilled, in ID order. App writes
+# lock the workflow and then the schedule; the backfill locks schedules and its
+# binding inserts need a key-share lock on their workflow, so without this the
+# two could deadlock.
 LOCK_WORKFLOWS_SQL = """
 SELECT w.id
 FROM workflow w
@@ -84,7 +87,9 @@ ORDER BY w.id
 FOR UPDATE OF w
 """
 
-# One trigger row and one workflow binding per schedule that has none. Safe to
+# One trigger row and one workflow binding per schedule that has none, among
+# the schedules whose workflow ``LOCK_WORKFLOWS_SQL`` locked (or that have no
+# workflow). A schedule created after that lock waits for the next run. Safe to
 # run again: it only picks schedules whose trigger_id is still null, and locks
 # them so a concurrent delete waits. The name is the workflow title plus
 # " schedule", cut to fit the 255-character column. The trigger row keeps the
@@ -106,6 +111,10 @@ WITH pending AS (
     LEFT JOIN workflow w
         ON w.id = s.workflow_id AND w.workspace_id = s.workspace_id
     WHERE s.trigger_id IS NULL
+        AND (
+            s.workflow_id IS NULL
+            OR s.workflow_id = ANY(CAST(:workflow_ids AS uuid[]))
+        )
     FOR UPDATE OF s
 ),
 new_triggers AS (
@@ -128,6 +137,16 @@ SET trigger_id = p.trigger_id
 FROM pending p
 WHERE s.id = p.schedule_id
 """
+
+
+def backfill(conn: sa.Connection) -> None:
+    """Link every schedule whose workflow it can lock to a trigger row.
+
+    Run inside one transaction. The contract release reruns this before
+    making ``schedule.trigger_id`` NOT NULL.
+    """
+    workflow_ids = list(conn.execute(sa.text(LOCK_WORKFLOWS_SQL)).scalars())
+    conn.execute(sa.text(BACKFILL_SQL), {"workflow_ids": workflow_ids})
 
 
 def upgrade() -> None:
@@ -164,8 +183,7 @@ def upgrade() -> None:
         # the previous release keeps reading and writing schedules meanwhile.
         # Its own transaction, workflows locked first (LOCK_WORKFLOWS_SQL).
         op.execute("BEGIN")
-        op.execute(LOCK_WORKFLOWS_SQL)
-        op.execute(BACKFILL_SQL)
+        backfill(op.get_bind())
         op.execute("COMMIT")
         # VALIDATE takes SHARE UPDATE EXCLUSIVE here: no blocking of reads or
         # writes during its scan.
