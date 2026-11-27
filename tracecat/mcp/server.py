@@ -11,6 +11,7 @@ import base64
 import csv
 import hashlib
 import json
+import logging
 import re
 import uuid
 from collections import defaultdict, deque
@@ -31,6 +32,7 @@ from typing import (
     Any,
     Literal,
     NamedTuple,
+    NotRequired,
     TypedDict,
     cast,
     get_args,
@@ -40,7 +42,6 @@ import orjson
 import yaml
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
-from fastmcp.server.middleware.logging import LoggingMiddleware
 from fastmcp.server.middleware.rate_limiting import RateLimitingMiddleware
 from google.protobuf.json_format import MessageToDict
 from pydantic import (
@@ -248,8 +249,10 @@ from tracecat.mcp.json_patch import apply_json_patch_operations
 from tracecat.mcp.middleware import (
     MCPErrorHandlingMiddleware,
     MCPInputSizeLimitMiddleware,
+    MCPLoggingMiddleware,
     MCPRequestAuditMiddleware,
     MCPTimeoutMiddleware,
+    ToolRefusalLogFilter,
     WatchtowerMonitorMiddleware,
     get_mcp_client_id,
 )
@@ -2799,8 +2802,10 @@ mcp.add_middleware(
     MCPErrorHandlingMiddleware(include_traceback=False, transform_errors=True)
 )
 mcp.add_middleware(
-    LoggingMiddleware(methods=["tools/call"], include_payload_length=True)
+    MCPLoggingMiddleware(methods=["tools/call"], include_payload_length=True)
 )
+# FastMCP logs a tool's refusal itself, before the middleware above sees it.
+logging.getLogger("fastmcp.server.server").addFilter(ToolRefusalLogFilter())
 
 
 # ---------------------------------------------------------------------------
@@ -4613,6 +4618,10 @@ async def edit_workflow(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `PATCH /workflows/{id}/draft`. The edit document is
+        # written directly, not through a scoped service method, and it holds
+        # the definition, schedules and case trigger.
+        check_scopes(role, "workflow:update")
         wf_id = WorkflowUUID.new(workflow_id)
         request = parse_workflow_edit_request(
             base_revision=base_revision,
@@ -4698,6 +4707,9 @@ async def edit_workflow(
                 draft_revision=compute_workflow_edit_revision(refreshed_document),
                 actions=_action_index_entries(refreshed_document),
             )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except WorkflowEditError as e:
         raise _workflow_edit_error_to_tool_error(e) from e
     except ToolError:
@@ -6657,9 +6669,14 @@ async def get_case_trigger(
     try:
         workflow_id = WorkflowUUID.new(workflow_id)
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /workflows/{id}/case-trigger`.
+        check_scopes(role, "workflow:read")
         async with CaseTriggersService.with_session(role=role) as svc:
             case_trigger = await svc.get_case_trigger(workflow_id)
             return CaseTriggerRead.model_validate(case_trigger, from_attributes=True)
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except TracecatNotFoundError as e:
         raise ToolError(str(e)) from e
     except ValueError as e:
@@ -6669,17 +6686,28 @@ async def get_case_trigger(
         raise ToolError(f"Failed to get case trigger: {e}") from None
 
 
+class _CaseTriggerUpdateArgs(TypedDict):
+    """The `update_case_trigger` arguments the caller passed.
+
+    A key is present only when its argument was given: the service reads the
+    update with `exclude_unset`, so a key set to `None` would clear it.
+    """
+
+    status: NotRequired[Literal["online", "offline"]]
+    event_types: NotRequired[list[CaseEventType]]
+    tag_filters: NotRequired[list[str]]
+
+
 # Plain literal so `scripts/generate_mcp_docs.py` can resolve it statically. The
 # live `CaseEventType` values are appended at decoration time, below, rather
 # than interpolated here - that keeps this the single source of the prose.
 _UPDATE_CASE_TRIGGER_DESCRIPTION = """Update an existing case trigger for a workflow.
 
-This tool replaces the whole trigger: every call sends `status`, `event_types`
-and `tag_filters`, so pass all three. Omitting `event_types` or `tag_filters`
-clears them, and omitting `status` fails the write outright because the column
-is non-null. Call `get_case_trigger` first and send its current values back,
-changing only what you mean to change. Patching `/case_trigger` through
-`edit_workflow` is partial, unlike this tool.
+Only the arguments you pass change; the rest keep their saved values. A
+status-only call keeps the saved `event_types` and `tag_filters`: `"offline"`
+always works, and `"online"` works when the saved event types are non-empty
+and the workflow is published. Pass an empty list to clear `event_types` or
+`tag_filters`.
 
 Valid `event_types` values: {_CASE_EVENT_TYPE_VALUES_CSV}.
 
@@ -6687,15 +6715,17 @@ Args:
     workspace_id: The workspace ID.
     workflow_id: The workflow ID.
     status: Enum string: `"online"` or `"offline"`. `"online"` is rejected
-        unless `event_types` is non-empty and the workflow has a runnable
-        published definition, so publish before enabling.
+        unless the trigger's event types (saved or passed) are non-empty and
+        the workflow has a runnable published definition, so publish before
+        enabling. Omit to leave unchanged.
     event_types: List of case event type strings using underscores. The
-        valid values are listed above.
+        valid values are listed above. Omit to leave unchanged.
     tag_filters: List of case tag *refs* (slugs), e.g. `["malware","phishing"]`,
         not tag names or UUIDs. Refs are OR-matched: the trigger fires when the
         case carries any listed tag, or for `tag_added`/`tag_removed` when the
         added or removed tag is listed. An empty list means no tag filtering.
-        Refs that do not exist yet are created automatically.
+        Refs that do not exist yet are created automatically. Omit to leave
+        unchanged.
 
 Returns a confirmation message.
 """
@@ -6718,14 +6748,19 @@ async def update_case_trigger(
     try:
         workflow_id = WorkflowUUID.new(workflow_id)
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `PATCH /workflows/{id}/case-trigger`.
+        check_scopes(role, "workflow:update")
         if status is not None and status not in {"online", "offline"}:
             raise ToolError("status must be 'online' or 'offline'")
 
-        update_params = CaseTriggerUpdate(
-            status=cast(Literal["online", "offline"] | None, status),
-            event_types=event_types,
-            tag_filters=tag_filters,
-        )
+        update_args: _CaseTriggerUpdateArgs = {}
+        if status is not None:
+            update_args["status"] = cast(Literal["online", "offline"], status)
+        if event_types is not None:
+            update_args["event_types"] = event_types
+        if tag_filters is not None:
+            update_args["tag_filters"] = tag_filters
+        update_params = CaseTriggerUpdate(**update_args)
 
         async with CaseTriggersService.with_session(role=role) as svc:
             await svc.update_case_trigger(
@@ -6734,11 +6769,14 @@ async def update_case_trigger(
         return MCPMessageResponse(
             message=f"Case trigger for workflow {workflow_id} updated successfully"
         )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except TracecatNotFoundError as e:
         raise ToolError(str(e)) from e
     except ToolError:
         raise
-    except ValueError as e:
+    except (ValueError, TracecatValidationError) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to update case trigger", error=str(e))

@@ -126,6 +126,13 @@ truncation metadata under `truncation.collections`.
 - `get_case_trigger(workspace_id, workflow_id)`
 - `update_case_trigger(workspace_id, workflow_id, status=None, event_types=None, tag_filters=None)`
 
+`get_case_trigger` needs `workflow:read` and `update_case_trigger` needs
+`workflow:update`, the scopes of the `/workflows/{id}/case-trigger` routes.
+Unlike the route, `update_case_trigger` creates tag refs that don't exist yet.
+`edit_workflow` needs `workflow:update`, as `PUT /workflows/{id}/draft` does.
+`update_case_trigger` changes only the arguments passed: a status-only call keeps
+the event types and tag filters, and an empty list clears that setting.
+
 ## Form tools
 
 These need the `forms` entitlement, plus scopes:

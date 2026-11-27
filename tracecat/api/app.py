@@ -516,7 +516,8 @@ def validation_exception_handler(request: Request, exc: Exception) -> Response:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={"detail": ser_errors},
         )
-    logger.error(
+    # A client error, not a server fault: WARNING keeps it out of ERROR counts.
+    logger.warning(
         "API Model Validation error",
         method=request.method,
         path=redact_url_secrets(request.url.path),

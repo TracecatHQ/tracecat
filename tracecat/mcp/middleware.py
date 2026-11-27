@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import sys
 import time
 import uuid
 from collections.abc import Mapping
@@ -12,6 +14,7 @@ import mcp.types as mt
 from fastmcp.exceptions import ToolError
 from fastmcp.server.dependencies import get_access_token, get_http_request
 from fastmcp.server.middleware.error_handling import ErrorHandlingMiddleware
+from fastmcp.server.middleware.logging import LoggingMiddleware
 from fastmcp.server.middleware.middleware import CallNext, Middleware, MiddlewareContext
 from fastmcp.tools import ToolResult
 
@@ -48,9 +51,27 @@ class MCPErrorHandlingMiddleware(ErrorHandlingMiddleware):
     A ``ToolError`` is a tool's own answer to the caller, such as a refused
     request, and its message is written for them. The base class would wrap
     it as "Internal error: ...". Passed through, the MCP server returns it as
-    a tool error with the message as is. Logging and error counts stay the
-    base class's.
+    a tool error with the message as is. It is logged at WARNING, not ERROR:
+    it is an expected answer, not a server fault. Error counts and the error
+    callback stay the base class's.
     """
+
+    # Overrides the base class's hook, which ``on_message`` calls for every
+    # error it catches before transforming it.
+    def _log_error(self, error: Exception, context: MiddlewareContext) -> None:
+        if not isinstance(error, ToolError):
+            super()._log_error(error, context)
+            return
+        error_type = type(error).__name__
+        method = context.method or "unknown"
+        error_key = f"{error_type}:{method}"
+        self.error_counts[error_key] = self.error_counts.get(error_key, 0) + 1
+        self.logger.warning(f"Error in {method}: {error_type}: {error!s}")
+        if self.error_callback:
+            try:
+                self.error_callback(error, context)
+            except Exception as callback_error:
+                self.logger.error(f"Error in error callback: {callback_error}")
 
     # Overrides the base class's hook, which ``on_message`` calls for every
     # error it catches.
@@ -60,6 +81,49 @@ class MCPErrorHandlingMiddleware(ErrorHandlingMiddleware):
         if isinstance(error, ToolError):
             return error
         return super()._transform_error(error, context)
+
+
+class MCPLoggingMiddleware(LoggingMiddleware):
+    """Log tool calls as the base class does, but a refusal at WARNING.
+
+    The base class logs every failed call's ``request_error`` at ERROR. A
+    ``ToolError`` is an expected answer to the caller, so it is logged at
+    WARNING; any other error stays at ERROR.
+    """
+
+    async def on_message(
+        self, context: MiddlewareContext[Any], call_next: CallNext[Any, Any]
+    ) -> Any:
+        if self.methods and context.method not in self.methods:
+            return await call_next(context)
+        self._log_message(self._create_before_message(context))
+        start_time = time.perf_counter()
+        try:
+            result = await call_next(context)
+        except Exception as e:
+            level = logging.WARNING if isinstance(e, ToolError) else logging.ERROR
+            self._log_message(self._create_error_message(context, start_time, e), level)
+            raise
+        self._log_message(self._create_after_message(context, start_time))
+        return result
+
+
+class ToolRefusalLogFilter(logging.Filter):
+    """Log FastMCP's own record of a tool's ``ToolError`` at WARNING.
+
+    FastMCP logs an error a tool raises inside the call, before any
+    middleware sees it, at the error's ``log_level`` (ERROR by default). The
+    filter runs inside FastMCP's ``except`` block, so the exception being
+    handled is the tool's: a ``ToolError`` is an expected answer and is
+    lowered to WARNING; any other exception keeps its level. Add this to
+    FastMCP's server logger.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno == logging.ERROR and isinstance(sys.exception(), ToolError):
+            record.levelno = logging.WARNING
+            record.levelname = logging.getLevelName(logging.WARNING)
+        return True
 
 
 class MCPInputSizeLimitMiddleware(Middleware):

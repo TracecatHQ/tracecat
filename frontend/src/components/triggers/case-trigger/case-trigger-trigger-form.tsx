@@ -2,22 +2,17 @@
 
 import { type FormEvent, useRef, useState } from "react"
 import { type CaseEventType, triggersGetCaseTrigger } from "@/client"
-import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   CaseEventsField,
   CaseTagFiltersField,
 } from "@/components/case-triggers/case-trigger-form-fields"
 import { describeTriggerError } from "@/components/triggers/trigger-errors"
+import {
+  TriggerFormError,
+  TriggerWorkflowSelect,
+} from "@/components/triggers/trigger-form-fields"
 import type { TriggerKindFormProps } from "@/components/triggers/trigger-kind-types"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { useWorkflowManager } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 /**
@@ -32,10 +27,6 @@ export function CaseTriggerTriggerForm({
   onSubmit,
 }: TriggerKindFormProps) {
   const workspaceId = useWorkspaceId()
-  const canReadWorkflows = useScopeCheck("workflow:read")
-  const { workflows, workflowsLoading } = useWorkflowManager(undefined, {
-    listEnabled: canReadWorkflows === true,
-  })
   const [workflowId, setWorkflowId] = useState("")
   const [eventTypes, setEventTypes] = useState<CaseEventType[]>([])
   const [tagFilters, setTagFilters] = useState<string[]>([])
@@ -52,16 +43,6 @@ export function CaseTriggerTriggerForm({
   // Counts settings reads. Only the latest pick's read may fill the fields:
   // an earlier read of the same workflow can land after the user edited them.
   const readRef = useRef(0)
-
-  const listed = workflows ?? []
-  let placeholder = "Select a workflow"
-  if (workflowsLoading) {
-    placeholder = "Loading workflows…"
-  } else if (canReadWorkflows !== true) {
-    placeholder = "You can't list workflows"
-  } else if (listed.length === 0) {
-    placeholder = "No workflows yet"
-  }
 
   // Start from the case trigger's saved settings: an offline case trigger may
   // already have events and tags.
@@ -142,26 +123,12 @@ export function CaseTriggerTriggerForm({
     <form id={formId} className="space-y-4" onSubmit={handleSubmit}>
       <div className="space-y-2">
         <Label className="text-xs">Workflow</Label>
-        <Select
+        <TriggerWorkflowSelect
+          kind="case_trigger"
           value={workflowId}
           onValueChange={handleWorkflowChange}
-          disabled={pending || workflowsLoading}
-        >
-          <SelectTrigger className="text-xs" aria-label="Workflow">
-            <SelectValue placeholder={placeholder} />
-          </SelectTrigger>
-          <SelectContent>
-            {listed.map((workflow) => (
-              <SelectItem
-                key={workflow.id}
-                value={workflow.id}
-                className="text-xs"
-              >
-                {workflow.title}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          disabled={pending}
+        />
         <p className="text-xs text-muted-foreground">
           Uses this workflow&apos;s case trigger. It also shows on the
           workflow&apos;s Case triggers panel.
@@ -184,11 +151,7 @@ export function CaseTriggerTriggerForm({
           disabled={locked}
         />
       </fieldset>
-      {formError ? (
-        <p className="whitespace-pre-line text-xs text-destructive">
-          {formError}
-        </p>
-      ) : null}
+      <TriggerFormError message={formError} />
     </form>
   )
 }
