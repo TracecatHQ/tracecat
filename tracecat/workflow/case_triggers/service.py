@@ -1,21 +1,81 @@
+"""Case trigger configuration writes.
+
+A case trigger that has been turned on is also a ``case_trigger`` trigger: a
+``trigger`` row with one workflow binding, linked by
+``case_trigger.trigger_id``, so it shows in the Triggers tab. Every write here
+that turns a case trigger on gives it that row if it has none, in the same
+transaction; it keeps the row when it goes offline. A database trigger on
+``case_trigger`` deletes the row with the case trigger and copies every status
+change to it, so writers outside this service (the dispatcher turning an
+invalid trigger off, an import clearing one) keep it in step too.
+
+Locks: every write here locks the workflow (``FOR UPDATE``), resolves its tag
+filters (which may insert missing tags), and then locks its case trigger row,
+the order its write always had. The row lock is taken at the read, not at the
+flush, so the row compared is the row written; it comes after the tags, since
+a tag rename holds its new ref while it waits to rewrite case triggers'
+filters. The trigger row and binding are new rows, and the binding's key-share
+lock on the workflow is already held, so turning a case trigger into a
+trigger adds no lock wait. The migration backfill never waits for either row.
+"""
+
 from __future__ import annotations
 
+import uuid
 from collections.abc import Iterable
+from typing import Any
 
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from tracecat.audit.logger import AuditEventDetails, audit_log
-from tracecat.db.models import CaseTag, CaseTrigger, Workflow, WorkflowDefinition
+from tracecat.authz.controls import require_scope
+from tracecat.db.models import (
+    CaseTag,
+    CaseTrigger,
+    Trigger,
+    TriggerBinding,
+    Workflow,
+    WorkflowDefinition,
+)
 from tracecat.dsl.common import DSLInput
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import (
+    TracecatConflictError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.identifiers.workflow import WorkflowID, WorkflowUUID
 from tracecat.managed_resources.guard import ensure_unmanaged
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tiers.enums import Entitlement
+from tracecat.triggers.enums import TriggerKind, TriggerStatus, TriggerTargetType
 from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig, CaseTriggerUpdate
 from tracecat.workspace_sync.enums import SyncResourceType
+
+# The trigger name column is 255 characters; leave room for the suffix.
+_TITLE_IN_NAME_MAX = 255 - len(" case trigger")
+
+
+def default_trigger_name(workflow_title: str | None) -> str:
+    """The name a case trigger's trigger gets when none is given.
+
+    The workflow title plus " case trigger", or "Case trigger" for an
+    untitled workflow. The migration backfill uses the same rule.
+    """
+    title = (workflow_title or "").strip()
+    if not title:
+        return "Case trigger"
+    return f"{title[:_TITLE_IN_NAME_MAX]} case trigger"
+
+
+def _tab_audit_details(
+    params: CaseTriggerUpdate, trigger_name: str | None
+) -> AuditEventDetails:
+    changed = set(params.model_fields_set)
+    if trigger_name is not None:
+        changed.add("name")
+    return AuditEventDetails(data={"changed_fields": sorted(changed)})
 
 
 class CaseTriggersService(BaseWorkspaceService):
@@ -58,27 +118,51 @@ class CaseTriggersService(BaseWorkspaceService):
             data={"changed_fields": sorted(params.model_fields_set)},
         )
 
-    async def _lock_workflow(self, workflow_id: WorkflowID) -> None:
+    async def _lock_workflow(self, workflow_id: WorkflowID) -> str:
+        """Lock the workflow until commit and return its title.
+
+        Raises:
+            TracecatNotFoundError: If the workspace has no such workflow.
+        """
         workflow_uuid = WorkflowUUID.new(workflow_id)
         stmt = (
-            select(Workflow.id)
+            select(Workflow.title)
             .where(
                 Workflow.workspace_id == self.workspace_id,
                 Workflow.id == workflow_uuid,
             )
             .with_for_update()
         )
-        if await self.session.scalar(stmt) is None:
+        # The title column is NOT NULL, so None means no such workflow.
+        if (title := await self.session.scalar(stmt)) is None:
             raise TracecatNotFoundError(f"Workflow {workflow_id} not found")
+        return title
 
     async def _ensure_case_trigger_exists(
-        self, workflow_id: WorkflowID, *, commit: bool = True
+        self, workflow_id: WorkflowID, *, commit: bool = True, lock: bool = False
     ) -> CaseTrigger:
+        """Get the workflow's case trigger, creating an offline one if missing.
+
+        Args:
+            lock: Lock the row until commit. Writers pass it, under the
+                workflow lock, so the row they compare and write is current:
+                the dispatcher turns an invalid trigger off holding only this
+                row, and a write compared against the value from before that
+                commit would emit no UPDATE yet still set the trigger row.
+        """
         workflow_uuid = WorkflowUUID.new(workflow_id)
-        stmt = select(CaseTrigger).where(
-            CaseTrigger.workspace_id == self.workspace_id,
-            CaseTrigger.workflow_id == workflow_uuid,
+        # Read fresh: under the workflow lock this sees whether a concurrent
+        # writer gave the case trigger its trigger row.
+        stmt = (
+            select(CaseTrigger)
+            .where(
+                CaseTrigger.workspace_id == self.workspace_id,
+                CaseTrigger.workflow_id == workflow_uuid,
+            )
+            .execution_options(populate_existing=True)
         )
+        if lock:
+            stmt = stmt.with_for_update(of=CaseTrigger)
         result = await self.session.execute(stmt)
         if case_trigger := result.scalar_one_or_none():
             return case_trigger
@@ -289,12 +373,40 @@ class CaseTriggersService(BaseWorkspaceService):
         *,
         create_missing_tags: bool = False,
         commit: bool = True,
+        trigger_name: str | None = None,
+        as_trigger: bool = False,
     ) -> CaseTrigger:
-        await self._lock_workflow(workflow_id)
-        case_trigger = await self._ensure_case_trigger_exists(
-            workflow_id, commit=commit
-        )
+        """Apply ``params`` and keep the case trigger's trigger row in step.
+
+        A case trigger that is online after the update (or ``as_trigger``, a
+        create from the Triggers tab) gets a trigger row if it has none. One
+        that has a row gets its status, name and timestamp written with it.
+        """
+        title = await self._lock_workflow(workflow_id)
         updates = params.model_dump(exclude_unset=True)
+        # Tags first, before the case trigger row is locked: resolving can
+        # insert a missing tag, and a tag rename holds its new ref while it
+        # waits to rewrite case triggers' filters. Waiting on that insert
+        # while holding a case trigger row could close a cycle.
+        # Not committed here, so the workflow lock holds until the write below.
+        current = await self._ensure_case_trigger_exists(workflow_id, commit=False)
+        tags_given = "tag_filters" in updates
+        tag_filters = updates["tag_filters"] if tags_given else current.tag_filters
+        if tag_filters is None:
+            resolved_tags = []
+        else:
+            resolved_tags = await self._resolve_tag_filters(
+                tag_filters, create_missing=create_missing_tags
+            )
+        case_trigger = await self._ensure_case_trigger_exists(
+            workflow_id, commit=False, lock=True
+        )
+        if not tags_given:
+            # The row's filters were resolved above only to check them, as
+            # every write always has: a deleted tag's ref still refuses (or,
+            # with create_missing_tags, comes back). The value written is the
+            # locked row's: a rename that committed meanwhile rewrote it.
+            resolved_tags = list(case_trigger.tag_filters or [])
 
         status = updates.get("status", case_trigger.status)
         event_types = updates.get("event_types", case_trigger.event_types)
@@ -309,25 +421,255 @@ class CaseTriggersService(BaseWorkspaceService):
         if status == "online":
             await self._ensure_workflow_has_runnable_definition(workflow_id)
 
-        tag_filters = updates.get("tag_filters", case_trigger.tag_filters)
-        if tag_filters is None:
-            resolved_tags = []
-        else:
-            resolved_tags = await self._resolve_tag_filters(
-                tag_filters, create_missing=create_missing_tags
-            )
-
         case_trigger.status = status
         case_trigger.event_types = list(event_types) if event_types is not None else []
         case_trigger.tag_filters = resolved_tags
 
         self.session.add(case_trigger)
+        await self._write_trigger_row(
+            case_trigger,
+            status_set="status" in updates,
+            name=trigger_name,
+            default_name=default_trigger_name(title),
+            as_trigger=as_trigger,
+        )
         if commit:
             await self.session.commit()
             await self.session.refresh(case_trigger)
         else:
             await self.session.flush()
         return case_trigger
+
+    async def _write_trigger_row(
+        self,
+        case_trigger: CaseTrigger,
+        *,
+        status_set: bool,
+        name: str | None,
+        default_name: str,
+        as_trigger: bool,
+    ) -> None:
+        """Give the case trigger its trigger row, or update the one it has.
+
+        The caller holds the workflow lock (``_lock_workflow``).
+        """
+        if case_trigger.trigger_id is None:
+            if as_trigger or case_trigger.status == TriggerStatus.ONLINE:
+                await self._add_trigger(case_trigger, name=name or default_name)
+            return
+        # The header's timestamp covers its settings too. The database trigger
+        # also copies the status; writing it here keeps the loaded row current.
+        values: dict[str, Any] = {"updated_at": func.now()}
+        if status_set:
+            values["status"] = case_trigger.status
+        if name is not None:
+            values["name"] = name
+        await self.session.execute(
+            update(Trigger)
+            .where(
+                Trigger.workspace_id == case_trigger.workspace_id,
+                Trigger.id == case_trigger.trigger_id,
+            )
+            .values(**values)
+        )
+
+    async def _add_trigger(self, case_trigger: CaseTrigger, *, name: str) -> None:
+        """Add the ``case_trigger`` trigger row and its workflow binding.
+
+        The binding is the case trigger's workflow, the only target a case
+        trigger runs until case triggers start their targets through
+        bindings. It is online even for an offline case trigger, as for
+        schedules and webhooks: the trigger's status is what counts until
+        bindings drive the runtime (step 2 must revisit this). The binding's
+        key-share lock on the workflow is already held: the caller locked it
+        ``FOR UPDATE``.
+        """
+        trigger = Trigger(
+            id=uuid.uuid4(),
+            workspace_id=case_trigger.workspace_id,
+            kind=TriggerKind.CASE_TRIGGER.value,
+            name=name,
+            status=case_trigger.status,
+        )
+        self.session.add(trigger)
+        # The binding's and the case trigger's foreign keys need the row first.
+        await self.session.flush()
+        self.session.add(
+            TriggerBinding(
+                workspace_id=case_trigger.workspace_id,
+                trigger_id=trigger.id,
+                target_type=TriggerTargetType.WORKFLOW.value,
+                workflow_id=case_trigger.workflow_id,
+                status=TriggerStatus.ONLINE.value,
+            )
+        )
+        case_trigger.trigger_id = trigger.id
+        self.session.add(case_trigger)
+
+    # ----- Entry points for the Triggers tab -----
+    # Each writes the case trigger and its trigger row and binding, and
+    # commits, so its ``case_trigger`` audit record follows the commit as on
+    # the workflow page. Each needs ``workflow:update`` and the
+    # ``case_addons`` feature, as the workflow page's case trigger panel does,
+    # and refuses a managed workflow as ``update_case_trigger`` does: the
+    # Triggers tab is another way in, not a way around it.
+
+    def _create_trigger_audit_details(
+        self,
+        workflow_id: WorkflowID,
+        params: CaseTriggerUpdate,
+        *,
+        trigger_name: str,
+    ) -> AuditEventDetails:
+        return _tab_audit_details(params, trigger_name)
+
+    def _update_trigger_audit_details(
+        self,
+        trigger_id: uuid.UUID,
+        params: CaseTriggerUpdate,
+        *,
+        trigger_name: str | None = None,
+    ) -> AuditEventDetails:
+        return _tab_audit_details(params, trigger_name)
+
+    @requires_entitlement(Entitlement.CASE_ADDONS)
+    @require_scope("workflow:update")
+    @audit_log(
+        resource_type="case_trigger",
+        action="update",
+        resource_id_attr="id",
+        attempt_metadata=_create_trigger_audit_details,
+    )
+    async def create_trigger_case_trigger(
+        self,
+        workflow_id: WorkflowID,
+        params: CaseTriggerUpdate,
+        *,
+        trigger_name: str,
+    ) -> CaseTrigger:
+        """Make a workflow's case trigger a trigger, with the given settings.
+
+        The case trigger row already exists (every workflow has one); this
+        applies ``params`` to it and adds its trigger row and binding. Only a
+        status in ``params`` changes the status.
+
+        Raises:
+            TracecatNotFoundError: If the workflow is not in the workspace, or
+                a tag filter names no tag.
+            TracecatConflictError: If the case trigger already is a trigger.
+            TracecatValidationError: If it would be online without event
+                types, or the workflow has no published definition.
+        """
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=WorkflowUUID.new(workflow_id),
+        )
+        await self._lock_workflow(workflow_id)
+        # trigger_id changes only under the workflow lock, so a fresh read
+        # is current; the row itself is locked in ``_update_case_trigger``.
+        case_trigger = await self._ensure_case_trigger_exists(workflow_id, commit=False)
+        if case_trigger.trigger_id is not None:
+            raise TracecatConflictError(
+                "This workflow's case trigger is already a trigger. Open it in"
+                " the Triggers tab to change it."
+            )
+        return await self._update_case_trigger(
+            workflow_id, params, trigger_name=trigger_name, as_trigger=True
+        )
+
+    @requires_entitlement(Entitlement.CASE_ADDONS)
+    @require_scope("workflow:update")
+    @audit_log(
+        resource_type="case_trigger",
+        action="update",
+        resource_id_attr="id",
+        attempt_metadata=_update_trigger_audit_details,
+    )
+    async def update_trigger_case_trigger(
+        self,
+        trigger_id: uuid.UUID,
+        params: CaseTriggerUpdate,
+        *,
+        trigger_name: str | None = None,
+    ) -> CaseTrigger:
+        """Update the case trigger behind a ``case_trigger`` trigger, and its
+        trigger row.
+
+        Raises:
+            TracecatNotFoundError: If no case trigger belongs to the trigger,
+                or a tag filter names no tag.
+            TracecatValidationError: As for ``update_case_trigger``.
+        """
+        workflow_id = await self._lock_trigger_case_trigger(trigger_id)
+        return await self._update_case_trigger(
+            workflow_id, params, trigger_name=trigger_name
+        )
+
+    @requires_entitlement(Entitlement.CASE_ADDONS)
+    @require_scope("workflow:update")
+    @audit_log(resource_type="case_trigger", action="update", resource_id_attr="id")
+    async def delete_trigger_case_trigger(self, trigger_id: uuid.UUID) -> CaseTrigger:
+        """Turn the case trigger behind a trigger offline and delete the
+        trigger row.
+
+        The case trigger row stays (every workflow has one), with its event
+        types and tag filters; it gets a new trigger row when it is next
+        turned on.
+
+        Raises:
+            TracecatNotFoundError: If no case trigger belongs to the trigger.
+        """
+        workflow_id = await self._lock_trigger_case_trigger(trigger_id)
+        case_trigger = await self._ensure_case_trigger_exists(
+            workflow_id, commit=False, lock=True
+        )
+        case_trigger.status = TriggerStatus.OFFLINE.value
+        self.session.add(case_trigger)
+        await self.session.flush()
+        # The key nulls case_trigger.trigger_id; the binding goes by cascade.
+        await self.session.execute(
+            delete(Trigger).where(
+                Trigger.workspace_id == self.workspace_id, Trigger.id == trigger_id
+            )
+        )
+        await self.session.commit()
+        await self.session.refresh(case_trigger)
+        return case_trigger
+
+    async def _lock_trigger_case_trigger(self, trigger_id: uuid.UUID) -> WorkflowUUID:
+        """Lock the workflow of the case trigger behind a trigger.
+
+        Takes the managed check (and its ownership lock) first, then the
+        workflow lock, and reads the case trigger again under it: the trigger
+        may have been deleted meanwhile.
+
+        Raises:
+            TracecatNotFoundError: If no case trigger belongs to the trigger.
+        """
+        found = await self.session.scalar(
+            select(CaseTrigger.workflow_id).where(
+                CaseTrigger.workspace_id == self.workspace_id,
+                CaseTrigger.trigger_id == trigger_id,
+            )
+        )
+        if found is None:
+            raise TracecatNotFoundError(f"No case trigger for trigger {trigger_id}")
+        workflow_id = WorkflowUUID.new(found)
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=workflow_id,
+        )
+        await self._lock_workflow(workflow_id)
+        # trigger_id changes only under the workflow lock, so a fresh read
+        # is current. The row is locked by the write that follows.
+        case_trigger = await self._ensure_case_trigger_exists(workflow_id, commit=False)
+        if case_trigger.trigger_id != trigger_id:
+            raise TracecatNotFoundError(f"No case trigger for trigger {trigger_id}")
+        return workflow_id
 
     async def _resolve_tag_filters(
         self, tag_filters: Iterable[str], *, create_missing: bool = False

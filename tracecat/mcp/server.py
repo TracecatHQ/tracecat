@@ -7059,7 +7059,8 @@ async def update_event_source(
 @mcp.tool()
 async def list_triggers(
     workspace_id: uuid.UUID,
-    kind: Literal["object_storage", "schedule", "webhook"] | None = None,
+    kind: Literal["object_storage", "schedule", "webhook", "case_trigger"]
+    | None = None,
     source_id: uuid.UUID | None = None,
     workflow_id: MCPWorkflowUUID | None = None,
     agent_preset_id: uuid.UUID | None = None,
@@ -7075,9 +7076,12 @@ async def list_triggers(
     holds): it runs its one bound workflow on `config.cron` or `config.every`.
     Kind `webhook` is a workflow's webhook (the one `get_webhook` shows),
     listed once it has been turned on: it runs its one bound workflow for each
-    request to `config.url`. Forms are not listed here, though each starts its
-    workflow on every submission: `list_forms` lists them, and they are
-    managed with the form tools only.
+    request to `config.url`. Kind `case_trigger` is a workflow's case trigger
+    (the one `get_case_trigger` shows), listed once it has been turned on or
+    made a trigger with `create_trigger`: it runs its one bound workflow for
+    each case event in `config.event_types`. Forms are not listed here, though
+    an online form starts its workflow on each submission: `list_forms` lists
+    them, and they are managed with the form tools only.
 
     Args:
         workspace_id: The workspace ID.
@@ -7094,10 +7098,12 @@ async def list_triggers(
     `schedule` config holds schedule_id, workflow_id, cron or every, offset,
     start_at, end_at, timeout and inputs. A `webhook` config holds webhook_id,
     workflow_id, methods, allowlisted_cidrs, include_headers, url (it contains
-    the webhook's secret) and api_key (preview only). Schedules need
-    `schedule:read` and webhooks `workflow:read` to be listed. Triggers of a
-    kind the plan lacks (such as `object_storage` without `object_triggers`)
-    are not listed but counted in `locked` (kind, entitlement, count).
+    the webhook's secret) and api_key (preview only). A `case_trigger` config
+    holds case_trigger_id, workflow_id, event_types and tag_filters. Schedules
+    need `schedule:read`, and webhooks and case triggers `workflow:read`, to be
+    listed. Triggers of a kind the plan lacks (such as `object_storage`
+    without `object_triggers`, or `case_trigger` without `case_addons`) are
+    not listed but counted in `locked` (kind, entitlement, count).
     """
     async with _triggers_service(workspace_id, "list triggers", "trigger:read") as svc:
         page = await svc.list_triggers(
@@ -7165,20 +7171,31 @@ async def create_trigger(
     is a trigger. Its target is fixed too. Manage its API key with the
     workflow's webhook.
 
+    For `{"kind": "case_trigger", "workflow_id": ...}` (plus optional
+    `event_types` and `tag_filters`), this makes the workflow's existing case
+    trigger a trigger, bound to that workflow, the same way: settings you
+    leave out keep their saved values, and its status stays unless you pass
+    `status`. Online needs at least one event type and a published workflow.
+    Tag filters must name existing case tags. It needs `workflow:update`,
+    `workflow:execute` and the `case_addons` plan feature, and fails if the
+    case trigger already is a trigger or the workflow is managed. Its target
+    is fixed too.
+
     Args:
         workspace_id: The workspace ID.
         name: A display name.
         config: The trigger kind and its settings.
         status: `"online"` fires; `"offline"` does not. Omit it for the
-            default: offline, except a webhook keeps its current status.
+            default: offline, except a webhook or case trigger keeps its
+            current status.
 
     Returns the new trigger as JSON, in the same shape as `get_trigger`.
     """
     async with _triggers_service(
         workspace_id, "create trigger", "trigger:create"
     ) as svc:
-        # Omitted stays out of the request, so a live webhook is not turned
-        # off by the default.
+        # Omitted stays out of the request, so a live webhook or case trigger
+        # is not turned off by the default.
         params = (
             TriggerCreate(name=name, config=config, status=TriggerStatus(status))
             if status is not None
@@ -7208,7 +7225,11 @@ async def update_trigger(
     status are written through its webhook (as `update_webhook` does), so
     any change needs `workflow:update` on top of `trigger:update`; a config
     sets the methods, allowlisted_cidrs and include_headers it names (the
-    rest keep their values), and its `workflow_id` must stay the same.
+    rest keep their values), and its `workflow_id` must stay the same. A
+    `case_trigger` trigger is written through its case trigger (as
+    `update_case_trigger` does) the same way, with `event_types` and
+    `tag_filters`; any change needs `workflow:update` on top of
+    `trigger:update`, and the `case_addons` plan feature.
 
     Args:
         workspace_id: The workspace ID.
@@ -7247,8 +7268,9 @@ async def create_trigger_binding(
     `{"type": "agent", "agent_preset_id": ..., "instruction": "..."}` starts a
     new session of the preset's current version with the instruction; the
     event is added to the first message as data. Needs `agent:execute`.
-    A trigger can be bound to the same target only once. A `schedule` or
-    `webhook` trigger's one target is its own workflow; it takes no other.
+    A trigger can be bound to the same target only once. A `schedule`,
+    `webhook` or `case_trigger` trigger's one target is its own workflow; it
+    takes no other.
 
     Args:
         workspace_id: The workspace ID.
@@ -7282,9 +7304,9 @@ async def update_trigger_binding(
     There is no delete tool: take a binding offline instead. Turning a binding
     online or changing its instruction needs `workflow:execute` or
     `agent:execute` for its target, as creating it does. The target
-    cannot change; add a new binding for another target. A `schedule` or
-    `webhook` trigger's binding cannot change: take the trigger offline
-    instead.
+    cannot change; add a new binding for another target. A `schedule`,
+    `webhook` or `case_trigger` trigger's binding cannot change: take the
+    trigger offline instead.
 
     Args:
         workspace_id: The workspace ID.

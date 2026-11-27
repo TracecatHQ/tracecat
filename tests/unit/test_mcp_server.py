@@ -10414,6 +10414,49 @@ async def test_trigger_tools_take_the_webhook_kind(
 
 
 @pytest.mark.anyio
+async def test_trigger_tools_take_the_case_trigger_kind(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trigger_id, read = uuid.uuid4(), object()
+    create_trigger = AsyncMock(return_value=SimpleNamespace(id=trigger_id))
+    list_triggers = AsyncMock(return_value=TriggerListResponse(items=[]))
+    _patch_triggers(
+        monkeypatch,
+        entitled=False,
+        create_trigger=create_trigger,
+        get_trigger=AsyncMock(return_value=read),
+        list_triggers=list_triggers,
+    )
+    workflow_id = uuid.uuid4()
+    config = mcp_server.TriggerCreate.model_validate(
+        {
+            "name": "x",
+            "config": {
+                "kind": "case_trigger",
+                "workflow_id": str(workflow_id),
+                "event_types": ["case_closed", "case_closed"],
+                "tag_filters": [" phishing ", ""],
+            },
+        }
+    ).config
+
+    result = await _call_trigger_tool("create_trigger", name="Closed", config=config)
+    await _call_trigger_tool("list_triggers", kind="case_trigger")
+
+    assert result is read
+    [call] = create_trigger.await_args_list
+    params = call.args[0]
+    assert params.config.kind is mcp_server.TriggerKind.CASE_TRIGGER
+    assert params.config.workflow_id == workflow_id
+    # No status given: the case trigger keeps its own (a live one stays live).
+    assert "status" not in params.model_fields_set
+    assert params.config.event_types == ["case_closed"]
+    assert params.config.tag_filters == ["phishing"]
+    [list_call] = list_triggers.await_args_list
+    assert list_call.kwargs["kind"] is mcp_server.TriggerKind.CASE_TRIGGER
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("tool_name", list(_TRIGGER_TOOL_ARGUMENTS))
 async def test_trigger_tools_need_their_scope(
     monkeypatch: pytest.MonkeyPatch, tool_name: str
