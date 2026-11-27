@@ -83,6 +83,23 @@ const TRIGGERS_DENIED = Object.assign(new Error("Denied"), {
   body: { detail: "Denied" },
 })
 
+const CASE_TRIGGER: TriggerRead = {
+  id: "trigger-2",
+  kind: "case_trigger",
+  name: "Closed cases",
+  status: "offline",
+  config: {
+    kind: "case_trigger",
+    workflow_id: "wf_4itKqkgCZrLhgYiq5L211X",
+    case_trigger_id: "case-trigger-1",
+    event_types: ["case_closed"],
+    tag_filters: [],
+  },
+  bindings: [],
+  created_at: "2026-11-27T00:00:00Z",
+  updated_at: "2026-11-27T00:00:00Z",
+}
+
 function renderWithClient(ui: ReactNode) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -142,6 +159,44 @@ describe("Forms in the Triggers tab", () => {
     expect(
       screen.getByRole("link", { name: /Nightly report/ })
     ).toBeInTheDocument()
+  })
+
+  it("lists forms beside case triggers, with both plan notes", async () => {
+    entitlements = new Set()
+    jest.mocked(triggersListTriggers).mockResolvedValue({
+      items: [CASE_TRIGGER],
+      has_more: false,
+      locked: [{ kind: "case_trigger", entitlement: "case_addons", count: 2 }],
+    })
+
+    renderWithClient(<WorkspaceTriggers />)
+
+    expect(
+      await screen.findByRole("link", { name: /Closed cases/ })
+    ).toHaveTextContent("Case event")
+    expect(screen.getByText(/2 case event triggers/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/Forms aren.t listed because your plan/)
+    ).toBeInTheDocument()
+    expect(formsListForms).not.toHaveBeenCalled()
+  })
+
+  it("lists a form below a case trigger", async () => {
+    jest
+      .mocked(triggersListTriggers)
+      .mockResolvedValue({ items: [CASE_TRIGGER], has_more: false })
+    jest
+      .mocked(formsListForms)
+      .mockResolvedValue({ items: [FORM], has_more: false })
+
+    renderWithClient(<WorkspaceTriggers />)
+
+    const form = await screen.findByRole("link", { name: /Report phishing/ })
+    const caseTrigger = screen.getByRole("link", { name: /Closed cases/ })
+    expect(
+      caseTrigger.compareDocumentPosition(form) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
   })
 
   it("is read-only: a form row has no controls", async () => {
