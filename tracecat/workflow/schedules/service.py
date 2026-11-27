@@ -50,6 +50,14 @@ def default_trigger_name(workflow_title: str | None) -> str:
     return f"{title[:_TITLE_IN_NAME_MAX]} schedule"
 
 
+def _current(schedule: Schedule, key: str) -> object:
+    """A schedule setting as stored; a missing timeout means none (0)."""
+    value = getattr(schedule, key)
+    if key == "timeout" and value is None:
+        return 0
+    return value
+
+
 class WorkflowSchedulesService(BaseWorkspaceService):
     """Manages schedules for Workflows.
 
@@ -429,14 +437,20 @@ class WorkflowSchedulesService(BaseWorkspaceService):
                 created_at=schedule.created_at,
             )
         else:
-            # The header's timestamp covers its settings too.
+            # The header's timestamp covers its settings too. The status is
+            # written only when this update sets it: the loaded row may predate
+            # a concurrent status change, and the database trigger copies
+            # every status change anyway.
+            values: dict[str, object] = {"updated_at": func.now()}
+            if "status" in params.model_fields_set:
+                values["status"] = schedule.status
             await self.session.execute(
                 update(Trigger)
                 .where(
                     Trigger.workspace_id == self.workspace_id,
                     Trigger.id == schedule.trigger_id,
                 )
-                .values(status=schedule.status, updated_at=func.now())
+                .values(**values)
             )
 
         # After-commit callback to update Temporal schedule
@@ -571,7 +585,17 @@ class WorkflowSchedulesService(BaseWorkspaceService):
             TracecatNotFoundError: If no schedule belongs to the trigger.
         """
         schedule = await self._get_trigger_schedule(trigger_id)
-        await self._update_schedule_impl(schedule, params)
+        # A trigger config replaces every setting; send Temporal only what
+        # changed, read under the lock, so an untouched setting isn't
+        # rewritten.
+        changed = {
+            key: value
+            for key, value in params.model_dump(exclude_unset=True).items()
+            if value != _current(schedule, key)
+        }
+        await self._update_schedule_impl(
+            schedule, ScheduleUpdate.model_validate(changed)
+        )
         await self.session.flush()
         return schedule
 
@@ -591,7 +615,11 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         return schedule
 
     async def _get_trigger_schedule(self, trigger_id: uuid.UUID) -> Schedule:
-        """The schedule of a trigger, with its workflow locked until commit."""
+        """The schedule of a trigger, with its workflow locked until commit.
+
+        The schedule row is locked too and read fresh, so a change compared
+        against it sees what a concurrent writer committed.
+        """
         schedule = await self.session.scalar(
             select(Schedule)
             .join(Workflow, Workflow.id == Schedule.workflow_id)
@@ -600,7 +628,8 @@ class WorkflowSchedulesService(BaseWorkspaceService):
                 Schedule.trigger_id == trigger_id,
                 Workflow.workspace_id == self.workspace_id,
             )
-            .with_for_update(of=Workflow)
+            .with_for_update(of=(Workflow, Schedule))
+            .execution_options(populate_existing=True)
         )
         if schedule is None:
             raise TracecatNotFoundError(f"No schedule for trigger {trigger_id}")

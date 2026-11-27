@@ -359,6 +359,77 @@ async def test_a_config_replaces_every_schedule_setting(
     assert params.every == timedelta(hours=2)
 
 
+async def test_a_config_update_sends_temporal_only_what_changed(
+    triggers: TriggersService,
+    workflow: SimpleNamespace,
+    temporal: _Temporal,
+) -> None:
+    """An untouched setting (inputs here) isn't rewritten on the Temporal
+    schedule."""
+    created = await triggers.create_trigger(
+        TriggerCreate(name="s", config=_config(workflow, inputs={"a": 1}))
+    )
+
+    await triggers.update_trigger(
+        created.id,
+        TriggerUpdate(
+            config=_config(workflow, every=timedelta(hours=2), inputs={"a": 1})
+        ),
+    )
+
+    [(_, params)] = temporal.updated
+    assert params.model_fields_set == {"every"}
+
+
+async def test_a_row_with_cron_and_interval_still_reads(
+    session: AsyncSession,
+    triggers: TriggersService,
+    schedules: WorkflowSchedulesService,
+    workflow: SimpleNamespace,
+    temporal: _Temporal,
+) -> None:
+    """/schedules can leave both set; one such row must not fail the list."""
+    schedule = await schedules.create_schedule(
+        ScheduleCreate(workflow_id=WorkflowUUID.new(workflow.id), cron="0 * * * *")
+    )
+    trigger_id = schedule.trigger_id
+    assert trigger_id is not None
+    await schedules.update_schedule(
+        schedule.id, ScheduleUpdate(every=timedelta(hours=1))
+    )
+
+    page = await triggers.list_triggers(PageParams(limit=10))
+
+    [item] = page.items
+    assert isinstance(item.config, ScheduleTriggerConfigRead)
+    assert (item.config.cron, item.config.every) == ("0 * * * *", timedelta(hours=1))
+
+
+async def test_an_update_without_status_leaves_the_trigger_status_alone(
+    session: AsyncSession,
+    schedules: WorkflowSchedulesService,
+    workflow: SimpleNamespace,
+    temporal: _Temporal,
+) -> None:
+    """A partial update must not copy a status it read before a concurrent
+    status change committed."""
+    schedule = await schedules.create_schedule(
+        ScheduleCreate(workflow_id=WorkflowUUID.new(workflow.id), cron="0 * * * *")
+    )
+    trigger_id = schedule.trigger_id
+    assert trigger_id is not None
+    # Stands in for the other request's committed status change.
+    await session.execute(
+        text("UPDATE \"trigger\" SET status = 'offline' WHERE id = :id"),
+        {"id": trigger_id},
+    )
+
+    await schedules.update_schedule(schedule.id, ScheduleUpdate(timeout=5))
+
+    trigger, _, _ = await _rows(session, trigger_id)
+    assert trigger.status == "offline"
+
+
 async def test_a_schedule_cannot_move_to_another_workflow(
     session: AsyncSession,
     svc_workspace: Workspace,

@@ -135,7 +135,12 @@ class ObjectStorageTriggerConfigRead(ObjectStorageTriggerConfig):
 
 
 class _ScheduleSettings(Schema):
-    """When a schedule runs and with what, as on ``/schedules``."""
+    """When a schedule runs and with what, as on ``/schedules``.
+
+    Validation lives on the input model only: a read shows the row as
+    ``/schedules`` left it (an update there can leave both cron and interval
+    set), and one odd row must not fail a whole list.
+    """
 
     cron: str | None = Field(
         default=None, description="A cron expression. Set this or `every`."
@@ -162,16 +167,6 @@ class _ScheduleSettings(Schema):
         default=None, description="The workflow's trigger inputs for each run"
     )
 
-    @field_validator("cron")
-    @classmethod
-    def _valid_cron(cls, cron: str | None) -> str | None:
-        return check_cron(cron)
-
-    @model_validator(mode="after")
-    def _one_spec(self) -> Self:
-        check_schedule_spec(self.cron, self.every)
-        return self
-
 
 class ScheduleTriggerConfig(_ScheduleSettings):
     """Run a workflow on a cron expression or a fixed interval.
@@ -185,6 +180,16 @@ class ScheduleTriggerConfig(_ScheduleSettings):
     workflow_id: AnyWorkflowID = Field(
         description="The workflow the schedule runs. Fixed after create."
     )
+
+    @field_validator("cron")
+    @classmethod
+    def _valid_cron(cls, cron: str | None) -> str | None:
+        return check_cron(cron)
+
+    @model_validator(mode="after")
+    def _one_spec(self) -> Self:
+        check_schedule_spec(self.cron, self.every)
+        return self
 
 
 class ScheduleTriggerConfigRead(_ScheduleSettings):
