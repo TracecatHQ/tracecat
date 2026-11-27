@@ -7058,7 +7058,7 @@ async def update_event_source(
 @mcp.tool()
 async def list_triggers(
     workspace_id: uuid.UUID,
-    kind: Literal["object_storage", "schedule"] | None = None,
+    kind: Literal["object_storage", "schedule", "webhook"] | None = None,
     source_id: uuid.UUID | None = None,
     workflow_id: MCPWorkflowUUID | None = None,
     agent_preset_id: uuid.UUID | None = None,
@@ -7072,6 +7072,9 @@ async def list_triggers(
     created in its source whose key starts with `config.key_prefix`. Kind
     `schedule` is a workflow schedule (the same one a workflow's `schedules`
     holds): it runs its one bound workflow on `config.cron` or `config.every`.
+    Kind `webhook` is a workflow's webhook (the one `get_webhook` shows),
+    listed once it has been turned on: it runs its one bound workflow for each
+    request to `config.url`.
 
     Args:
         workspace_id: The workspace ID.
@@ -7086,7 +7089,10 @@ async def list_triggers(
     target_type, target_id and target_name) and the cursor fields. An
     `object_storage` config holds source_id, source_name and key_prefix. A
     `schedule` config holds schedule_id, workflow_id, cron or every, offset,
-    start_at, end_at, timeout and inputs.
+    start_at, end_at, timeout and inputs. A `webhook` config holds webhook_id,
+    workflow_id, methods, allowlisted_cidrs, include_headers, url (it contains
+    the webhook's secret) and api_key (preview only). Schedules need
+    `schedule:read` and webhooks `workflow:read` to be listed.
     """
     async with _triggers_service(workspace_id, "list triggers", "trigger:read") as svc:
         page = await svc.list_triggers(
@@ -7144,6 +7150,14 @@ async def create_trigger(
     needs `schedule:create`, `schedule:read` and `workflow:execute`. A
     schedule's target is fixed: `create_trigger_binding` refuses one.
 
+    For `{"kind": "webhook", "workflow_id": ..., "methods": ["POST"],
+    "allowlisted_cidrs": [], "include_headers": false}`, this makes the
+    workflow's existing webhook a trigger with those settings and `status`,
+    bound to that workflow. The webhook URL does not change. It needs
+    `workflow:update` and `workflow:execute`, and fails if the webhook already
+    is a trigger. Its target is fixed too. Manage its API key with the
+    workflow's webhook.
+
     Args:
         workspace_id: The workspace ID.
         name: A display name.
@@ -7176,7 +7190,10 @@ async def update_trigger(
     trigger's name, config and status are written through its schedule, so
     any change to one also needs `schedule:update` (which grants
     `schedule:read`); a config replaces every schedule setting, and its
-    `workflow_id` must stay the same.
+    `workflow_id` must stay the same. A `webhook` trigger's are written
+    through its webhook (as `update_webhook` does), so any change needs
+    `workflow:update`; a config replaces methods, allowlisted_cidrs and
+    include_headers, and its `workflow_id` must stay the same.
 
     Args:
         workspace_id: The workspace ID.
@@ -7215,8 +7232,8 @@ async def create_trigger_binding(
     `{"type": "agent", "agent_preset_id": ..., "instruction": "..."}` starts a
     new session of the preset's current version with the instruction; the
     event is added to the first message as data. Needs `agent:execute`.
-    A trigger can be bound to the same target only once. A `schedule`
-    trigger's one target is its schedule's workflow; it takes no other.
+    A trigger can be bound to the same target only once. A `schedule` or
+    `webhook` trigger's one target is its own workflow; it takes no other.
 
     Args:
         workspace_id: The workspace ID.
@@ -7250,8 +7267,9 @@ async def update_trigger_binding(
     There is no delete tool: take a binding offline instead. Turning a binding
     online or changing its instruction needs `workflow:execute` or
     `agent:execute` for its target, as creating it does. The target
-    cannot change; add a new binding for another target. A `schedule`
-    trigger's binding cannot change: take the trigger offline instead.
+    cannot change; add a new binding for another target. A `schedule` or
+    `webhook` trigger's binding cannot change: take the trigger offline
+    instead.
 
     Args:
         workspace_id: The workspace ID.

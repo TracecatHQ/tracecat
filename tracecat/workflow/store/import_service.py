@@ -8,7 +8,7 @@ from collections.abc import Iterable
 from pydantic import ValidationError
 from sqlalchemy import select
 
-from tracecat.db.models import Webhook, Workflow, WorkflowTag, WorkflowTagLink
+from tracecat.db.models import Workflow, WorkflowTag, WorkflowTagLink
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import (
@@ -25,7 +25,13 @@ from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import PullDiagnostic, PullResult
+from tracecat.triggers.enums import TriggerStatus
 from tracecat.validation.schemas import ValidationDetailListTA
+from tracecat.webhooks.service import (
+    add_webhook_trigger,
+    default_trigger_name,
+    lock_webhook,
+)
 from tracecat.workflow.actions.schemas import validate_control_flows
 from tracecat.workflow.case_triggers.schemas import (
     CaseTriggerConfig,
@@ -566,7 +572,7 @@ class WorkflowImportService(BaseWorkspaceService):
         # 6. Update related entities
         if sync_schedules:
             await self._update_schedules(existing_workflow, remote_workflow.schedules)
-        await self._update_webhook(existing_workflow.webhook, remote_workflow.webhook)
+        await self._update_webhook(existing_workflow, remote_workflow.webhook)
         await self._update_case_trigger(existing_workflow, remote_workflow.case_trigger)
         await self._update_form(existing_workflow, remote_workflow.form)
         await self._update_tags(existing_workflow, remote_workflow.tags)
@@ -610,7 +616,7 @@ class WorkflowImportService(BaseWorkspaceService):
         # Handle additional remote-specific entities
         if sync_schedules:
             await self._create_schedules(workflow, remote_defn.schedules)
-        await self._update_webhook(workflow.webhook, remote_defn.webhook)
+        await self._update_webhook(workflow, remote_defn.webhook)
         await self._update_case_trigger(workflow, remote_defn.case_trigger)
         await self._update_form(workflow, remote_defn.form)
         await self._create_tags(workflow, remote_defn.tags)
@@ -665,17 +671,31 @@ class WorkflowImportService(BaseWorkspaceService):
         await self.session.flush()
 
     async def _update_webhook(
-        self, webhook: Webhook, remote_webhook: RemoteWebhook | None
+        self, workflow: Workflow, remote_webhook: RemoteWebhook | None
     ) -> None:
-        """Update webhook entity from remote webhook data."""
+        """Update webhook entity from remote webhook data.
+
+        A webhook the file turns on gets its trigger row if it has none, as
+        when it is turned on in the app.
+        """
         if not remote_webhook:
             return
+        webhook = workflow.webhook
         self.logger.info(f"Updating webhook {webhook.id} from remote {remote_webhook}")
+        if remote_webhook.status == TriggerStatus.ONLINE:
+            # Lock the workflow and then the webhook, as the webhook service
+            # does, so a concurrent turn-on cannot add a second trigger row.
+            # Done before the writes below: the webhook is read fresh.
+            await lock_webhook(self.session, webhook.workspace_id, workflow.id)
 
         # The webhook ID doesn't matter
         webhook.methods = remote_webhook.methods
         webhook.status = remote_webhook.status
         webhook.include_headers = remote_webhook.include_headers
+        if webhook.status == TriggerStatus.ONLINE and webhook.trigger_id is None:
+            await add_webhook_trigger(
+                self.session, webhook, name=default_trigger_name(workflow.title)
+            )
 
     async def _update_case_trigger(
         self, workflow: Workflow, remote_case_trigger: RemoteCaseTrigger | None

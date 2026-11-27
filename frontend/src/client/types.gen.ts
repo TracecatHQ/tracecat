@@ -14036,21 +14036,27 @@ export type TriggerBindingUpdate = {
 
 export type TriggerCreate = {
   name: string
-  config: ObjectStorageTriggerConfig | ScheduleTriggerConfig
+  config:
+    | ObjectStorageTriggerConfig
+    | ScheduleTriggerConfig
+    | WebhookTriggerConfig
   status?: TriggerStatus
 }
 
 /**
  * What a trigger listens to. Each kind has its own source and config.
  */
-export type TriggerKind = "object_storage" | "schedule"
+export type TriggerKind = "object_storage" | "schedule" | "webhook"
 
 export type TriggerRead = {
   id: string
   kind: TriggerKind
   name: string
   status: TriggerStatus
-  config: ObjectStorageTriggerConfigRead | ScheduleTriggerConfigRead
+  config:
+    | ObjectStorageTriggerConfigRead
+    | ScheduleTriggerConfigRead
+    | WebhookTriggerConfigRead
   bindings: Array<TriggerBindingRead>
   created_at: string
   updated_at: string
@@ -14082,7 +14088,11 @@ export type TriggerUpdate = {
   /**
    * Replaces the whole config. Its kind must be the trigger's kind, which never changes after create.
    */
-  config?: ObjectStorageTriggerConfig | ScheduleTriggerConfig | null
+  config?:
+    | ObjectStorageTriggerConfig
+    | ScheduleTriggerConfig
+    | WebhookTriggerConfig
+    | null
   status?: TriggerStatus | null
 }
 
@@ -14910,6 +14920,70 @@ export type kind6 = "download_file" | "download_export"
 export type WebhookStoredObjectInlineResponse = {
   kind: "value"
   value: unknown
+}
+
+/**
+ * Run a workflow for each request to its webhook URL.
+ *
+ * The settings of the workflow's webhook (``/workflows/{id}/webhook``),
+ * which the trigger shows and edits. Every workflow has one webhook; it
+ * becomes a trigger when it is turned on. Until webhooks start their targets
+ * through bindings, the trigger's one target is this workflow and cannot
+ * change. The API key is managed on the workflow's webhook only.
+ */
+export type WebhookTriggerConfig = {
+  kind: "webhook"
+  /**
+   * The workflow whose webhook this is. Fixed after create.
+   */
+  workflow_id: string
+  /**
+   * HTTP methods the webhook accepts
+   */
+  methods?: Array<WebhookMethod>
+  /**
+   * IPv4 addresses or CIDR ranges allowed to call the webhook. Empty allows every address.
+   */
+  allowlisted_cidrs?: Array<string>
+  /**
+   * Pass request headers and metadata to the workflow, not only the body
+   */
+  include_headers?: boolean
+}
+
+/**
+ * The webhook as ``/workflows/{id}/webhook`` shows it.
+ *
+ * Readable only with ``workflow:read``, the scope that shows the same URL on
+ * the workflow page.
+ */
+export type WebhookTriggerConfigRead = {
+  kind: "webhook"
+  /**
+   * The workflow the webhook runs
+   */
+  workflow_id: string
+  /**
+   * The webhook's ID, which does not change
+   */
+  webhook_id: string
+  /**
+   * HTTP methods the webhook accepts
+   */
+  methods: Array<string>
+  /**
+   * Addresses allowed to call the webhook. Empty allows all.
+   */
+  allowlisted_cidrs: Array<string>
+  include_headers: boolean
+  /**
+   * The webhook URL. It contains the webhook's secret.
+   */
+  url: string
+  /**
+   * The webhook's API key, if it has one (preview only)
+   */
+  api_key: WebhookApiKeyRead | null
 }
 
 export type WebhookUpdate = {

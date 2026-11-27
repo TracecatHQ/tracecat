@@ -146,8 +146,10 @@ stored config whole. Submissions are not exposed over MCP.
 The event source tools need the `object_triggers` entitlement. The trigger
 tools are open to every plan; reading, creating or changing a trigger needs its
 kind's entitlement (`object_triggers` for `object_storage`, none for
-`schedule`), and `list_triggers` leaves out the kinds the plan lacks. A
-`schedule` trigger also needs `schedule:read` to be read or listed.
+`schedule` and `webhook`), and `list_triggers` leaves out the kinds the plan
+lacks. A `schedule` trigger also needs `schedule:read` to be read or listed,
+and a `webhook` trigger `workflow:read` (its `url` holds the webhook secret, as
+in `get_webhook`).
 Scopes: list and get tools need `trigger:read`; `create_event_source` and
 `create_trigger` need `trigger:create`; the update tools and
 `create_trigger_binding` need `trigger:update`. Anything that can make a target run also needs
@@ -169,8 +171,8 @@ for callers without `trigger:update`.
 - `update_trigger_binding(workspace_id, trigger_id, binding_id, status=None, instruction=None)`
 
 An event source is an inbound feed (kind `aws_sns`: a customer SNS topic). A
-trigger is a rule over a source's events (kind `object_storage`) or a workflow
-schedule (kind `schedule`). A binding starts a workflow or an agent preset for
+trigger is a rule over a source's events (kind `object_storage`), a workflow
+schedule (kind `schedule`) or a workflow's webhook (kind `webhook`). A binding starts a workflow or an agent preset for
 each matching event. Each `config` is discriminated by `kind`. There are no
 delete tools: take a source, trigger or binding offline instead. The API
 deletes triggers and bindings.
@@ -183,6 +185,17 @@ it or updating its config or status needs `schedule:update` (which grants
 schedule setting.
 Its one binding is fixed: `create_trigger_binding` and `update_trigger_binding`
 refuse it.
+
+A `webhook` trigger is the webhook `get_webhook` and `update_webhook` show and
+change, so a change made either way shows in both. Every workflow has one
+webhook; it is listed as a trigger once it has been turned on (or made a
+trigger with `create_trigger`), and stays listed when it goes offline.
+Creating one makes the workflow's existing webhook a trigger with the given
+methods, allowlist and header setting; its URL does not change. That needs
+`workflow:update` and `workflow:execute`. Renaming it or updating its config
+or status needs `workflow:update` on top of `trigger:update`, and a config
+replaces methods, `allowlisted_cidrs` and `include_headers`. The API key stays
+on the workflow's webhook. Its one binding is fixed, as for schedules.
 
 ## Workflow tag tools
 

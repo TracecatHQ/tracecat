@@ -778,6 +778,7 @@ def test_every_kind_names_its_entitlement() -> None:
     assert ENTITLEMENT_BY_TRIGGER_KIND == {
         TriggerKind.OBJECT_STORAGE: Entitlement.OBJECT_TRIGGERS,
         TriggerKind.SCHEDULE: None,
+        TriggerKind.WEBHOOK: None,
     }
 
 

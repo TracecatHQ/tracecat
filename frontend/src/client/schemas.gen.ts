@@ -45586,6 +45586,9 @@ export const $TriggerCreate = {
         {
           $ref: "#/components/schemas/ScheduleTriggerConfig",
         },
+        {
+          $ref: "#/components/schemas/WebhookTriggerConfig",
+        },
       ],
       title: "Config",
       discriminator: {
@@ -45593,6 +45596,7 @@ export const $TriggerCreate = {
         mapping: {
           object_storage: "#/components/schemas/ObjectStorageTriggerConfig",
           schedule: "#/components/schemas/ScheduleTriggerConfig",
+          webhook: "#/components/schemas/WebhookTriggerConfig",
         },
       },
     },
@@ -45608,7 +45612,7 @@ export const $TriggerCreate = {
 
 export const $TriggerKind = {
   type: "string",
-  enum: ["object_storage", "schedule"],
+  enum: ["object_storage", "schedule", "webhook"],
   title: "TriggerKind",
   description:
     "What a trigger listens to. Each kind has its own source and config.",
@@ -45639,6 +45643,9 @@ export const $TriggerRead = {
         {
           $ref: "#/components/schemas/ScheduleTriggerConfigRead",
         },
+        {
+          $ref: "#/components/schemas/WebhookTriggerConfigRead",
+        },
       ],
       title: "Config",
       discriminator: {
@@ -45646,6 +45653,7 @@ export const $TriggerRead = {
         mapping: {
           object_storage: "#/components/schemas/ObjectStorageTriggerConfigRead",
           schedule: "#/components/schemas/ScheduleTriggerConfigRead",
+          webhook: "#/components/schemas/WebhookTriggerConfigRead",
         },
       },
     },
@@ -45727,12 +45735,16 @@ export const $TriggerUpdate = {
             {
               $ref: "#/components/schemas/ScheduleTriggerConfig",
             },
+            {
+              $ref: "#/components/schemas/WebhookTriggerConfig",
+            },
           ],
           discriminator: {
             propertyName: "kind",
             mapping: {
               object_storage: "#/components/schemas/ObjectStorageTriggerConfig",
               schedule: "#/components/schemas/ScheduleTriggerConfig",
+              webhook: "#/components/schemas/WebhookTriggerConfig",
             },
           },
         },
@@ -48950,6 +48962,138 @@ export const $WebhookStoredObjectInlineResponse = {
   type: "object",
   required: ["kind", "value"],
   title: "WebhookStoredObjectInlineResponse",
+} as const
+
+export const $WebhookTriggerConfig = {
+  properties: {
+    kind: {
+      type: "string",
+      const: "webhook",
+      title: "Kind",
+    },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}",
+        },
+      ],
+      title: "Workflow Id",
+      description: "The workflow whose webhook this is. Fixed after create.",
+    },
+    methods: {
+      items: {
+        $ref: "#/components/schemas/WebhookMethod",
+      },
+      type: "array",
+      minItems: 1,
+      title: "Methods",
+      description: "HTTP methods the webhook accepts",
+    },
+    allowlisted_cidrs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Allowlisted Cidrs",
+      description:
+        "IPv4 addresses or CIDR ranges allowed to call the webhook. Empty allows every address.",
+    },
+    include_headers: {
+      type: "boolean",
+      title: "Include Headers",
+      description:
+        "Pass request headers and metadata to the workflow, not only the body",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["kind", "workflow_id"],
+  title: "WebhookTriggerConfig",
+  description: `Run a workflow for each request to its webhook URL.
+
+The settings of the workflow's webhook (\`\`/workflows/{id}/webhook\`\`),
+which the trigger shows and edits. Every workflow has one webhook; it
+becomes a trigger when it is turned on. Until webhooks start their targets
+through bindings, the trigger's one target is this workflow and cannot
+change. The API key is managed on the workflow's webhook only.`,
+} as const
+
+export const $WebhookTriggerConfigRead = {
+  properties: {
+    kind: {
+      type: "string",
+      const: "webhook",
+      title: "Kind",
+    },
+    workflow_id: {
+      type: "string",
+      title: "Workflow Id",
+      description: "The workflow the webhook runs",
+    },
+    webhook_id: {
+      type: "string",
+      format: "uuid",
+      title: "Webhook Id",
+      description: "The webhook's ID, which does not change",
+    },
+    methods: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Methods",
+      description: "HTTP methods the webhook accepts",
+    },
+    allowlisted_cidrs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Allowlisted Cidrs",
+      description: "Addresses allowed to call the webhook. Empty allows all.",
+    },
+    include_headers: {
+      type: "boolean",
+      title: "Include Headers",
+    },
+    url: {
+      type: "string",
+      title: "Url",
+      description: "The webhook URL. It contains the webhook's secret.",
+    },
+    api_key: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WebhookApiKeyRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "The webhook's API key, if it has one (preview only)",
+    },
+  },
+  type: "object",
+  required: [
+    "kind",
+    "workflow_id",
+    "webhook_id",
+    "methods",
+    "allowlisted_cidrs",
+    "include_headers",
+    "url",
+    "api_key",
+  ],
+  title: "WebhookTriggerConfigRead",
+  description: `The webhook as \`\`/workflows/{id}/webhook\`\` shows it.
+
+Readable only with \`\`workflow:read\`\`, the scope that shows the same URL on
+the workflow page.`,
 } as const
 
 export const $WebhookUpdate = {

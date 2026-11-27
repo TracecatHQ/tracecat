@@ -160,6 +160,11 @@ export function useTriggerMutations(workspaceId: string) {
       queryClient.invalidateQueries({
         predicate: (query) => query.queryKey[1] === "schedules",
       }),
+      // A webhook trigger is a workflow's webhook: the workflow page reads it
+      // from the workflow (`["workflow", id]`).
+      queryClient.invalidateQueries({
+        predicate: (query) => query.queryKey[0] === "workflow",
+      }),
     ])
   }
 

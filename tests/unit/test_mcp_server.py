@@ -10321,6 +10321,48 @@ async def test_create_trigger_accepts_a_schedule_config(
 
 
 @pytest.mark.anyio
+async def test_trigger_tools_take_the_webhook_kind(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trigger_id, read = uuid.uuid4(), object()
+    create_trigger = AsyncMock(return_value=SimpleNamespace(id=trigger_id))
+    page = mcp_server.CursorPaginatedResponse(items=[])
+    list_triggers = AsyncMock(return_value=page)
+    _patch_triggers(
+        monkeypatch,
+        entitled=False,
+        create_trigger=create_trigger,
+        get_trigger=AsyncMock(return_value=read),
+        list_triggers=list_triggers,
+    )
+    workflow_id = uuid.uuid4()
+    config = mcp_server.TriggerCreate.model_validate(
+        {
+            "name": "x",
+            "config": {
+                "kind": "webhook",
+                "workflow_id": str(workflow_id),
+                "methods": ["GET", "POST"],
+                "allowlisted_cidrs": ["10.0.0.1"],
+            },
+        }
+    ).config
+
+    result = await _call_trigger_tool("create_trigger", name="Intake", config=config)
+    await _call_trigger_tool("list_triggers", kind="webhook")
+
+    assert result is read
+    [call] = create_trigger.await_args_list
+    params = call.args[0]
+    assert params.config.kind is mcp_server.TriggerKind.WEBHOOK
+    assert params.config.workflow_id == workflow_id
+    assert params.config.methods == ["GET", "POST"]
+    assert params.config.allowlisted_cidrs == ["10.0.0.1/32"]
+    [list_call] = list_triggers.await_args_list
+    assert list_call.kwargs["kind"] is mcp_server.TriggerKind.WEBHOOK
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("tool_name", list(_TRIGGER_TOOL_ARGUMENTS))
 async def test_trigger_tools_need_their_scope(
     monkeypatch: pytest.MonkeyPatch, tool_name: str

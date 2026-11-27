@@ -35,6 +35,11 @@ from tracecat.triggers.enums import (
     TriggerStatus,
     TriggerTargetType,
 )
+from tracecat.webhooks.schemas import (
+    WebhookApiKeyRead,
+    WebhookMethod,
+    normalize_cidrs,
+)
 from tracecat.workflow.schedules.schemas import check_cron, check_schedule_spec
 
 # Commercial, GovCloud and China partitions. FIFO topics cannot deliver to
@@ -203,11 +208,71 @@ class ScheduleTriggerConfigRead(_ScheduleSettings):
     )
 
 
+class WebhookTriggerConfig(Schema):
+    """Run a workflow for each request to its webhook URL.
+
+    The settings of the workflow's webhook (``/workflows/{id}/webhook``),
+    which the trigger shows and edits. Every workflow has one webhook; it
+    becomes a trigger when it is turned on. Until webhooks start their targets
+    through bindings, the trigger's one target is this workflow and cannot
+    change. The API key is managed on the workflow's webhook only.
+    """
+
+    kind: Literal[TriggerKind.WEBHOOK]
+    workflow_id: AnyWorkflowID = Field(
+        description="The workflow whose webhook this is. Fixed after create."
+    )
+    methods: list[WebhookMethod] = Field(
+        default_factory=lambda: ["POST"],
+        min_length=1,
+        description="HTTP methods the webhook accepts",
+    )
+    allowlisted_cidrs: list[str] = Field(
+        default_factory=list,
+        description="IPv4 addresses or CIDR ranges allowed to call the webhook."
+        " Empty allows every address.",
+    )
+    include_headers: bool = Field(
+        default=False,
+        description="Pass request headers and metadata to the workflow, not"
+        " only the body",
+    )
+
+    @field_validator("allowlisted_cidrs")
+    @classmethod
+    def _valid_cidrs(cls, cidrs: list[str]) -> list[str]:
+        return normalize_cidrs(cidrs)
+
+
+class WebhookTriggerConfigRead(Schema):
+    """The webhook as ``/workflows/{id}/webhook`` shows it.
+
+    Readable only with ``workflow:read``, the scope that shows the same URL on
+    the workflow page.
+    """
+
+    kind: Literal[TriggerKind.WEBHOOK]
+    workflow_id: WorkflowID = Field(description="The workflow the webhook runs")
+    webhook_id: uuid.UUID = Field(description="The webhook's ID, which does not change")
+    methods: list[str] = Field(description="HTTP methods the webhook accepts")
+    allowlisted_cidrs: list[str] = Field(
+        description="Addresses allowed to call the webhook. Empty allows all."
+    )
+    include_headers: bool
+    url: str = Field(description="The webhook URL. It contains the webhook's secret.")
+    api_key: WebhookApiKeyRead | None = Field(
+        description="The webhook's API key, if it has one (preview only)"
+    )
+
+
 TriggerConfig = Annotated[
-    ObjectStorageTriggerConfig | ScheduleTriggerConfig, Field(discriminator="kind")
+    ObjectStorageTriggerConfig | ScheduleTriggerConfig | WebhookTriggerConfig,
+    Field(discriminator="kind"),
 ]
 TriggerConfigRead = Annotated[
-    ObjectStorageTriggerConfigRead | ScheduleTriggerConfigRead,
+    ObjectStorageTriggerConfigRead
+    | ScheduleTriggerConfigRead
+    | WebhookTriggerConfigRead,
     Field(discriminator="kind"),
 ]
 
