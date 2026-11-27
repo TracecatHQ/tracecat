@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy import update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.audit.enums import AuditEventStatus
@@ -213,6 +214,39 @@ async def test_changing_the_topic_resets_the_subscription(
     assert moved.endpoint_token != old_token
     assert moved.endpoint_token_confirmed_at is None
     assert moved.previous_endpoint_token is None
+
+
+async def test_a_topic_change_resets_a_confirmation_it_raced(
+    service: TriggersService,
+) -> None:
+    """A confirmation committed after the source was read must not survive
+    a topic change: the update rereads the locked row before resetting."""
+    source = await service.create_event_source(
+        EventSourceCreate(name="bucket", config=_sns())
+    )
+    # Another connection confirms the URL; this session still holds the
+    # pending snapshot.
+    await service.session.execute(
+        sql_update(EventSource)
+        .where(EventSource.id == source.id)
+        .values(
+            subscription_status=SubscriptionStatus.CONFIRMED.value,
+            subscription_ref=f"{TOPIC}:sub",
+            endpoint_token_confirmed_at=datetime.now(UTC),
+        )
+        # As from another session: the loaded object is not touched.
+        .execution_options(synchronize_session=False)
+    )
+    assert source.subscription_status == SubscriptionStatus.PENDING
+
+    moved = await service.update_event_source(
+        source.id, EventSourceUpdate(config=_sns(f"{TOPIC}-2"))
+    )
+
+    assert moved.subscription_status == SubscriptionStatus.PENDING
+    assert moved.subscription_ref is None
+    assert moved.endpoint_token_confirmed_at is None
+    assert read_event_source(moved, service.role).endpoint_url is not None
 
 
 # ----- Endpoint URL rotation -----

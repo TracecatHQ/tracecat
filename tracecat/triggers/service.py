@@ -264,18 +264,27 @@ class TriggersService(BaseWorkspaceService):
             has_previous=result.has_previous,
         )
 
-    async def get_event_source(self, source_id: uuid.UUID) -> EventSource:
+    async def get_event_source(
+        self, source_id: uuid.UUID, *, for_update: bool = False
+    ) -> EventSource:
         """Get a source of the workspace.
+
+        Args:
+            source_id: The source ID.
+            for_update: Lock the row and reload it, for a write that resets
+                the subscription: a confirmation arriving meanwhile waits,
+                then finds its URL replaced and changes nothing.
 
         Raises:
             TriggerError: ``not_found`` if the workspace has no such source.
         """
-        source = await self.session.scalar(
-            select(EventSource).where(
-                EventSource.workspace_id == self.workspace_id,
-                EventSource.id == source_id,
-            )
+        stmt = select(EventSource).where(
+            EventSource.workspace_id == self.workspace_id,
+            EventSource.id == source_id,
         )
+        if for_update:
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
+        source = await self.session.scalar(stmt)
         if source is None:
             raise _not_found("Event source")
         return source
@@ -325,7 +334,7 @@ class TriggersService(BaseWorkspaceService):
                 kind, or ``conflict`` as for create.
         """
         await self._lock_config()
-        source = await self.get_event_source(source_id)
+        source = await self.get_event_source(source_id, for_update=True)
         moves_feed = params.config is not None and _source_identity(
             params.config
         ) != _source_identity(_source_config(source))
@@ -383,18 +392,7 @@ class TriggersService(BaseWorkspaceService):
         Raises:
             TriggerError: ``not_found``, or ``conflict`` on a token collision.
         """
-        # Locked, so a confirmation arriving now waits and then finds its URL
-        # replaced, instead of confirming the URL being retired.
-        source = await self.session.scalar(
-            select(EventSource)
-            .where(
-                EventSource.workspace_id == self.workspace_id,
-                EventSource.id == source_id,
-            )
-            .with_for_update()
-        )
-        if source is None:
-            raise _not_found("Event source")
+        source = await self.get_event_source(source_id, for_update=True)
         if _url_was_confirmed(source):
             source.previous_endpoint_token = source.endpoint_token
             source.previous_endpoint_token_expires_at = (
