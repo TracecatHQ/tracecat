@@ -29,7 +29,6 @@ The downgrade deletes the ``webhook`` trigger rows and drops what the upgrade
 added. Webhooks themselves are untouched either way.
 """
 
-import time
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -78,35 +77,29 @@ SYNC_TRIGGER_SQL = (
 )
 DROP_SYNC_TRIGGER_SQL = f"DROP TRIGGER IF EXISTS {_SYNC_TRIGGER} ON public.webhook"
 
-# Run first, in the backfill's transaction (see ``backfill``): lock the
-# workflows of the webhooks about to be backfilled, in ID order. App writes
-# lock the workflow and then the webhook; the backfill locks webhooks and its
-# binding inserts need a key-share lock on their workflow, so without this the
-# two could deadlock.
-LOCK_WORKFLOWS_SQL = """
-SELECT w.id
-FROM workflow w
-WHERE w.id IN (
-    SELECT h.workflow_id
-    FROM webhook h
-    WHERE h.trigger_id IS NULL AND h.status = 'online'
-)
-ORDER BY w.id
-FOR UPDATE OF w
+# Run first, in the backfill's transaction (see ``backfill``): lock the online
+# webhooks still without a trigger row, in ID order, waiting for any another
+# transaction holds. The binding inserts then take a key-share lock on each
+# workflow. Webhook before workflow is the order every writer uses: the app's
+# webhook writes, and a workflow delete, which removes the webhook before the
+# workflow in this release and the previous one. A row deleted or turned off
+# while waited for drops out.
+LOCK_WEBHOOKS_SQL = """
+SELECT h.id
+FROM webhook h
+WHERE h.trigger_id IS NULL AND h.status = 'online' AND h.workflow_id IS NOT NULL
+ORDER BY h.id
+FOR UPDATE OF h
 """
 
 # One trigger row and one workflow binding per online webhook that has none,
-# among the webhooks whose workflow ``LOCK_WORKFLOWS_SQL`` locked. A webhook
-# turned on after that lock waits for the app or the next run. Offline
-# webhooks get none (decision 5A: only used webhooks become triggers). Safe to
-# run again: it only picks webhooks whose trigger_id is still null. Webhooks
-# another transaction holds are skipped, not waited for: the previous release
-# deletes a workflow's webhook before the workflow, so waiting on that webhook
-# while holding the workflow lock could deadlock. A skipped webhook gets its
-# trigger row on a later pass of the upgrade, when it is next turned on, or
-# from a later rerun. The name is the workflow title plus " webhook", cut to
-# fit the 255-character column. The trigger row keeps the webhook's
-# created_at so the Triggers tab lists webhooks by age.
+# among the webhooks ``LOCK_WEBHOOKS_SQL`` locked. A webhook turned on after
+# that lock gets its row from the app when next turned on, or from a rerun.
+# Offline webhooks get none (decision 5A: only used webhooks become
+# triggers). Safe to run again: it only picks webhooks whose trigger_id is
+# still null. The name is the workflow title plus " webhook", cut to fit the
+# 255-character column. The trigger row keeps the webhook's created_at so the
+# Triggers tab lists webhooks by age.
 BACKFILL_SQL = """
 WITH pending AS (
     SELECT
@@ -123,10 +116,9 @@ WITH pending AS (
     FROM webhook h
     JOIN workflow w
         ON w.id = h.workflow_id AND w.workspace_id = h.workspace_id
-    WHERE h.trigger_id IS NULL
+    WHERE h.id = ANY(CAST(:webhook_ids AS uuid[]))
+        AND h.trigger_id IS NULL
         AND h.status = 'online'
-        AND h.workflow_id = ANY(CAST(:workflow_ids AS uuid[]))
-    FOR UPDATE OF h SKIP LOCKED
 ),
 new_triggers AS (
     INSERT INTO "trigger" (id, workspace_id, kind, name, status, created_at)
@@ -149,28 +141,13 @@ WHERE h.id = p.webhook_id
 """
 
 
-# Online webhooks still without a trigger row, such as ones the backfill
-# skipped because another transaction held them.
-PENDING_SQL = """
-SELECT EXISTS (
-    SELECT 1 FROM webhook
-    WHERE trigger_id IS NULL AND status = 'online' AND workflow_id IS NOT NULL
-)
-"""
-# A skipped webhook is usually held for one short write; later passes pick it
-# up. Whatever is left after the last pass is linked when it is next turned on
-# or when a later release reruns ``backfill``.
-_BACKFILL_PASSES = 5
-_BACKFILL_RETRY_SECONDS = 1.0
-
-
 def backfill(conn: sa.Connection) -> None:
-    """Link every online webhook whose workflow it can lock to a trigger row.
+    """Link every online webhook without a trigger row to one.
 
     Run inside one transaction. Later releases may rerun it.
     """
-    workflow_ids = list(conn.execute(sa.text(LOCK_WORKFLOWS_SQL)).scalars())
-    conn.execute(sa.text(BACKFILL_SQL), {"workflow_ids": workflow_ids})
+    webhook_ids = list(conn.execute(sa.text(LOCK_WEBHOOKS_SQL)).scalars())
+    conn.execute(sa.text(BACKFILL_SQL), {"webhook_ids": webhook_ids})
 
 
 def upgrade() -> None:
@@ -206,18 +183,10 @@ def upgrade() -> None:
     with op.get_context().autocommit_block():
         # Outside the DDL transaction the backfill takes only row locks, so
         # the previous release keeps reading and writing webhooks meanwhile.
-        # Each pass in its own transaction, workflows locked first
-        # (LOCK_WORKFLOWS_SQL); webhooks held by others are skipped, so
-        # retry a few times for them.
-        conn = op.get_bind()
-        for attempt in range(_BACKFILL_PASSES):
-            op.execute("BEGIN")
-            backfill(conn)
-            op.execute("COMMIT")
-            if not conn.execute(sa.text(PENDING_SQL)).scalar():
-                break
-            if attempt + 1 < _BACKFILL_PASSES:
-                time.sleep(_BACKFILL_RETRY_SECONDS)
+        # Its own transaction, webhooks locked first (LOCK_WEBHOOKS_SQL).
+        op.execute("BEGIN")
+        backfill(op.get_bind())
+        op.execute("COMMIT")
         # VALIDATE takes SHARE UPDATE EXCLUSIVE here: no blocking of reads or
         # writes during its scan.
         op.execute(f'ALTER TABLE webhook VALIDATE CONSTRAINT "{_FK}"')

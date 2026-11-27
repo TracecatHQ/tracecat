@@ -854,16 +854,9 @@ class WorkflowsManagementService(BaseWorkspaceService):
             resource_type=SyncResourceType.WORKFLOW,
             local_id=workflow_uuid,
         )
-        # Lock the workflow before the cascade deletes its webhook and
-        # schedules: their services lock the workflow and then the row, so
-        # taking the rows first could deadlock with them.
-        statement = (
-            select(Workflow)
-            .where(
-                Workflow.workspace_id == self.workspace_id,
-                Workflow.id == workflow_uuid,
-            )
-            .with_for_update(of=Workflow)
+        statement = select(Workflow).where(
+            Workflow.workspace_id == self.workspace_id,
+            Workflow.id == workflow_uuid,
         )
         result = await self.session.execute(statement)
         workflow = result.scalar_one()

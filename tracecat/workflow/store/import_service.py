@@ -683,8 +683,8 @@ class WorkflowImportService(BaseWorkspaceService):
         webhook = workflow.webhook
         self.logger.info(f"Updating webhook {webhook.id} from remote {remote_webhook}")
         if remote_webhook.status == TriggerStatus.ONLINE:
-            # Lock the workflow and then the webhook, as the webhook service
-            # does, so a concurrent turn-on cannot add a second trigger row.
+            # Lock the webhook, as the webhook service does, so a concurrent
+            # turn-on cannot add a second trigger row.
             # Done before the writes below: the webhook is read fresh.
             await lock_webhook(self.session, webhook.workspace_id, workflow.id)
 

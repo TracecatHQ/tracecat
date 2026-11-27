@@ -207,12 +207,12 @@ def test_backfill_links_online_webhooks_only(db_url: str, engine: Engine) -> Non
     assert (_count(engine, "trigger"), _count(engine, "trigger_binding")) == (3, 3)
 
 
-def test_backfill_skips_a_webhook_another_transaction_holds(
+def test_backfill_waits_for_a_webhook_another_transaction_holds(
     db_url: str, engine: Engine
 ) -> None:
-    """Thermos r5: the previous release deletes a workflow's webhook before
-    the workflow. Waiting on that webhook while holding the workflow lock
-    could deadlock, so the backfill skips it and a rerun picks it up."""
+    """Thermos r5-r7: the backfill locks webhooks before workflows, the order
+    every writer uses, so it can wait for a held webhook instead of skipping
+    it, and no online webhook is left out."""
     ws = _workspace(engine)
     held = _workflow(engine, ws, "Held", "online")
     free = _workflow(engine, ws, "Free", "online")
@@ -226,16 +226,19 @@ def test_backfill_skips_a_webhook_another_transaction_holds(
             text("SELECT id FROM webhook WHERE workflow_id = :wf FOR UPDATE"),
             {"wf": held},
         )
-        with engine.begin() as conn:
-            conn.execute(text("SET LOCAL lock_timeout = '2s'"))
-            _migration().backfill(conn)
+        # It waits rather than skipping: with a short lock timeout the pass
+        # fails and links nothing.
+        with pytest.raises(Exception, match="lock timeout"):
+            with engine.begin() as conn:
+                conn.execute(text("SET LOCAL lock_timeout = '300ms'"))
+                _migration().backfill(conn)
         transaction.rollback()
 
-    linked = _linked(engine)
-    assert linked[held][0] is None
-    assert linked[free][:3] == ("webhook", "Free webhook", "online")
+    assert _count(engine, "trigger") == 0
     _backfill(engine)
-    assert _linked(engine)[held][:3] == ("webhook", "Held webhook", "online")
+    linked = _linked(engine)
+    assert linked[held][:3] == ("webhook", "Held webhook", "online")
+    assert linked[free][:3] == ("webhook", "Free webhook", "online")
 
 
 def test_the_trigger_row_follows_its_webhook(db_url: str, engine: Engine) -> None:

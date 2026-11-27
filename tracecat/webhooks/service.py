@@ -7,8 +7,10 @@ gives it that row if it has none, in the same transaction; it keeps the row
 when it goes offline. A database trigger on ``webhook`` deletes the row with
 the webhook and copies every status change to it.
 
-Writes lock the workflow and then the webhook, the order the migration's
-backfill and workflow delete use.
+Writes lock the webhook row and then (through the binding's foreign key)
+its workflow: the order in which a workflow delete removes them (the ORM
+deletes the webhook before the workflow, in this release and the previous
+one) and the migration's backfill locks them.
 """
 
 from __future__ import annotations
@@ -106,23 +108,17 @@ async def get_webhook(
 async def lock_webhook(
     session: AsyncSession, workspace_id: uuid.UUID, workflow_id: uuid.UUID
 ) -> tuple[str | None, Webhook | None]:
-    """Lock a workflow and then its webhook until commit.
+    """Lock a workflow's webhook until commit, and read the workflow's title.
 
     The webhook is read fresh, so a check against it (such as whether it has
-    a trigger row yet) sees what a concurrent writer committed.
+    a trigger row yet) sees what a concurrent writer committed. The workflow
+    row is not locked: a binding insert takes its key-share lock later, after
+    the webhook's, the same order a workflow delete takes them.
 
     Returns:
         The workflow title (``None`` if there is no such workflow) and the
-        webhook (``None`` if the workflow has none).
+        webhook (``None`` if there is no such workflow or it has no webhook).
     """
-    # The title column is NOT NULL, so None means no such workflow.
-    title = await session.scalar(
-        select(Workflow.title)
-        .where(Workflow.workspace_id == workspace_id, Workflow.id == workflow_id)
-        .with_for_update()
-    )
-    if title is None:
-        return None, None
     webhook = await session.scalar(
         select(Webhook)
         .where(Webhook.workspace_id == workspace_id, Webhook.workflow_id == workflow_id)
@@ -131,6 +127,14 @@ async def lock_webhook(
         .with_for_update(of=Webhook)
         .execution_options(populate_existing=True)
     )
+    # The title column is NOT NULL, so None means no such workflow.
+    title = await session.scalar(
+        select(Workflow.title).where(
+            Workflow.workspace_id == workspace_id, Workflow.id == workflow_id
+        )
+    )
+    if title is None:
+        return None, None
     return title, webhook
 
 
@@ -143,8 +147,7 @@ async def add_webhook_trigger(
     until webhooks start their targets through bindings. It is online even
     for an offline webhook, as for schedules: the trigger's status is what
     counts until bindings drive the runtime (step 2 must revisit this). The
-    caller holds the workflow and webhook locks (``lock_webhook``) and
-    commits.
+    caller holds the webhook's lock (``lock_webhook``) and commits.
     """
     trigger = Trigger(
         id=uuid.uuid4(),
