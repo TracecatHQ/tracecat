@@ -1068,7 +1068,21 @@ describe("Webhook triggers", () => {
       expect(screen.queryByRole("alert")).not.toBeInTheDocument()
     )
     await user.click(screen.getByRole("button", { name: "Create trigger" }))
-    await waitFor(() => expect(triggersCreateTrigger).toHaveBeenCalledTimes(1))
+    await waitFor(() =>
+      expect(triggersCreateTrigger).toHaveBeenCalledWith({
+        workspaceId: "workspace-1",
+        requestBody: {
+          name: "Intake",
+          config: {
+            kind: "webhook",
+            workflow_id: "wf_other",
+            methods: ["POST"],
+            allowlisted_cidrs: [],
+            include_headers: false,
+          },
+        },
+      })
+    )
   })
 
   it("ignores a late read of a workflow picked again", async () => {
