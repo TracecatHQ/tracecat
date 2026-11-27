@@ -15,6 +15,7 @@ class TriggerKind(StrEnum):
     OBJECT_STORAGE = "object_storage"
     SCHEDULE = "schedule"
     WEBHOOK = "webhook"
+    CASE_TRIGGER = "case_trigger"
 
 
 class TriggerStatus(StrEnum):

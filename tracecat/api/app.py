@@ -260,6 +260,7 @@ from tracecat.tags.router import router as tags_router
 from tracecat.triggers.exceptions import TriggerError, trigger_error_handler
 from tracecat.triggers.ingest.aws_sns.router import router as trigger_ingest_router
 from tracecat.triggers.router import event_sources_router, triggers_router
+from tracecat.triggers.runs.router import router as trigger_runs_router
 from tracecat.variables.router import router as variables_router
 from tracecat.vcs.router import org_router as vcs_router
 from tracecat.webhooks.router import router as webhook_router
@@ -515,7 +516,8 @@ def validation_exception_handler(request: Request, exc: Exception) -> Response:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={"detail": ser_errors},
         )
-    logger.error(
+    # A client error, not a server fault: WARNING keeps it out of ERROR counts.
+    logger.warning(
         "API Model Validation error",
         method=request.method,
         path=redact_url_secrets(request.url.path),
@@ -899,6 +901,7 @@ def create_app(**kwargs) -> FastAPI:
     _include_workspace_scoped_router(app, forms_router)
     _include_workspace_scoped_router(app, event_sources_router)
     _include_workspace_scoped_router(app, triggers_router)
+    _include_workspace_scoped_router(app, trigger_runs_router)
     app.include_router(forms_intake_router)
     _include_workspace_scoped_router(app, cases_router)
     _include_workspace_scoped_router(app, case_versions_router)

@@ -375,6 +375,13 @@ class WebhookTriggerEnvelope(TypedDict):
     raw_body: NotRequired[str]
 
 
+def _webhook_trigger_id(request: Request) -> uuid.UUID | None:
+    """The webhook's trigger row ID, which ``validate_incoming_webhook`` stashed."""
+    # request.state is an untyped namespace. The draft route has it too but
+    # doesn't forward it: draft runs are not linked to the trigger.
+    return getattr(request.state, "webhook_trigger_id", None)
+
+
 def _include_raw_body(input_schema: dict[str, Any] | None) -> bool:
     """Preserve legacy include_headers schemas that forbid unknown fields."""
     return not input_schema or "raw_body" in input_schema
@@ -486,6 +493,7 @@ async def _incoming_webhook(
                     registry_lock=RegistryLock.model_validate(defn.registry_lock)
                     if defn.registry_lock
                     else None,
+                    trigger_id=_webhook_trigger_id(request),
                 )
         # Currently just return the last response's wf_exec_id
         response = WorkflowExecutionCreateResponse(
@@ -510,6 +518,7 @@ async def _incoming_webhook(
                 registry_lock=RegistryLock.model_validate(defn.registry_lock)
                 if defn.registry_lock
                 else None,
+                trigger_id=_webhook_trigger_id(request),
             )
 
     _annotate_webhook_trace(
@@ -608,6 +617,7 @@ async def incoming_webhook_wait(
             registry_lock=RegistryLock.model_validate(defn.registry_lock)
             if defn.registry_lock
             else None,
+            trigger_id=_webhook_trigger_id(request),
         )
     except WorkflowFailureError as error:
         classifications = extract_error_classifications(

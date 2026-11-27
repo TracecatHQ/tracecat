@@ -514,6 +514,8 @@ class CaseTriggerOutboxDispatcher:
                 registry_lock=RegistryLock.model_validate(defn.registry_lock)
                 if defn.registry_lock
                 else None,
+                # The trigger row that lists this case trigger, if it has one.
+                trigger_id=trigger.trigger_id,
             )
         except WorkflowAlreadyStartedError:
             logger.info(

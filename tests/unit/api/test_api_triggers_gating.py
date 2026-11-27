@@ -46,6 +46,10 @@ def test_the_api_serves_the_trigger_routes() -> None:
         ("POST", bindings),
         ("PATCH", f"{bindings}/{{binding_id}}"),
         ("DELETE", f"{bindings}/{{binding_id}}"),
+        # A trigger's runs and stopped events, and the trigger behind a run.
+        ("GET", f"{triggers}/{{trigger_id}}/runs"),
+        ("GET", f"{triggers}/{{trigger_id}}/stopped-events"),
+        ("GET", f"{triggers}/runs/origin"),
     }
 
 

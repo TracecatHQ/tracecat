@@ -17,6 +17,7 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { AddTargetDialog } from "@/components/triggers/add-target-dialog"
 import { describeTriggerError } from "@/components/triggers/trigger-errors"
 import { getTriggerKind } from "@/components/triggers/trigger-kinds"
+import { TriggerRunsSections } from "@/components/triggers/trigger-runs"
 import { TriggerStatusLabel } from "@/components/triggers/trigger-status"
 import {
   RUN_ACTION_BY_TARGET,
@@ -248,6 +249,8 @@ function TriggerDetailBody({
           </p>
         )}
       </section>
+
+      <TriggerRunsSections workspaceId={workspaceId} trigger={trigger} />
 
       {addTargetOpen ? (
         <AddTargetDialog

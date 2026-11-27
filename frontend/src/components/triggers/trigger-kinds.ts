@@ -1,5 +1,15 @@
-import { CalendarClockIcon, DatabaseIcon, WebhookIcon } from "lucide-react"
+import {
+  CalendarClockIcon,
+  DatabaseIcon,
+  SquarePlay,
+  WebhookIcon,
+} from "lucide-react"
 import type { TriggerKind, TriggerRead } from "@/client"
+import {
+  CaseTriggerTriggerDetails,
+  describeCaseTrigger,
+} from "@/components/triggers/case-trigger/case-trigger-trigger-details"
+import { CaseTriggerTriggerForm } from "@/components/triggers/case-trigger/case-trigger-trigger-form"
 import { ObjectStorageTriggerDetails } from "@/components/triggers/object-storage/object-storage-trigger-details"
 import { ObjectStorageTriggerForm } from "@/components/triggers/object-storage/object-storage-trigger-form"
 import {
@@ -74,6 +84,34 @@ export const TRIGGER_KINDS: Record<TriggerKind, TriggerKindDefinition> = {
     describeSource: describeWebhook,
     CreateForm: WebhookTriggerForm,
     Details: WebhookTriggerDetails,
+  },
+  case_trigger: {
+    kind: "case_trigger",
+    // "Case event": the dialog says "New case event trigger", and the list's
+    // kind column names what fires it, as for the other kinds.
+    label: "Case event",
+    description: "Runs a workflow when selected case events occur.",
+    icon: SquarePlay,
+    entitlement: "case_addons",
+    // As the API checks them: a case trigger is changed with workflow:update,
+    // as on the workflow page, and creating binds the workflow, so it needs
+    // workflow:execute. Reading it needs workflow:read, which also lists the
+    // workflows to pick from.
+    scopes: {
+      create: ["workflow:update", "workflow:execute", "workflow:read"],
+      update: ["workflow:update"],
+      delete: ["workflow:update"],
+    },
+    namePlaceholder: "Closed case follow-up",
+    createdHint:
+      "It keeps the case trigger's on/off status. If it's offline, put it online to start running the workflow on case events.",
+    deleteDescription:
+      "This turns the workflow's case trigger off and removes it from this list. Its case events and tag allowlist stay on the workflow; turning it on again lists it here again.",
+    fixedTargets:
+      "A case trigger runs the workflow it belongs to. To run another workflow, use that workflow's case trigger.",
+    describeSource: describeCaseTrigger,
+    CreateForm: CaseTriggerTriggerForm,
+    Details: CaseTriggerTriggerDetails,
   },
   object_storage: {
     kind: "object_storage",

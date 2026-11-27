@@ -30,10 +30,12 @@ import {
   useQuery,
   useQueryClient,
 } from "@/lib/query"
+import { workflowUuidToShortId } from "@/lib/workflow-ids"
 
 const TRIGGERS_PAGE_SIZE = 50
 // The API's page cap. Sources are one per SNS topic, so a workspace has few.
 const SOURCES_PAGE_SIZE = 200
+const NO_WORKFLOW_IDS: ReadonlySet<string> = new Set()
 
 /** The query key prefix of every trigger read in a workspace. */
 export function triggersQueryKey(workspaceId: string) {
@@ -78,6 +80,46 @@ export function useTriggers(
     isFetchingNextPage: query.isFetchingNextPage,
     fetchNextPage: query.fetchNextPage,
   }
+}
+
+/**
+ * The workflows (short IDs) whose webhook or case trigger is already a
+ * trigger, reading every page of that kind: a create for one of them is
+ * refused.
+ */
+export function useTriggeredWorkflowIds(
+  workspaceId: string,
+  kind: "webhook" | "case_trigger",
+  { enabled = true }: { enabled?: boolean } = {}
+) {
+  const { data } = useQuery<ReadonlySet<string>, TracecatApiError>({
+    queryKey: [...triggersQueryKey(workspaceId), "workflow-ids", kind],
+    queryFn: async () => {
+      const ids = new Set<string>()
+      let cursor: string | null = null
+      do {
+        const page = await triggersListTriggers({
+          workspaceId,
+          kind,
+          // The API's page cap: there is at most one per workflow.
+          limit: 200,
+          cursor,
+        })
+        for (const trigger of page.items) {
+          if ("workflow_id" in trigger.config) {
+            ids.add(workflowUuidToShortId(trigger.config.workflow_id))
+          }
+        }
+        cursor = page.has_more ? (page.next_cursor ?? null) : null
+      } while (cursor)
+      return ids
+    },
+    enabled: enabled && Boolean(workspaceId),
+    retry: retryHandler,
+    // Marking is a hint: the create still refuses a duplicate.
+    meta: { suppressErrorToast: true },
+  })
+  return data ?? NO_WORKFLOW_IDS
 }
 
 /** Reads one trigger with its config and targets. */
@@ -167,6 +209,13 @@ export function useTriggerMutations(workspaceId: string) {
       // from the workflow (`["workflow", id]`).
       queryClient.invalidateQueries({
         predicate: (query) => query.queryKey[0] === "workflow",
+      }),
+      // A case trigger trigger is a workflow's case trigger, which the
+      // workflow page reads on its own (`["case-trigger", ...]`).
+      queryClient.invalidateQueries({
+        predicate: (query) =>
+          query.queryKey[0] === "case-trigger" &&
+          query.queryKey[1] === workspaceId,
       }),
     ])
   }

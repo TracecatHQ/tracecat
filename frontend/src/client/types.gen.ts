@@ -3249,6 +3249,60 @@ export type CaseEventRead =
   | SubCasesRemovedEventRead
 
 /**
+ * Run a workflow for each case event of the chosen types.
+ *
+ * The settings of the workflow's case trigger
+ * (``/workflows/{id}/case-trigger``), which the trigger shows and edits.
+ * Every workflow has one case trigger; it becomes a trigger when it is
+ * turned on, or when it is created as one here (it may stay offline).
+ * Deleting the trigger turns the case trigger off and keeps it. Until case triggers start their targets through bindings, the
+ * trigger's one target is this workflow and cannot change. Settings left out
+ * of a create or update keep the case trigger's saved values. Needs the
+ * ``case_addons`` plan feature.
+ */
+export type CaseEventTriggerConfig = {
+  kind: "case_trigger"
+  /**
+   * The workflow whose case trigger this is. Fixed after create.
+   */
+  workflow_id: string
+  /**
+   * Case event types that run the workflow. Must not be empty while the trigger is online.
+   */
+  event_types?: Array<CaseEventType>
+  /**
+   * Case tag refs. When set, only events on cases with one of these tags run the workflow. Empty matches every case.
+   */
+  tag_filters?: Array<string>
+}
+
+/**
+ * The case trigger as ``/workflows/{id}/case-trigger`` shows it.
+ *
+ * Readable only with ``workflow:read`` and the ``case_addons`` plan
+ * feature, as on the workflow page.
+ */
+export type CaseEventTriggerConfigRead = {
+  kind: "case_trigger"
+  /**
+   * The workflow the case trigger runs
+   */
+  workflow_id: string
+  /**
+   * The case trigger's ID, which does not change
+   */
+  case_trigger_id: string
+  /**
+   * Case event types that run the workflow
+   */
+  event_types: Array<CaseEventType>
+  /**
+   * Case tag refs that limit which cases match. Empty matches all.
+   */
+  tag_filters: Array<string>
+}
+
+/**
  * Case activity type values.
  */
 export type CaseEventType =
@@ -14056,8 +14110,9 @@ export type TriggerCreate = {
     | ObjectStorageTriggerConfig
     | ScheduleTriggerConfig
     | WebhookTriggerConfig
+    | CaseEventTriggerConfig
   /**
-   * Offline when omitted, except for a webhook: its webhook already exists and keeps its current status unless this is given.
+   * Offline when omitted, except for a webhook or a case trigger: it already exists and keeps its current status unless this is given.
    */
   status?: TriggerStatus
 }
@@ -14065,7 +14120,11 @@ export type TriggerCreate = {
 /**
  * What a trigger listens to. Each kind has its own source and config.
  */
-export type TriggerKind = "object_storage" | "schedule" | "webhook"
+export type TriggerKind =
+  | "object_storage"
+  | "schedule"
+  | "webhook"
+  | "case_trigger"
 
 export type TriggerListResponse = {
   items: Array<TriggerRead>
@@ -14104,15 +14163,144 @@ export type TriggerRead = {
     | ObjectStorageTriggerConfigRead
     | ScheduleTriggerConfigRead
     | WebhookTriggerConfigRead
+    | CaseEventTriggerConfigRead
   bindings: Array<TriggerBindingRead>
   created_at: string
   updated_at: string
 }
 
 /**
+ * The trigger that started a run or an agent session.
+ */
+export type TriggerRunOrigin = {
+  trigger_id: string
+  /**
+   * Null if the trigger was deleted since
+   */
+  name?: string | null
+  kind?: TriggerKind | null
+}
+
+/**
+ * One run a trigger started: a workflow run or an agent session's turn.
+ */
+export type TriggerRunRead = {
+  target_type: TriggerTargetType
+  /**
+   * The workflow's title (null if it was deleted), or for an agent run the agent preset's name, falling back to the session's title if the preset was deleted (null if the session was too)
+   */
+  target_name?: string | null
+  /**
+   * The run's Temporal workflow ID
+   */
+  wf_exec_id: string
+  /**
+   * The workflow, for a workflow run
+   */
+  workflow_id?: string | null
+  /**
+   * The agent session, for an agent run
+   */
+  session_id?: string | null
+  /**
+   * The session's agent preset, for an agent run
+   */
+  agent_preset_id?: string | null
+  status:
+    | "RUNNING"
+    | "COMPLETED"
+    | "FAILED"
+    | "CANCELED"
+    | "TERMINATED"
+    | "CONTINUED_AS_NEW"
+    | "TIMED_OUT"
+  start_time: string
+  close_time?: string | null
+}
+
+export type status10 =
+  | "RUNNING"
+  | "COMPLETED"
+  | "FAILED"
+  | "CANCELED"
+  | "TERMINATED"
+  | "CONTINUED_AS_NEW"
+  | "TIMED_OUT"
+
+/**
+ * A page of a trigger's runs, open runs first, then by close time.
+ */
+export type TriggerRunsPage = {
+  items: Array<TriggerRunRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+/**
  * Whether a source, trigger or binding takes part in dispatch.
  */
 export type TriggerStatus = "online" | "offline"
+
+/**
+ * An event that stopped retrying after the attempt cap. The event itself
+ * is not returned.
+ */
+export type TriggerStoppedEventRead = {
+  attempts: number
+  /**
+   * The last attempt's error, credentials redacted
+   */
+  error?: string | null
+  /**
+   * When the event was received
+   */
+  created_at: string
+}
+
+/**
+ * A page of a trigger's stopped events, newest first.
+ */
+export type TriggerStoppedEventsPage = {
+  items: Array<TriggerStoppedEventRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
 
 /**
  * What a trigger binding starts.
@@ -14139,6 +14327,7 @@ export type TriggerUpdate = {
     | ObjectStorageTriggerConfig
     | ScheduleTriggerConfig
     | WebhookTriggerConfig
+    | CaseEventTriggerConfig
     | null
   status?: TriggerStatus | null
 }
@@ -15092,7 +15281,7 @@ export type WorkflowCommitResponse = {
   } | null
 }
 
-export type status10 = "success" | "failure"
+export type status11 = "success" | "failure"
 
 /**
  * API response model for persisted workflow definitions.
@@ -15180,7 +15369,7 @@ export type WorkflowDslPublishResult = {
   message: string
 }
 
-export type status11 = "committed" | "no_op"
+export type status12 = "committed" | "no_op"
 
 export type WorkflowEditDefinition_Input = {
   entrypoint?: DSLEntrypoint_Input
@@ -15538,15 +15727,6 @@ export type WorkflowExecutionRead = {
    */
   events: Array<WorkflowExecutionEvent>
 }
-
-export type status12 =
-  | "RUNNING"
-  | "COMPLETED"
-  | "FAILED"
-  | "CANCELED"
-  | "TERMINATED"
-  | "CONTINUED_AS_NEW"
-  | "TIMED_OUT"
 
 export type WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_ = {
   /**
@@ -20561,6 +20741,38 @@ export type TriggersDeleteTriggerBindingData = {
 }
 
 export type TriggersDeleteTriggerBindingResponse = void
+
+export type TriggersGetTriggerRunOriginData = {
+  sessionId?: string | null
+  wfExecId?: string | null
+  workspaceId: string
+}
+
+export type TriggersGetTriggerRunOriginResponse = TriggerRunOrigin | null
+
+export type TriggersListTriggerRunsData = {
+  cursor?: string | null
+  /**
+   * Maximum items per page
+   */
+  limit?: number
+  triggerId: string
+  workspaceId: string
+}
+
+export type TriggersListTriggerRunsResponse = TriggerRunsPage
+
+export type TriggersListTriggerStoppedEventsData = {
+  cursor?: string | null
+  /**
+   * Maximum items per page
+   */
+  limit?: number
+  triggerId: string
+  workspaceId: string
+}
+
+export type TriggersListTriggerStoppedEventsResponse = TriggerStoppedEventsPage
 
 export type FormsListIntakeFormsData = {
   cursor?: string | null
@@ -30110,6 +30322,51 @@ export type $OpenApiTs = {
          * See detail.code
          */
         404: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/triggers/runs/origin": {
+    get: {
+      req: TriggersGetTriggerRunOriginData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TriggerRunOrigin | null
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/triggers/{trigger_id}/runs": {
+    get: {
+      req: TriggersListTriggerRunsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TriggerRunsPage
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/triggers/{trigger_id}/stopped-events": {
+    get: {
+      req: TriggersListTriggerStoppedEventsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TriggerStoppedEventsPage
         /**
          * Validation Error
          */
