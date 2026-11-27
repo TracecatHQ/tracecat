@@ -10,6 +10,7 @@ import type {
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import {
+  FormsLockedNote,
   FormTriggerRows,
   useFormTriggers,
 } from "@/components/triggers/form-trigger-rows"
@@ -47,16 +48,20 @@ export function WorkspaceTriggers() {
   } = useTriggers(workspaceId)
   const forms = useFormTriggers(workspaceId)
 
+  // Triggers and forms load separately; either one's rows or error shows.
+  const noRows = triggers.length === 0 && forms.forms.length === 0
+
   let body: React.ReactNode
-  if (error && triggers.length === 0) {
+  if (isLoading || (triggers.length === 0 && forms.isLoading)) {
+    body = <CenteredSpinner />
+  } else if (error && noRows) {
     body = (
       <p className="p-6 text-xs text-destructive">
         Couldn't load triggers. {describeTriggerError(error)}
+        {forms.error ? " Couldn't load forms." : ""}
       </p>
     )
-  } else if (isLoading || (triggers.length === 0 && forms.isLoading)) {
-    body = <CenteredSpinner />
-  } else if (triggers.length === 0 && forms.forms.length === 0) {
+  } else if (noRows && !forms.error) {
     body = (
       <div className="flex h-full p-6">
         <Empty>
@@ -73,15 +78,17 @@ export function WorkspaceTriggers() {
             </EmptyDescription>
           </EmptyHeader>
           <LockedTriggersNote locked={locked} />
+          <FormsLockedNote locked={forms.locked} />
         </Empty>
       </div>
     )
   } else {
     body = (
       <div className="divide-y">
-        {locked.length > 0 ? (
+        {locked.length > 0 || forms.locked ? (
           <div className="px-4 py-2">
             <LockedTriggersNote locked={locked} />
+            <FormsLockedNote locked={forms.locked} />
           </div>
         ) : null}
         <div className="flex items-center gap-2 px-4 py-2 text-xs text-muted-foreground">

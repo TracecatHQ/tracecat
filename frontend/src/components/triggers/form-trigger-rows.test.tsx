@@ -75,6 +75,12 @@ const FORM: FormReadMinimal = {
   updated_at: "2026-11-27T00:00:00Z",
 }
 
+// A 4xx: the triggers query's retry handler doesn't retry it.
+const TRIGGERS_DENIED = Object.assign(new Error("Denied"), {
+  status: 403,
+  body: { detail: "Denied" },
+})
+
 function renderWithClient(ui: ReactNode) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -195,7 +201,7 @@ describe("Forms in the Triggers tab", () => {
     expect(formsListForms).not.toHaveBeenCalled()
   })
 
-  it("asks for no forms when the plan lacks them", async () => {
+  it("asks for no forms when the plan lacks them, and says why", async () => {
     entitlements = new Set()
 
     renderWithClient(<WorkspaceTriggers />)
@@ -204,6 +210,35 @@ describe("Forms in the Triggers tab", () => {
       await screen.findByRole("link", { name: /Nightly report/ })
     ).toBeInTheDocument()
     expect(formsListForms).not.toHaveBeenCalled()
+    expect(
+      screen.getByText(/Forms aren.t listed because your plan/)
+    ).toBeInTheDocument()
+  })
+
+  it("says why forms are missing when the plan lacks them and there are no triggers", async () => {
+    entitlements = new Set()
+    jest
+      .mocked(triggersListTriggers)
+      .mockResolvedValue({ items: [], has_more: false })
+
+    renderWithClient(<WorkspaceTriggers />)
+
+    expect(await screen.findByText("No triggers yet")).toBeInTheDocument()
+    expect(
+      screen.getByText(/Forms aren.t listed because your plan/)
+    ).toBeInTheDocument()
+  })
+
+  it("says nothing about the plan without form:read", async () => {
+    entitlements = new Set()
+    scopes = { ...scopes, "form:read": false }
+
+    renderWithClient(<WorkspaceTriggers />)
+
+    await screen.findByRole("link", { name: /Nightly report/ })
+    expect(
+      screen.queryByText(/Forms aren.t listed because your plan/)
+    ).not.toBeInTheDocument()
   })
 
   it("lists no form whose workflow the caller can't see", async () => {
@@ -220,6 +255,43 @@ describe("Forms in the Triggers tab", () => {
     expect(
       screen.queryByRole("link", { name: /Report phishing/ })
     ).not.toBeInTheDocument()
+  })
+
+  it("shows the forms error, not the empty state, when there are no triggers", async () => {
+    jest
+      .mocked(triggersListTriggers)
+      .mockResolvedValue({ items: [], has_more: false })
+    jest.mocked(formsListForms).mockRejectedValue(new Error("boom"))
+
+    renderWithClient(<WorkspaceTriggers />)
+
+    expect(await screen.findByText("Couldn't load forms.")).toBeInTheDocument()
+    expect(screen.queryByText("No triggers yet")).not.toBeInTheDocument()
+  })
+
+  it("keeps the forms when triggers fail to load", async () => {
+    jest.mocked(triggersListTriggers).mockRejectedValue(TRIGGERS_DENIED)
+    jest
+      .mocked(formsListForms)
+      .mockResolvedValue({ items: [FORM], has_more: false })
+
+    renderWithClient(<WorkspaceTriggers />)
+
+    expect(
+      await screen.findByRole("link", { name: /Report phishing/ })
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Couldn't load all triggers/)).toBeInTheDocument()
+  })
+
+  it("says both failed when neither list loads", async () => {
+    jest.mocked(triggersListTriggers).mockRejectedValue(TRIGGERS_DENIED)
+    jest.mocked(formsListForms).mockRejectedValue(new Error("boom"))
+
+    renderWithClient(<WorkspaceTriggers />)
+
+    expect(
+      await screen.findByText(/Couldn't load triggers\..*Couldn't load forms\./)
+    ).toBeInTheDocument()
   })
 
   it("keeps the triggers when forms fail to load", async () => {

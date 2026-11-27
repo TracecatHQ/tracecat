@@ -35,7 +35,21 @@ export function useFormTriggers(workspaceId: string) {
     forms: enabled ? listed : NO_FORMS,
     isLoading: enabled && formsIsLoading,
     error: enabled ? formsError : null,
+    /** The caller reads forms, but the plan doesn't include them. */
+    locked: canReadForms === true && access === "locked",
   }
+}
+
+/** Says forms aren't listed because the plan doesn't include them. */
+export function FormsLockedNote({ locked }: { locked: boolean }) {
+  if (!locked) {
+    return null
+  }
+  return (
+    <p className="text-xs text-muted-foreground">
+      Forms aren&apos;t listed because your plan doesn&apos;t include them.
+    </p>
+  )
 }
 
 /**
