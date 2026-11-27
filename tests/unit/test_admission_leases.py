@@ -189,8 +189,10 @@ async def test_busy_registers_a_run_once_and_keeps_its_place(
         assert await store.try_acquire(
             org_id, ACTIONS, lease_id, units=1, limit=1, ttl_seconds=30, waiter=waiter
         ) == Busy(in_use=1, limit=1)
-    # Refused without opting in, and admitted: neither touches the waiters.
-    await store.try_acquire(org_id, ACTIONS, "c", units=1, limit=1, ttl_seconds=30)
+    # Refused without opting in: it must not touch the waiters.
+    assert await store.try_acquire(
+        org_id, ACTIONS, "c", units=1, limit=1, ttl_seconds=30
+    ) == Busy(in_use=1, limit=1)
 
     key = waiter_key(org_id, ACTIONS)
     # One entry per run, in the order each run first joined.

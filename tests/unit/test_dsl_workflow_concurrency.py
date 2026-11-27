@@ -756,6 +756,8 @@ async def test_run_throttle_keeps_a_fan_out_at_the_org_limit_without_bounces() -
         (5, True, True),
         (5, False, False),  # recorded before the wake
         (None, True, False),  # no limit: never refused, so never queued
+        (0, True, False),  # 0 or less is no limit, as in the gate
+        (-1, True, False),
     ],
 )
 async def test_wake_needs_its_marker_and_a_limit(
@@ -780,7 +782,8 @@ async def test_wake_needs_its_marker_and_a_limit(
     assert workflow._admission_wake_enabled is wake_enabled
     assert workflow._action_admission.wake_enabled is wake_enabled
     # A run that can't be refused records no marker.
-    assert (WorkflowPatch.ADMISSION_WAKE_ON_RELEASE in asked) is (limit is not None)
+    has_limit = limit is not None and limit > 0
+    assert (WorkflowPatch.ADMISSION_WAKE_ON_RELEASE in asked) is has_limit
 
 
 @pytest.mark.anyio

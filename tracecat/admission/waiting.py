@@ -173,8 +173,10 @@ class RunAdmission:
     def wake(self) -> None:
         """A release at the org freed units: the waiting probe should go now.
 
-        Kept while any dispatch is in flight, so a wake that beats the busy
-        result still cuts the backoff that follows. Ignored when nothing waits.
+        Kept while any dispatch of the run is in ``execute`` (in flight or
+        waiting), so a wake that beats the busy result still cuts the backoff
+        that follows. Ignored when no dispatch is in ``execute``. A wake kept for
+        a dispatch that is then admitted costs at most one extra probe later.
         """
         if self._active > 0:
             self._woken = True
