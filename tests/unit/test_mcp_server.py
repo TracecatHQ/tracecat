@@ -17,6 +17,7 @@ import yaml
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware.middleware import MiddlewareContext
 from fastmcp.tools import ToolResult
+from mcp import McpError
 from mcp.types import CallToolRequestParams
 from pydantic import ValidationError
 from sqlalchemy import select
@@ -79,6 +80,7 @@ from tracecat.managed_resources.guard import (
     LOCKED_MESSAGE,
     ManagedResourceLockedError,
 )
+from tracecat.mcp.middleware import MCPErrorHandlingMiddleware
 from tracecat.pagination import CursorPaginatedResponse, PageParams
 from tracecat.storage.object import ExternalObject, ObjectRef
 from tracecat.tables.service import TablesService
@@ -5140,6 +5142,30 @@ async def test_input_size_limit_rejects(max_bytes: int, value: str) -> None:
 
     with pytest.raises(ToolError, match="exceeds maximum size"):
         await mw.on_call_tool(ctx, _call_next)
+
+
+@pytest.mark.anyio
+async def test_a_tool_refusal_reads_as_itself_not_an_internal_error() -> None:
+    """An expected refusal (a ToolError) keeps its message; anything else
+    still becomes an MCP internal error without its details changing."""
+    mw = MCPErrorHandlingMiddleware(include_traceback=False, transform_errors=True)
+    ctx = _make_tool_context()
+    refusal = ToolError("A schedule trigger runs its schedule's workflow only")
+
+    async def _refuse(context: MiddlewareContext[CallToolRequestParams]) -> Any:
+        raise refusal
+
+    async def _fail(context: MiddlewareContext[CallToolRequestParams]) -> Any:
+        raise RuntimeError("boom")
+
+    with pytest.raises(ToolError) as refused:
+        await mw.on_message(ctx, _refuse)
+    assert refused.value is refusal
+    assert str(refused.value) == "A schedule trigger runs its schedule's workflow only"
+    assert mw.get_error_stats() == {}
+
+    with pytest.raises(McpError, match="Internal error: boom"):
+        await mw.on_message(ctx, _fail)
 
 
 @pytest.mark.anyio

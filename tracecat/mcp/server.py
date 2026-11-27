@@ -40,7 +40,6 @@ import orjson
 import yaml
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
-from fastmcp.server.middleware.error_handling import ErrorHandlingMiddleware
 from fastmcp.server.middleware.logging import LoggingMiddleware
 from fastmcp.server.middleware.rate_limiting import RateLimitingMiddleware
 from google.protobuf.json_format import MessageToDict
@@ -247,6 +246,7 @@ from tracecat.mcp.config import (
 )
 from tracecat.mcp.json_patch import apply_json_patch_operations
 from tracecat.mcp.middleware import (
+    MCPErrorHandlingMiddleware,
     MCPInputSizeLimitMiddleware,
     MCPRequestAuditMiddleware,
     MCPTimeoutMiddleware,
@@ -2789,7 +2789,7 @@ mcp.add_middleware(MCPRequestAuditMiddleware())
 mcp.add_middleware(WatchtowerMonitorMiddleware())
 mcp.add_middleware(MCPTimeoutMiddleware())
 mcp.add_middleware(
-    ErrorHandlingMiddleware(include_traceback=False, transform_errors=True)
+    MCPErrorHandlingMiddleware(include_traceback=False, transform_errors=True)
 )
 mcp.add_middleware(
     LoggingMiddleware(methods=["tools/call"], include_payload_length=True)
