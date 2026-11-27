@@ -2083,8 +2083,10 @@ def _session_read(
         (AgentSessionEntity.WORKFLOW, False, False, True, False, True),
         (AgentSessionEntity.WORKFLOW, False, False, False, True, False),
         (AgentSessionEntity.WORKFLOW, False, True, True, True, False),
+        # A preset session a service started (a trigger) belongs to the workspace.
+        (AgentSessionEntity.AGENT_PRESET, True, False, True, False, True),
+        (AgentSessionEntity.AGENT_PRESET, False, False, True, True, False),
         # Every other session stays its owner's.
-        (AgentSessionEntity.AGENT_PRESET, True, False, True, True, False),
         (AgentSessionEntity.CASE, False, False, True, True, False),
         (AgentSessionEntity.WORKSPACE_CHAT, False, False, True, True, False),
         (AgentSessionEntity.APPROVAL, False, False, True, True, False),

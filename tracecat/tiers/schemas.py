@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import Field, PositiveInt
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt
 
 from tracecat.core.schemas import Schema
 from tracecat.tiers.enums import ConcurrencyLimitName
@@ -162,6 +162,18 @@ class EffectiveEntitlements(Schema):
         description="Whether the organization uses the channel bot API in place"
         " of legacy agent channels",
     )
+    object_triggers: bool = Field(
+        default=False,
+        title="Object triggers",
+        description="Whether object storage events (S3 object created, over"
+        " SNS) may start workflows and agents",
+    )
+    custom_branding: bool = Field(
+        default=False,
+        title="Custom branding",
+        description="Whether the organization may set its own logo, primary"
+        " colors, and sign-in page terms notice",
+    )
 
 
 class TierRead(Schema):
@@ -256,3 +268,31 @@ class OrganizationTierUpdate(Schema):
     stripe_customer_id: str | None = None
     stripe_subscription_id: str | None = None
     expires_at: datetime | None = None
+
+
+class DeclaredTierLimits(BaseModel):
+    """Concurrency limits a deployment declares for one tier.
+
+    Only fields present in the file are applied. ``null`` sets the field to
+    unlimited; a missing field leaves the tier's value as it is. Strict, so a
+    quoted number is an error rather than a silent coercion.
+    """
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    max_concurrent_workflows: PositiveInt | None = Field(default=None)
+    max_concurrent_actions: PositiveInt | None = Field(default=None)
+    max_concurrent_tool_calls: PositiveInt | None = Field(default=None)
+    max_concurrent_agent_turns: PositiveInt | None = Field(default=None)
+
+
+class DeclaredTierLimitsFile(BaseModel):
+    """Tier limits file applied by ``python -m tracecat.tiers.reconcile``.
+
+    ``tiers`` maps a tier's display name (matched case-insensitively) to the
+    limits declared for it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    tiers: dict[str, DeclaredTierLimits] = Field(default_factory=dict)

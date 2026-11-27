@@ -520,6 +520,7 @@ async def get_case(
         status=case.status,
         priority=case.priority,
         severity=case.severity,
+        verdict=case.verdict,
         description=case.description,
         assignee=UserRead.model_validate(case.assignee, from_attributes=True)
         if case.assignee
@@ -570,6 +571,7 @@ async def create_case(
         status=case.status,
         priority=case.priority,
         severity=case.severity,
+        verdict=case.verdict,
         description=case.description,
         assignee=UserRead.model_validate(case.assignee, from_attributes=True)
         if case.assignee
@@ -646,6 +648,7 @@ async def update_case(
         status=updated_case.status,
         priority=updated_case.priority,
         severity=updated_case.severity,
+        verdict=updated_case.verdict,
         description=updated_case.description,
         assignee=UserRead.model_validate(updated_case.assignee, from_attributes=True)
         if updated_case.assignee
@@ -1226,7 +1229,7 @@ async def run_task(
                 ),
             ) from e
 
-    exec_service = await WorkflowExecutionsService.connect(role=role)
+    exec_service = await WorkflowExecutionsService.connect(role=role, session=session)
     try:
         response = await exec_service.create_workflow_execution_wait_for_start(
             dsl=dsl,
@@ -1438,6 +1441,7 @@ async def create_case_simple(
                 description=params.description,
                 priority=params.priority,
                 severity=params.severity,
+                verdict=params.verdict,
                 status=params.status,
                 fields=params.fields,
                 dropdown_values=params.dropdown_values,
@@ -1552,6 +1556,8 @@ async def update_case_simple(
         update_params["severity"] = params.severity
     if params.status is not None:
         update_params["status"] = params.status
+    if "verdict" in params.model_fields_set:
+        update_params["verdict"] = params.verdict
     if params.fields is not None:
         update_params["fields"] = params.fields
     if params.dropdown_values is not None:

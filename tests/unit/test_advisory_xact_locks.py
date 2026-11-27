@@ -51,6 +51,21 @@ async def _lock_is_free(key: int) -> bool:
         return holder is not None
 
 
+async def _wait_until_lock_is_free(key: int, timeout: float = 5.0) -> bool:
+    """Poll until the lock is free; False if it is still held at the deadline.
+
+    ``pg_terminate_backend`` only signals the backend. Its locks are released
+    when the backend exits, which can lag behind under load.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while not await _lock_is_free(key):
+        if loop.time() >= deadline:
+            return False
+        await asyncio.sleep(0.05)
+    return True
+
+
 async def _terminate_lock_holder(key: int) -> None:
     async with get_async_engine().connect() as admin:
         await admin.execute(
@@ -192,7 +207,7 @@ async def test_serialized_session_cannot_commit_after_losing_the_lock() -> None:
         async with get_serialized_session(key) as session:
             await session.execute(text(f"INSERT INTO {table} VALUES (1)"))
             await _terminate_lock_holder(key)
-            assert await _lock_is_free(key)
+            assert await _wait_until_lock_is_free(key)
             with pytest.raises(AdvisoryLockLostError):
                 await session.commit()
         async with get_async_engine().connect() as connection:

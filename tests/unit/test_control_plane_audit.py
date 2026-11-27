@@ -455,6 +455,7 @@ async def _schedule(mp: pytest.MonkeyPatch, role: Role, action: str):
             "_get_schedule_with_workflow_lock",
             AsyncMock(return_value=SimpleNamespace(id=schedule_id)),
         )
+        mp.setattr(service, "_update_schedule_impl", AsyncMock())
         await service.update_schedule(schedule_id, ScheduleUpdate(status="offline"))
         return _pair(
             "schedule", action, schedule_id, schedule_id, {"changed_fields": ["status"]}

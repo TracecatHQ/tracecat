@@ -43,7 +43,7 @@ export const RESOURCE_CATEGORIES: Record<
   workflows: {
     label: "Workflows",
     description: "Workflow automation and execution",
-    resources: ["workflow", "schedule"],
+    resources: ["workflow", "schedule", "trigger"],
   },
   forms: {
     label: "Forms",

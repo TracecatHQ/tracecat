@@ -197,7 +197,7 @@ class TestBuildEnabledModels:
 
         monkeypatch.setattr(
             "tracecat.agent.authoring_context.AgentModelAccessService.with_session",
-            lambda role: _AsyncContext(_AccessService()),
+            lambda role, session=None: _AsyncContext(_AccessService()),
         )
 
         models = await build_enabled_models(role=role)  # type: ignore[arg-type]
@@ -347,7 +347,7 @@ class TestAuthoringContextRouteCallerScoping:
             return []
 
         def _capture(key: str) -> Any:
-            async def _fake(*, role: Any) -> list[Any]:
+            async def _fake(*, role: Any, session: Any = None) -> list[Any]:
                 seen[key] = role.scopes
                 return []
 

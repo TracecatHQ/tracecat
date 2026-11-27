@@ -4,7 +4,7 @@ export default function PrivacyPolicy({ className }: { className?: string }) {
   return (
     <div className={className}>
       <p className="px-8 text-center text-xs text-muted-foreground">
-        By using Tracecat, you agreeing to our{" "}
+        By using Tracecat, you agree to our{" "}
         <Link
           href="https://docs.google.com/document/d/e/2PACX-1vQvDe3SoVAPoQc51MgfGCP71IqFYX_rMVEde8zC4qmBCec5f8PLKQRdxa6tsUABT8gWAR9J-EVs2CrQ/pub"
           className="underline underline-offset-4 hover:text-primary"

@@ -1190,7 +1190,9 @@ class _FakeSecretsService:
 
     @classmethod
     @asynccontextmanager
-    async def with_session(cls) -> AsyncGenerator["_FakeSecretsService"]:
+    async def with_session(
+        cls, *, session: object = None
+    ) -> AsyncGenerator["_FakeSecretsService"]:
         yield cls()
 
     async def search_secrets(self, params: SecretSearch) -> list[_FakeSecretRow]:

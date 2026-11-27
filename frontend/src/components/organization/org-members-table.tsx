@@ -20,6 +20,7 @@ import {
   type DataTableToolbarProps,
 } from "@/components/data-table"
 import { AbbreviatedBadgeList } from "@/components/organization/abbreviated-badge-list"
+import { ChangeMemberEmailDialog } from "@/components/organization/change-member-email-dialog"
 import { InviteMemberDialogButton } from "@/components/organization/invite-member-dialog"
 import {
   AlertDialog,
@@ -64,6 +65,7 @@ import { useEntitlements } from "@/hooks/use-entitlements"
 import { getApiErrorDetail, type TracecatApiError } from "@/lib/errors"
 import { getRelativeTime } from "@/lib/event-history"
 import {
+  useAppInfo,
   useOrgMembers,
   useRbacRoles,
   useRbacUserAssignments,
@@ -86,6 +88,12 @@ export function OrgMembersTable() {
   const [isSavingRoles, setIsSavingRoles] = useState(false)
   const [isRemoveMemberOpen, setIsRemoveMemberOpen] = useState(false)
   const [removeConfirmationEmail, setRemoveConfirmationEmail] = useState("")
+  const [isChangeEmailOpen, setIsChangeEmailOpen] = useState(false)
+  const { appInfo } = useAppInfo()
+  const basicAuthEnabled =
+    appInfo?.auth_allowed_types.includes("basic") ?? false
+  const canChangeEmail =
+    useScopeCheck("org:member:update") === true && basicAuthEnabled
   const canInviteMembers = useScopeCheck("org:member:invite") === true
   const canRemoveMembers = useScopeCheck("org:member:remove") === true
   const canReadRbac = useScopeCheck("org:rbac:read") === true
@@ -157,6 +165,14 @@ export function OrgMembersTable() {
 
   return (
     <div className="space-y-4">
+      <ChangeMemberEmailDialog
+        member={isChangeEmailOpen ? selectedMember : null}
+        open={isChangeEmailOpen}
+        onOpenChange={(open) => {
+          setIsChangeEmailOpen(open)
+          if (!open) setSelectedMember(null)
+        }}
+      />
       <Dialog
         open={isChangeRoleOpen}
         onOpenChange={(open) => {
@@ -401,7 +417,9 @@ export function OrgMembersTable() {
                             >
                               Copy user ID
                             </DropdownMenuItem>
-                            {(canReadRbac || canRemoveMembers) && (
+                            {(canReadRbac ||
+                              canChangeEmail ||
+                              canRemoveMembers) && (
                               <DropdownMenuGroup>
                                 {canReadRbac && (
                                   <DialogTrigger asChild>
@@ -415,9 +433,21 @@ export function OrgMembersTable() {
                                     </DropdownMenuItem>
                                   </DialogTrigger>
                                 )}
+                                {canChangeEmail && (
+                                  <DropdownMenuItem
+                                    onSelect={() => {
+                                      setSelectedMember(member)
+                                      setIsChangeEmailOpen(true)
+                                    }}
+                                  >
+                                    Change email
+                                  </DropdownMenuItem>
+                                )}
                                 {canRemoveMembers && (
                                   <>
-                                    {canReadRbac && <DropdownMenuSeparator />}
+                                    {(canReadRbac || canChangeEmail) && (
+                                      <DropdownMenuSeparator />
+                                    )}
                                     <AlertDialogTrigger asChild>
                                       <DropdownMenuItem
                                         className="text-rose-500 focus:text-rose-600"

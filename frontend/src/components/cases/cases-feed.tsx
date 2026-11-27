@@ -44,6 +44,7 @@ import {
   TaskPriorityChangedEvent,
   TaskStatusChangedEvent,
   TaskWorkflowChangedEvent,
+  VerdictChangedEvent,
 } from "@/components/cases/cases-feed-event"
 import { CreatedAtTimestamp } from "@/components/timestamps"
 import {
@@ -77,6 +78,7 @@ const HANDLED_FEED_EVENT_TYPES = new Set([
   "status_changed",
   "priority_changed",
   "severity_changed",
+  "verdict_changed",
   "fields_changed",
   "assignee_changed",
   "task_created",
@@ -131,6 +133,11 @@ function CaseFeedEvent({
         {/* Severity events */}
         {event.type === "severity_changed" && (
           <SeverityChangedEvent event={event} actor={actor} />
+        )}
+
+        {/* Verdict events */}
+        {event.type === "verdict_changed" && (
+          <VerdictChangedEvent event={event} actor={actor} />
         )}
         {/* Case field events */}
         {event.type === "fields_changed" && (

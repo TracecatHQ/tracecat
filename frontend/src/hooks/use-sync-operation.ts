@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react"
 import { type SyncOperationRead, workflowsGetSyncOperation } from "@/client"
+import { toast } from "@/components/ui/use-toast"
+import { handleGlobalError, showFallbackErrorToast } from "@/lib/errors"
 import { useQuery } from "@/lib/query"
 import {
   expireSyncOperation,
@@ -23,6 +25,18 @@ export class SyncOperationWaitCancelled extends Error {
     super("Sync continues in the background")
     this.name = "SyncOperationWaitCancelled"
   }
+}
+
+/** Report a detached waiter as info; other failures keep the shared error toast. */
+export function handleSyncMutationError(error: unknown): void {
+  if (error instanceof SyncOperationWaitCancelled) {
+    toast({
+      title: error.message,
+      description: "Reopen Git sync to check its status.",
+    })
+    return
+  }
+  if (!handleGlobalError(error)) showFallbackErrorToast(error)
 }
 
 /** Poll one durable phase while this view is mounted; leaving never cancels the job. */

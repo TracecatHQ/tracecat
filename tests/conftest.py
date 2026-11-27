@@ -127,6 +127,32 @@ MCP_TOKEN_REVOKER_MIGRATION = (
 )
 
 
+SCHEDULE_TRIGGER_SYNC_MIGRATION = (
+    Path(__file__).resolve().parents[1]
+    / "alembic"
+    / "versions"
+    / "61ebd010e726_link_schedules_to_triggers.py"
+)
+
+
+def _install_schedule_trigger_sync(conn: Any) -> None:
+    """Install the production trigger that keeps a schedule's trigger row in step.
+
+    The SQL comes from the migration that defines it, as for the MCP token
+    revoker below.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "schedule_trigger_sync_migration", SCHEDULE_TRIGGER_SYNC_MIGRATION
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load {SCHEDULE_TRIGGER_SYNC_MIGRATION}")
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    conn.execute(text(migration.SYNC_FUNCTION_SQL))
+    conn.execute(text(migration.DROP_SYNC_TRIGGER_SQL))
+    conn.execute(text(migration.SYNC_TRIGGER_SQL))
+
+
 def _install_membership_token_revoker(conn: Any) -> None:
     """Install the production trigger that revokes MCP tokens on member removal.
 
@@ -469,6 +495,7 @@ def db() -> Iterator[None]:
             Base.metadata.create_all(conn)
             _install_case_number_allocator(conn)
             _install_membership_token_revoker(conn)
+            _install_schedule_trigger_sync(conn)
         yield
     finally:
         if test_engine is not None:
@@ -505,6 +532,7 @@ def default_org(db: None, env_sandbox: None) -> Iterator[None]:
             Base.metadata.create_all(conn)
             _install_case_number_allocator(conn)
             _install_membership_token_revoker(conn)
+            _install_schedule_trigger_sync(conn)
 
         with Session(sync_engine) as session:
             base_org_slug = f"test-org-{TEST_ORG_ID.hex[:8]}"

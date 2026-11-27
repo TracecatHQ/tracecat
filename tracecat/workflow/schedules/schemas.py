@@ -10,6 +10,21 @@ from tracecat.identifiers import ScheduleUUID, WorkflowID, WorkspaceID
 from tracecat.identifiers.workflow import AnyWorkflowID
 
 
+def check_cron(cron: str | None) -> str | None:
+    """Reject a cron expression croniter cannot parse."""
+    if cron and not croniter.is_valid(cron):
+        raise ValueError(f"Invalid cron expression: {cron}")
+    return cron
+
+
+def check_schedule_spec(cron: str | None, every: timedelta | None) -> None:
+    """Require exactly one of ``cron`` and ``every``."""
+    if cron is None and every is None:
+        raise ValueError("Either cron or every must be provided for a schedule")
+    if cron is not None and every is not None:
+        raise ValueError("Only one of cron or every may be provided for a schedule")
+
+
 class ScheduleRead(Schema):
     id: ScheduleUUID
     workspace_id: WorkspaceID
@@ -50,19 +65,13 @@ class ScheduleCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_schedule_spec(self) -> "ScheduleCreate":
-        """Ensure exactly one schedule specifier is provided."""
-        if self.cron is None and self.every is None:
-            raise ValueError("Either cron or every must be provided for a schedule")
-        if self.cron is not None and self.every is not None:
-            raise ValueError("Only one of cron or every may be provided for a schedule")
+        check_schedule_spec(self.cron, self.every)
         return self
 
     @field_validator("cron")
     @classmethod
     def validate_cron_expression(cls, cron: str | None) -> str | None:
-        if cron and not croniter.is_valid(cron):
-            raise ValueError(f"Invalid cron expression: {cron}")
-        return cron
+        return check_cron(cron)
 
 
 class ScheduleUpdate(BaseModel):
@@ -90,9 +99,7 @@ class ScheduleUpdate(BaseModel):
     @field_validator("cron")
     @classmethod
     def validate_cron_expression(cls, cron: str | None) -> str | None:
-        if cron and not croniter.is_valid(cron):
-            raise ValueError(f"Invalid cron expression: {cron}")
-        return cron
+        return check_cron(cron)
 
 
 class ScheduleSearch(BaseModel):

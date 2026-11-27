@@ -687,6 +687,7 @@ class CaseTableRowsService(BaseWorkspaceService):
             "updated_at",
             "priority",
             "severity",
+            "verdict",
             "status",
             "tasks",
             "assignee",

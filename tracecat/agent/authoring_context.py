@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from typing import Any, Literal, TypedDict, cast
 
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
 from tracecat.agent.access.service import AgentModelAccessService
@@ -177,7 +178,9 @@ def optional_secret_names(
     ]
 
 
-async def load_secret_inventory(role: Role) -> dict[str, set[str]]:
+async def load_secret_inventory(
+    role: Role, *, session: AsyncSession | None = None
+) -> dict[str, set[str]]:
     """Load workspace secret key inventory for the default environment.
 
     Returns an empty inventory when the caller lacks ``secret:read`` so callers
@@ -186,7 +189,7 @@ async def load_secret_inventory(role: Role) -> dict[str, set[str]]:
     """
     if not has_scope(role.scopes or frozenset(), "secret:read"):
         return {}
-    async with SecretsService.with_session(role=role) as svc:
+    async with SecretsService.with_session(role=role, session=session) as svc:
         workspace_inventory: dict[str, set[str]] = {}
         workspace_secrets = await svc.list_secrets()
         for secret in workspace_secrets:
@@ -197,7 +200,9 @@ async def load_secret_inventory(role: Role) -> dict[str, set[str]]:
         return workspace_inventory
 
 
-async def load_oauth_inventory(role: Role) -> set[ProviderKey]:
+async def load_oauth_inventory(
+    role: Role, *, session: AsyncSession | None = None
+) -> set[ProviderKey]:
     """Load connected workspace OAuth integrations keyed by provider.
 
     Only integrations that have completed authentication (``CONNECTED`` status,
@@ -214,7 +219,7 @@ async def load_oauth_inventory(role: Role) -> set[ProviderKey]:
     """
     if not has_scope(role.scopes or frozenset(), "integration:read"):
         return set()
-    async with IntegrationService.with_session(role=role) as svc:
+    async with IntegrationService.with_session(role=role, session=session) as svc:
         integrations = await svc.list_integrations()
     return {
         ProviderKey(id=integration.provider_id, grant_type=integration.grant_type)
@@ -271,6 +276,7 @@ async def build_action_contexts(
     role: Role,
     action_names: list[str] | None = None,
     query: str | None = None,
+    session: AsyncSession | None = None,
 ) -> list[ActionContextResponse]:
     """Build full authoring context (schema + secrets + example) for actions.
 
@@ -279,10 +285,12 @@ async def build_action_contexts(
     """
     resolved_names = list(action_names) if action_names else []
 
-    workspace_inventory = await load_secret_inventory(role)
-    oauth_inventory = await load_oauth_inventory(role)
+    workspace_inventory = await load_secret_inventory(role, session=session)
+    oauth_inventory = await load_oauth_inventory(role, session=session)
     action_contexts: list[ActionContextResponse] = []
-    async with RegistryActionsService.with_session(role=role) as registry_svc:
+    async with RegistryActionsService.with_session(
+        role=role, session=session
+    ) as registry_svc:
         if not resolved_names and query:
             entries = await registry_svc.search_actions_from_index(query, limit=20)
             resolved_names = [f"{entry.namespace}.{entry.name}" for entry, _ in entries]
@@ -314,7 +322,9 @@ async def build_action_contexts(
     return action_contexts
 
 
-async def build_variable_hints(*, role: Role) -> list[dict[str, Any]]:
+async def build_variable_hints(
+    *, role: Role, session: AsyncSession | None = None
+) -> list[dict[str, Any]]:
     """List workspace variables in the default environment as hints.
 
     Returns ``[]`` when the caller lacks ``variable:read`` so the full set of
@@ -322,7 +332,7 @@ async def build_variable_hints(*, role: Role) -> list[dict[str, Any]]:
     """
     if not has_scope(role.scopes or frozenset(), "variable:read"):
         return []
-    async with VariablesService.with_session(role=role) as var_svc:
+    async with VariablesService.with_session(role=role, session=session) as var_svc:
         variables = await var_svc.list_variables(
             environment=DEFAULT_SECRETS_ENVIRONMENT
         )
@@ -336,7 +346,9 @@ async def build_variable_hints(*, role: Role) -> list[dict[str, Any]]:
         ]
 
 
-async def build_secret_hints(*, role: Role) -> list[dict[str, Any]]:
+async def build_secret_hints(
+    *, role: Role, session: AsyncSession | None = None
+) -> list[dict[str, Any]]:
     """List workspace secrets in the default environment as hints.
 
     Returns ``[]`` when the caller lacks ``secret:read`` so the full set of
@@ -344,7 +356,7 @@ async def build_secret_hints(*, role: Role) -> list[dict[str, Any]]:
     """
     if not has_scope(role.scopes or frozenset(), "secret:read"):
         return []
-    workspace_inventory = await load_secret_inventory(role)
+    workspace_inventory = await load_secret_inventory(role, session=session)
     return [
         {
             "name": secret_name,
@@ -355,7 +367,9 @@ async def build_secret_hints(*, role: Role) -> list[dict[str, Any]]:
     ]
 
 
-async def build_enabled_models(*, role: Role) -> list[EnabledModelInfo]:
+async def build_enabled_models(
+    *, role: Role, session: AsyncSession | None = None
+) -> list[EnabledModelInfo]:
     """List the models enabled for the workspace as authoring hints.
 
     These are the only models an author may select when configuring AI actions
@@ -371,7 +385,7 @@ async def build_enabled_models(*, role: Role) -> list[EnabledModelInfo]:
         return []
     if role.workspace_id is None:
         return []
-    async with AgentModelAccessService.with_session(role=role) as svc:
+    async with AgentModelAccessService.with_session(role=role, session=session) as svc:
         models = await svc.get_workspace_models(role.workspace_id)
     return [
         EnabledModelInfo(

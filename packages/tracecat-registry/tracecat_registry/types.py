@@ -92,6 +92,7 @@ class Case(TypedDict):
     priority: str
     severity: str
     status: str
+    verdict: NotRequired[str | None]
     payload: dict[str, Any] | None
     assignee_id: UUID | None
     workspace_id: UUID
@@ -125,6 +126,7 @@ class CaseRead(TypedDict):
     priority: str
     severity: str
     status: str
+    verdict: NotRequired[str | None]
     payload: dict[str, Any] | None
     fields: list[CaseFieldRead]
     tags: list[CaseTagRead]
@@ -193,6 +195,7 @@ class CaseReadMinimal(TypedDict):
     priority: str
     severity: str
     status: str
+    verdict: NotRequired[str | None]
     tags: list[CaseTagRead]
     dropdown_values: list[CaseDropdownValueRead]
     assignee: UserRead | None
@@ -427,6 +430,17 @@ class SeverityChangedEvent(TypedDict, total=False):
     type: str  # "severity_changed"
     old: str
     new: str
+
+
+class VerdictChangedEvent(TypedDict, total=False):
+    """Event for when a case verdict is set, changed, or cleared."""
+
+    user_id: UUID | None
+    created_at: str
+    wf_exec_id: str | None
+    type: str  # "verdict_changed"
+    old: str | None
+    new: str | None
 
 
 class ClosedEvent(TypedDict, total=False):
@@ -666,6 +680,7 @@ type CaseEvent = (
     | StatusChangedEvent
     | PriorityChangedEvent
     | SeverityChangedEvent
+    | VerdictChangedEvent
     | ClosedEvent
     | ReopenedEvent
     | CaseViewedEvent

@@ -462,12 +462,18 @@ async def test_bridge_stop_closes_an_open_event_stream(short_socket_dir: Path) -
 @pytest.mark.parametrize(
     "response",
     [
-        b"HTTP/1.1 200 OK\r\n",  # Truncated headers.
-        b"not HTTP\r\n\r\n",
-        b"HTTP/1.1 101 Switching Protocols\r\n\r\n",
-        b"HTTP/1.1 000 Invalid\r\n\r\n",
-        b"HTTP/1.1 200 OK\r\nBad header\r\n\r\n",
-        b"HTTP/1.1 200 OK\r\nX-Large: " + b"a" * HTTP_HEADER_LIMIT + b"\r\n\r\n",
+        pytest.param(b"HTTP/1.1 200 OK\r\n", id="truncated-headers"),
+        pytest.param(b"not HTTP\r\n\r\n", id="not-http"),
+        pytest.param(
+            b"HTTP/1.1 101 Switching Protocols\r\n\r\n", id="switching-protocols"
+        ),
+        pytest.param(b"HTTP/1.1 000 Invalid\r\n\r\n", id="invalid-status"),
+        pytest.param(b"HTTP/1.1 200 OK\r\nBad header\r\n\r\n", id="bad-header"),
+        # An explicit id keeps the 64 KiB value out of the test id.
+        pytest.param(
+            b"HTTP/1.1 200 OK\r\nX-Large: " + b"a" * HTTP_HEADER_LIMIT + b"\r\n\r\n",
+            id="oversized-header",
+        ),
     ],
 )
 async def test_bridge_rejects_invalid_upstream_headers(response: bytes) -> None:

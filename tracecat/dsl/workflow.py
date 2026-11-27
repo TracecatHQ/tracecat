@@ -278,6 +278,10 @@ class DSLWorkflow:
     _action_execution_count: int = 0
     _action_admission: RunAdmission
     _admission_acks_enabled: bool = False
+    _run_throttle: asyncio.Semaphore | None = None
+    """Run throttle: keeps at most the org's action limit of action activities
+    outstanding, so the run stops asking for slots it can't get. ``None`` means
+    no throttle; the org's lease pool stays the only limit."""
 
     @workflow.init
     def __init__(self, args: DSLRunArgs) -> None:
@@ -465,6 +469,12 @@ class DSLWorkflow:
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
             self._max_actions_per_run = snapshot.max_action_executions_per_workflow
+            # Histories recorded before this field decode it as None: no
+            # throttle, so they issue the same commands on replay. A limit of 0
+            # or less is no limit, as in the gate.
+            limit = snapshot.max_concurrent_actions
+            if limit is not None and limit > 0:
+                self._run_throttle = asyncio.Semaphore(limit)
             # Admission signals exist only in histories that recorded this patch.
             self._admission_acks_enabled = True
             self._action_admission.acks_enabled = True
@@ -2076,9 +2086,18 @@ class DSLWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=max_attempts),
             )
 
-        return await self._action_admission.execute(
-            dispatch, max_attempts=task.retry_policy.max_attempts
-        )
+        if self._run_throttle is None:
+            return await self._action_admission.execute(
+                dispatch, max_attempts=task.retry_policy.max_attempts
+            )
+        # Run throttle: hold one place from dispatch to result, including any
+        # wait for capacity. The executor frees its lease before the result
+        # arrives, so the next dispatch here is admitted unless another run
+        # took the unit.
+        async with self._run_throttle:
+            return await self._action_admission.execute(
+                dispatch, max_attempts=task.retry_policy.max_attempts
+            )
 
     async def _run_child_workflow(
         self, task: ActionStatement, run_args: DSLRunArgs, loop_index: int | None = None

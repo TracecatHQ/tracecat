@@ -40,6 +40,7 @@ from tracecat.settings.schemas import (
     AppSettingsUpdate,
     AuditSettingsUpdate,
     BaseSettingsGroup,
+    BrandingSettingsUpdate,
     GitSettingsUpdate,
     SAMLSettingsUpdate,
     SecuritySettingsUpdate,
@@ -82,6 +83,7 @@ class SettingsService(BaseOrgService):
         AppSettingsUpdate,
         AuditSettingsUpdate,
         SecuritySettingsUpdate,
+        BrandingSettingsUpdate,
     ]
     """The set of settings groups that are managed by the service."""
 
@@ -373,6 +375,14 @@ class SettingsService(BaseOrgService):
     async def update_app_settings(self, params: AppSettingsUpdate) -> None:
         app_settings = await self.list_org_settings(keys=AppSettingsUpdate.keys())
         await self._update_grouped_settings(app_settings, params)
+
+    @require_scope("org:settings:update")
+    @audit_log(resource_type="organization_setting", action="update")
+    async def update_branding_settings(self, params: BrandingSettingsUpdate) -> None:
+        branding_settings = await self.list_org_settings(
+            keys=BrandingSettingsUpdate.keys()
+        )
+        await self._update_grouped_settings(branding_settings, params)
 
     @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")

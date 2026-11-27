@@ -11,7 +11,9 @@ from fastapi import status
 from fastapi.testclient import TestClient
 
 from tracecat.api.app import app
+from tracecat.auth.enums import CredentialChangeErrorCode
 from tracecat.auth.types import Role
+from tracecat.auth.users import CredentialChangeError
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session, get_async_session_bypass_rls
 from tracecat.exceptions import TracecatConflictError
@@ -320,3 +322,69 @@ async def test_delete_organization_requires_owner_role(
 ) -> None:
     response = client.delete("/organization?confirm=Test%20Organization")
     assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("field", ["email", "password"])
+async def test_update_org_member_rejects_credential_fields(
+    client: TestClient, test_admin_role: Role, field: str
+) -> None:
+    with patch.object(organization_router, "OrgService") as MockService:
+        response = client.patch(
+            f"/organization/members/{uuid.uuid4()}",
+            json={field: "new@example.com"},
+        )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    MockService.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_change_org_member_email_returns_no_content(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    user_id = uuid.uuid4()
+    with patch.object(organization_router, "OrgService") as MockService:
+        mock_svc = AsyncMock()
+        MockService.return_value = mock_svc
+
+        response = client.patch(
+            f"/organization/members/{user_id}/email",
+            json={"email": "renamed@example.com"},
+        )
+
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+    mock_svc.change_member_email.assert_awaited_once_with(
+        user_id, "renamed@example.com"
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("code", "expected_status"),
+    [
+        (CredentialChangeErrorCode.INVALID_EMAIL, status.HTTP_400_BAD_REQUEST),
+        (
+            CredentialChangeErrorCode.MEMBER_OF_OTHER_ORGANIZATION,
+            status.HTTP_403_FORBIDDEN,
+        ),
+    ],
+)
+async def test_change_org_member_email_maps_error_codes(
+    client: TestClient,
+    test_admin_role: Role,
+    code: CredentialChangeErrorCode,
+    expected_status: int,
+) -> None:
+    with patch.object(organization_router, "OrgService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.change_member_email.side_effect = CredentialChangeError(code)
+        MockService.return_value = mock_svc
+
+        response = client.patch(
+            f"/organization/members/{uuid.uuid4()}/email",
+            json={"email": "renamed@example.com"},
+        )
+
+    assert response.status_code == expected_status
+    assert response.json()["detail"]["code"] == code

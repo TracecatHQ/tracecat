@@ -40,6 +40,7 @@ type CaseSearchOrder = Literal[
     "updated_at",
     "priority",
     "severity",
+    "verdict",
     "status",
     "tasks",
     "id",
