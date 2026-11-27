@@ -4,6 +4,7 @@ import { KeyRound, Trash2 } from "lucide-react"
 import { useState } from "react"
 import { RecoveryCodes } from "@/components/auth/recovery-codes"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { SignInCredentials } from "@/components/settings/sign-in-credentials"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -69,6 +70,7 @@ export function SecuritySettings() {
   const hasKeys = (credentials?.length ?? 0) > 0
   return (
     <div className="space-y-8">
+      <SignInCredentials />
       <div className="space-y-1">
         <h3 className="text-lg font-semibold">Security keys and passkeys</h3>
         <p className="text-sm text-muted-foreground">

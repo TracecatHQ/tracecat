@@ -3,8 +3,9 @@ from enum import StrEnum
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
+from tracecat.auth.schemas import UserRole
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.invitations.schemas import InvitationGrant
 
@@ -59,6 +60,26 @@ class OrgMemberRead(BaseModel):
     last_login_at: datetime | None = None
     expires_at: datetime | None = None
     created_at: datetime | None = None
+
+
+class OrgMemberUpdate(BaseModel):
+    """Member fields an organization admin may update.
+
+    Email has its own endpoint because changing it signs the member out.
+    Passwords are never set by an admin.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    role: UserRole | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+
+
+class OrgMemberEmailUpdate(BaseModel):
+    """New sign-in email for an organization member."""
+
+    email: EmailStr
 
 
 class OrgMemberDetail(BaseModel):

@@ -310,7 +310,7 @@ import {
   type UserRoleAssignmentReadWithDetails,
   type UserRoleAssignmentUpdate,
   type UserScopesRead,
-  type UserUpdate,
+  type UserSelfUpdate,
   usersGetMyScopes,
   usersUsersPatchCurrentUser,
   type VariableCreate,
@@ -1974,7 +1974,7 @@ export function useUserManager() {
     isPending: updateCurrentUserPending,
     mutateAsync: updateCurrentUser,
   } = useMutation({
-    mutationFn: async (params: UserUpdate) =>
+    mutationFn: async (params: UserSelfUpdate) =>
       await usersUsersPatchCurrentUser({
         requestBody: params,
       }),

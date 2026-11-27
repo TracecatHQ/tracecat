@@ -115,7 +115,7 @@ def test_fastapi_users_superuser_routes_require_platform_admin_access() -> None:
             dep.dependency is require_superuser_step_up
             for dep in routes[name].dependencies
         )
-    for name in ("users:current_user", "users:patch_current_user"):
+    for name in ("users:current_user",):
         assert all(
             dep.dependency is not require_superuser for dep in routes[name].dependencies
         )

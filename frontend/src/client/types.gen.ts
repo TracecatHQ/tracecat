@@ -8235,6 +8235,16 @@ export type LibrarySkillSourceRead = {
 export type kind3 = "upstream" | "local"
 
 /**
+ * Sign-in methods the current user can manage from their account settings.
+ */
+export type LoginMethodsRead = {
+  /**
+   * Whether the user can sign in with, and change, a local password
+   */
+  password: boolean
+}
+
+/**
  * Authentication type for MCP integrations.
  */
 export type MCPAuthType = "OAUTH2" | "CUSTOM" | "NONE"
@@ -9403,6 +9413,13 @@ export type OrgMemberDetail = {
   last_login_at: string | null
 }
 
+/**
+ * New sign-in email for an organization member.
+ */
+export type OrgMemberEmailUpdate = {
+  email: string
+}
+
 export type OrgMemberGroupRead = {
   id: string
   name: string
@@ -9435,6 +9452,18 @@ export type OrgMemberRoleRead = {
 }
 
 export type OrgMemberStatus = "active" | "inactive" | "invited"
+
+/**
+ * Member fields an organization admin may update.
+ *
+ * Email has its own endpoint because changing it signs the member out.
+ * Passwords are never set by an admin.
+ */
+export type OrgMemberUpdate = {
+  role?: UserRole | null
+  first_name?: string | null
+  last_name?: string | null
+}
 
 export type OrgMemberWorkspaceRead = {
   id: string
@@ -9805,6 +9834,11 @@ export type ParentChangedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+export type PasswordChange = {
+  current_password: string
+  new_password: string
 }
 
 /**
@@ -14270,6 +14304,21 @@ export type UserSearchRead = {
 }
 
 /**
+ * Profile fields a user may change on their own account.
+ *
+ * Password changes go through the dedicated endpoint, which requires the
+ * current password. Email changes are admin-only because the new address
+ * isn't verified.
+ */
+export type UserSelfUpdate = {
+  first_name?: string | null
+  last_name?: string | null
+  settings?: {
+    [key: string]: unknown
+  } | null
+}
+
+/**
  * Summary of a user for inbox item context.
  */
 export type UserSummary = {
@@ -17512,6 +17561,22 @@ export type TagsDeleteTagData = {
 
 export type TagsDeleteTagResponse = unknown
 
+export type UsersUsersCurrentUserResponse = UserRead
+
+export type UsersUsersPatchCurrentUserData = {
+  requestBody: UserSelfUpdate
+}
+
+export type UsersUsersPatchCurrentUserResponse = UserRead
+
+export type UsersGetCurrentUserLoginMethodsResponse = LoginMethodsRead
+
+export type UsersChangeCurrentUserPasswordData = {
+  requestBody: PasswordChange
+}
+
+export type UsersChangeCurrentUserPasswordResponse = void
+
 export type UsersSearchUserData = {
   email?: string | null
   workspaceId?: string | null
@@ -17559,11 +17624,18 @@ export type OrganizationDeleteOrgMemberData = {
 export type OrganizationDeleteOrgMemberResponse = void
 
 export type OrganizationUpdateOrgMemberData = {
-  requestBody: UserUpdate
+  requestBody: OrgMemberUpdate
   userId: string
 }
 
 export type OrganizationUpdateOrgMemberResponse = OrgMemberDetail
+
+export type OrganizationChangeOrgMemberEmailData = {
+  requestBody: OrgMemberEmailUpdate
+  userId: string
+}
+
+export type OrganizationChangeOrgMemberEmailResponse = void
 
 export type OrganizationListSessionsResponse = Array<SessionRead>
 
@@ -21855,14 +21927,6 @@ export type ScimResourceTypesResponse = ScimListResponse
 
 export type ScimSchemasDocumentResponse = ScimListResponse
 
-export type UsersUsersCurrentUserResponse = UserRead
-
-export type UsersUsersPatchCurrentUserData = {
-  requestBody: UserUpdate
-}
-
-export type UsersUsersPatchCurrentUserResponse = UserRead
-
 export type UsersUsersUserData = {
   id: string
 }
@@ -24298,6 +24362,58 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/users/me": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: UserRead
+        /**
+         * Missing token or inactive user.
+         */
+        401: unknown
+      }
+    }
+    patch: {
+      req: UsersUsersPatchCurrentUserData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: UserRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/users/me/login-methods": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: LoginMethodsRead
+      }
+    }
+  }
+  "/users/me/password": {
+    post: {
+      req: UsersChangeCurrentUserPasswordData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/users/search": {
     get: {
       req: UsersSearchUserData
@@ -24436,6 +24552,29 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: OrgMemberDetail
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/members/{user_id}/email": {
+    patch: {
+      req: OrganizationChangeOrgMemberEmailData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * The email can't be used.
+         */
+        400: unknown
+        /**
+         * The member is a superuser or belongs to another organization.
+         */
+        403: unknown
         /**
          * Validation Error
          */
@@ -32356,41 +32495,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: ScimListResponse
-      }
-    }
-  }
-  "/users/me": {
-    get: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: UserRead
-        /**
-         * Missing token or inactive user.
-         */
-        401: unknown
-      }
-    }
-    patch: {
-      req: UsersUsersPatchCurrentUserData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: UserRead
-        /**
-         * Bad Request
-         */
-        400: ErrorModel
-        /**
-         * Missing token or inactive user.
-         */
-        401: unknown
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
       }
     }
   }

@@ -26478,6 +26478,22 @@ export const $LibrarySkillSourceRead = {
     "Library group, maintainer, and optional upstream location of a skill.",
 } as const
 
+export const $LoginMethodsRead = {
+  properties: {
+    password: {
+      type: "boolean",
+      title: "Password",
+      description:
+        "Whether the user can sign in with, and change, a local password",
+    },
+  },
+  type: "object",
+  required: ["password"],
+  title: "LoginMethodsRead",
+  description:
+    "Sign-in methods the current user can manage from their account settings.",
+} as const
+
 export const $MCPAuthType = {
   type: "string",
   enum: ["OAUTH2", "CUSTOM", "NONE"],
@@ -30230,6 +30246,20 @@ export const $OrgMemberDetail = {
   description: "Detailed member info for /me and update endpoints.",
 } as const
 
+export const $OrgMemberEmailUpdate = {
+  properties: {
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+  },
+  type: "object",
+  required: ["email"],
+  title: "OrgMemberEmailUpdate",
+  description: "New sign-in email for an organization member.",
+} as const
+
 export const $OrgMemberGroupRead = {
   properties: {
     id: {
@@ -30411,6 +30441,50 @@ export const $OrgMemberStatus = {
   type: "string",
   enum: ["active", "inactive", "invited"],
   title: "OrgMemberStatus",
+} as const
+
+export const $OrgMemberUpdate = {
+  properties: {
+    role: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/UserRole",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "OrgMemberUpdate",
+  description: `Member fields an organization admin may update.
+
+Email has its own endpoint because changing it signs the member out.
+Passwords are never set by an admin.`,
 } as const
 
 export const $OrgMemberWorkspaceRead = {
@@ -31812,6 +31886,28 @@ export const $ParentChangedEventRead = {
   title: "ParentChangedEventRead",
   description:
     "Event for when a case is grouped under, moved to, or removed from a parent.",
+} as const
+
+export const $PasswordChange = {
+  properties: {
+    current_password: {
+      type: "string",
+      minLength: 1,
+      format: "password",
+      title: "Current Password",
+      writeOnly: true,
+    },
+    new_password: {
+      type: "string",
+      minLength: 1,
+      format: "password",
+      title: "New Password",
+      writeOnly: true,
+    },
+  },
+  type: "object",
+  required: ["current_password", "new_password"],
+  title: "PasswordChange",
 } as const
 
 export const $PayloadChangedEventRead = {
@@ -46624,6 +46720,53 @@ export const $UserSearchRead = {
   required: ["id", "email"],
   title: "UserSearchRead",
   description: "Identity fields returned by the org-scoped user email search.",
+} as const
+
+export const $UserSelfUpdate = {
+  properties: {
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+    },
+    settings: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Settings",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "UserSelfUpdate",
+  description: `Profile fields a user may change on their own account.
+
+Password changes go through the dedicated endpoint, which requires the
+current password. Email changes are admin-only because the new address
+isn't verified.`,
 } as const
 
 export const $UserSummary = {
