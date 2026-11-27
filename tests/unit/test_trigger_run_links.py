@@ -500,6 +500,11 @@ async def test_recent_runs_are_empty_only_while_the_attribute_is_unknown(
 
     page = await service.list_runs(trigger_id, CursorPaginationParams(limit=10))
     assert page.items == []
+    # With a cursor the same rejection is a bad cursor, not "no runs".
+    with pytest.raises(ValueError, match="Invalid cursor"):
+        await service.list_runs(
+            trigger_id, CursorPaginationParams(limit=10, cursor="forged")
+        )
 
     executions.error = RPCError("down", RPCStatusCode.UNAVAILABLE, b"")
     with pytest.raises(RPCError):

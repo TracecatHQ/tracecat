@@ -151,15 +151,20 @@ class TriggerRunsService(BaseWorkspaceService):
                 relation=WorkflowExecutionRelationFilter.ROOT,
             )
         except RPCError as e:
-            # The namespace doesn't have TracecatTriggerId yet, so no run
-            # carries it. Any other failure is an error, not "no runs".
+            # On a first page, the namespace doesn't have TracecatTriggerId
+            # yet, so no run carries it. With a cursor it is a bad cursor. Any
+            # other failure is an error, not "no runs".
             if e.status != RPCStatusCode.INVALID_ARGUMENT:
                 raise
+            if params.cursor is not None:
+                raise ValueError("Invalid cursor") from e
             return TriggerRunsPage(items=[])
         items: list[TriggerRunRead] = []
         for execution in page.items:
             status = execution.status.name if execution.status else "RUNNING"
-            if execution.workflow_type == DSL_WORKFLOW_TYPE:
+            # The query already holds only readable kinds; checked again here
+            # so the split never rests on the type filter alone.
+            if execution.workflow_type == DSL_WORKFLOW_TYPE and workflows:
                 try:
                     workflow_id, _ = exec_id_to_parts(execution.id)
                 except ValueError:
@@ -175,7 +180,7 @@ class TriggerRunsService(BaseWorkspaceService):
                     )
                 )
                 continue
-            if execution.workflow_type not in agent_types:
+            if not agents or execution.workflow_type not in agent_types:
                 continue
             session_id = _session_id_of(
                 execution.typed_search_attributes.get(
@@ -267,12 +272,13 @@ class TriggerRunsService(BaseWorkspaceService):
     async def list_stopped_events(
         self, trigger_id: uuid.UUID, params: CursorPaginationParams
     ) -> TriggerStoppedEventsPage:
-        """The trigger's events that stopped retrying, newest first.
+        """Events this trigger matched that stopped retrying, newest first.
 
         Only ``object_storage`` triggers queue events; other kinds have none.
-        A row belongs to the trigger when it came through the trigger's source
-        and its key starts with the trigger's prefix, as the dispatcher
-        matches. The event body is never returned, and the error is redacted.
+        A row is listed when it came through the trigger's source and its key
+        starts with the trigger's prefix, as the dispatcher matches. An event
+        is one row for every trigger on its source, so its error can name
+        another trigger's targets in this workspace. The event body is never returned, and the error is redacted.
 
         Raises:
             ScopeDeniedError: Without the trigger's read scopes, or without

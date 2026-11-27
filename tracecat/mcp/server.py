@@ -7193,11 +7193,13 @@ async def list_trigger_stopped_events(
     limit: int = config.TRACECAT__LIMIT_DEFAULT,
     cursor: str | None = None,
 ) -> MCPPaginatedResponse[TriggerStoppedEventRead]:
-    """List a trigger's events that stopped retrying, newest first.
+    """List events a trigger matched that stopped retrying, newest first.
 
     An `object_storage` trigger's event is retried with backoff when a target
     fails to start, and stops after 8 attempts. Other kinds list none. The
-    event itself is not returned. Needs `workflow:read` or `agent:read`.
+    event itself is not returned. An event is shared by every trigger on its
+    source, so an error can name another trigger's targets. Needs
+    `workflow:read` or `agent:read`.
 
     Args:
         workspace_id: The workspace ID.

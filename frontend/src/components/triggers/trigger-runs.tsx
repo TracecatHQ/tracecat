@@ -141,8 +141,9 @@ function TriggerStoppedEvents({
       <div>
         <h3 className="text-sm font-semibold">Stopped events</h3>
         <p className="text-xs text-muted-foreground">
-          Events whose targets failed to start 8 times in a row. They are no
-          longer retried.
+          Events from this trigger's source and key prefix whose targets failed
+          to start 8 times in a row. They are no longer retried. An error can
+          name another trigger's targets on the same source.
         </p>
       </div>
       <PagedList
