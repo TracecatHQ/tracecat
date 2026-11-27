@@ -155,6 +155,12 @@ class LdapClient:
             RuntimeError: If the search operation fails.
         """
         connection = self._get_connection()
+        search_kwargs: dict[str, Any] = {
+            "search_base": search_base,
+            "search_filter": search_filter,
+            "search_scope": ldap3.SUBTREE,
+            "attributes": ldap3.ALL_ATTRIBUTES,
+        }
 
         # Servers cap unpaged results (Active Directory MaxPageSize defaults to
         # 1,000) and return the first entries with sizeLimitExceeded, so follow
@@ -163,31 +169,40 @@ class LdapClient:
         cookie: bytes | None = None
         while True:
             connection.search(
-                search_base=search_base,
-                search_filter=search_filter,
-                search_scope=ldap3.SUBTREE,
-                attributes=ldap3.ALL_ATTRIBUTES,
+                **search_kwargs,
                 paged_size=LDAP_SEARCH_PAGE_SIZE,
                 paged_cookie=cookie,
             )
             result = connection.result
             if result.get("result") != RESULT_SUCCESS:
-                raise RuntimeError(f"LDAP search failed: {result}")
+                # Paging can be refused (e.g. OpenLDAP `size.pr=disabled`) or a
+                # cookie can be unusable after a referral. Fall back to one
+                # unpaged search, which was the behavior before paging.
+                return self._search_unpaged(connection, search_kwargs)
 
-            for entry in connection.entries:
-                # Use entry_to_json() to handle serialization of ldap3 types
-                entry_json = orjson.loads(entry.entry_to_json())
-                entries.append(
-                    {
-                        "dn": entry.entry_dn,
-                        "attributes": entry_json["attributes"],
-                    }
-                )
-
+            entries.extend(_format_entries(connection))
             paged_control = (result.get("controls") or {}).get(PAGED_RESULTS_OID)
             cookie = paged_control["value"]["cookie"] if paged_control else None
             if not cookie:
                 return entries
+
+    def _search_unpaged(
+        self, connection: LdapConnectionProtocol, search_kwargs: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        if connection.search(**search_kwargs):
+            return _format_entries(connection)
+        if connection.result.get("result") == RESULT_SUCCESS:
+            return []
+        raise RuntimeError(f"LDAP search failed: {connection.result}")
+
+
+def _format_entries(connection: LdapConnectionProtocol) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for entry in connection.entries:
+        # Use entry_to_json() to handle serialization of ldap3 types
+        entry_json = orjson.loads(entry.entry_to_json())
+        entries.append({"dn": entry.entry_dn, "attributes": entry_json["attributes"]})
+    return entries
 
 
 def get_ldap_secrets() -> dict[str, Any]:
