@@ -45,6 +45,9 @@ export function WebhookTriggerForm({
   const [includeHeaders, setIncludeHeaders] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [loadingWebhook, setLoadingWebhook] = useState(false)
+  // The workflow whose saved settings the fields hold. A create replaces
+  // every setting, so it waits until they are this workflow's.
+  const [loadedFor, setLoadedFor] = useState("")
   // The workflow picked last: an earlier pick's slower read must not win.
   const pickedRef = useRef("")
 
@@ -63,6 +66,7 @@ export function WebhookTriggerForm({
   async function handleWorkflowChange(id: string) {
     setWorkflowId(id)
     pickedRef.current = id
+    setLoadedFor("")
     setFormError(null)
     setLoadingWebhook(true)
     try {
@@ -76,6 +80,7 @@ export function WebhookTriggerForm({
         }))
       )
       setIncludeHeaders(webhook.include_headers ?? false)
+      setLoadedFor(id)
     } catch (error) {
       if (pickedRef.current === id) {
         setFormError(describeTriggerError(error))
@@ -105,6 +110,12 @@ export function WebhookTriggerForm({
     setFormError(null)
     if (!workflowId) {
       setFormError("Pick a workflow.")
+      return
+    }
+    if (loadedFor !== workflowId) {
+      setFormError(
+        "Couldn't load this workflow's webhook settings. Pick the workflow again to retry."
+      )
       return
     }
     if (methods.length === 0) {

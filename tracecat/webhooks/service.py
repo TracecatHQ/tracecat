@@ -426,11 +426,9 @@ async def create_trigger_webhook(
     if role.workspace_id is None:
         raise TracecatAuthorizationError("Webhook update requires a workspace")
     workflow_uuid = WorkflowUUID.new(workflow_id)
-    current = await get_webhook(session, role.workspace_id, workflow_uuid)
-    if current is None:
-        raise TracecatNotFoundError("Webhook not found")
-    changes = _changed(current, params)
-    await _guard_write(session, role.workspace_id, workflow_uuid, changes)
+    # Ownership lock first, so the row compared below is the one written:
+    # no rollout can change it between the managed check and the write.
+    await hold_for_customer_write(session, role.workspace_id)
     title, webhook = await lock_webhook(session, role.workspace_id, workflow_uuid)
     if title is None or webhook is None:
         raise TracecatNotFoundError("Webhook not found")
@@ -439,10 +437,12 @@ async def create_trigger_webhook(
             "This workflow's webhook is already a trigger. Open it in the"
             " Triggers tab to change it."
         )
+    changes = _changed(webhook, params)
+    await _guard_write(session, role.workspace_id, workflow_uuid, changes)
     await _write_webhook(
         session,
         _LockedWebhook(title, webhook),
-        _changed(webhook, params),
+        changes,
         trigger_name=trigger_name,
         as_trigger=True,
     )
@@ -476,21 +476,15 @@ async def update_trigger_webhook(
     workflow_id = await _trigger_webhook_workflow(
         session, role.workspace_id, trigger_id
     )
-    current = await get_webhook(session, role.workspace_id, workflow_id)
-    if current is None:
-        raise TracecatNotFoundError(f"No webhook for trigger {trigger_id}")
-    await _guard_write(
-        session, role.workspace_id, workflow_id, _changed(current, params)
-    )
+    # Ownership lock first, so the row compared below is the one written:
+    # no rollout can change it between the managed check and the write.
+    await hold_for_customer_write(session, role.workspace_id)
     locked = await _lock_trigger_webhook(
         session, role.workspace_id, workflow_id, trigger_id
     )
-    await _write_webhook(
-        session,
-        locked,
-        _changed(locked.webhook, params),
-        trigger_name=trigger_name,
-    )
+    changes = _changed(locked.webhook, params)
+    await _guard_write(session, role.workspace_id, workflow_id, changes)
+    await _write_webhook(session, locked, changes, trigger_name=trigger_name)
     await session.commit()
     await session.refresh(locked.webhook)
     return locked.webhook

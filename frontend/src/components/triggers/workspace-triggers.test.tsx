@@ -941,6 +941,31 @@ describe("Webhook triggers", () => {
     expect(webhook).toHaveTextContent("No permission")
   })
 
+  it("won't create until the workflow's saved settings load", async () => {
+    const user = userEvent.setup()
+    workflows = [{ id: "wf_alert", title: "Alert intake", version: null }]
+    jest
+      .mocked(triggersGetWebhook)
+      .mockRejectedValue(
+        Object.assign(new Error("Unavailable"), { status: 503 })
+      )
+
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
+
+    await user.click(screen.getByRole("button", { name: /Webhook/ }))
+    await user.type(screen.getByLabelText("Name"), "Alert intake webhook")
+    await user.click(screen.getByRole("combobox", { name: "Workflow" }))
+    await user.click(
+      await screen.findByRole("option", { name: "Alert intake" })
+    )
+    await user.click(screen.getByRole("button", { name: "Create trigger" }))
+
+    expect(
+      await screen.findByText(/Couldn't load this workflow's webhook settings/)
+    ).toBeInTheDocument()
+    expect(triggersCreateTrigger).not.toHaveBeenCalled()
+  })
+
   it("starts from the workflow's saved webhook settings", async () => {
     const user = userEvent.setup()
     workflows = [{ id: "wf_alert", title: "Alert intake", version: null }]

@@ -18,6 +18,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import VIEWER_SCOPES
 from tracecat.db.models import (
     AgentPreset,
+    ManagedResource,
     Trigger,
     TriggerBinding,
     Webhook,
@@ -26,6 +27,7 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import ScopeDeniedError
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.managed_resources.guard import ManagedResourceLockedError
 from tracecat.pagination import PageParams
 from tracecat.tiers.enums import Entitlement
 from tracecat.triggers.enums import (
@@ -59,6 +61,7 @@ from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.schedules import bridge
 from tracecat.workflow.store.import_service import WorkflowImportService
 from tracecat.workflow.store.schemas import RemoteWebhook
+from tracecat.workspace_sync.enums import SyncResourceType
 
 pytestmark = [pytest.mark.usefixtures("db"), pytest.mark.anyio]
 
@@ -477,6 +480,82 @@ async def test_deleting_the_workflow_deletes_its_webhook_trigger(
     assert await _count(session, "trigger", workflow.workspace_id) == 0
     assert await _count(session, "trigger_binding", workflow.workspace_id) == 0
     assert (await triggers.list_triggers(PageParams(limit=10))).items == []
+
+
+# ----- Managed workflows -----
+
+
+async def _manage(session: AsyncSession, workflow: SimpleNamespace) -> None:
+    session.add(
+        ManagedResource(
+            workspace_id=workflow.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW.value,
+            local_id=workflow.id,
+            source_id=f"source-{workflow.id.hex[:8]}",
+            source_path=f"workflows/{workflow.id.hex[:8]}.yml",
+            deployed_tag="v1.0.0",
+            deployed_commit_sha="a" * 40,
+        )
+    )
+    await session.commit()
+
+
+async def test_a_managed_webhook_toggles_in_the_tab_but_keeps_its_settings(
+    session: AsyncSession, triggers: TriggersService, workflow: SimpleNamespace
+) -> None:
+    """As on the workflow page: on and off is the customer's, the rest the
+    package's."""
+    created = await triggers.create_trigger(
+        TriggerCreate(name="a", config=_config(workflow))
+    )
+    created_id = created.id
+    await _manage(session, workflow)
+
+    await triggers.update_trigger(
+        created_id,
+        TriggerUpdate(status=TriggerStatus.ONLINE, config=_config(workflow)),
+    )
+    assert (await _webhook(session, workflow)).status == "online"
+
+    with pytest.raises(ManagedResourceLockedError):
+        await triggers.update_trigger(
+            created_id, TriggerUpdate(config=_config(workflow, methods=["GET"]))
+        )
+    assert (await _webhook(session, workflow)).methods == ["POST"]
+
+
+async def test_a_rollout_landing_mid_request_still_hits_the_managed_check(
+    monkeypatch: pytest.MonkeyPatch,
+    session: AsyncSession,
+    triggers: TriggersService,
+    workflow: SimpleNamespace,
+) -> None:
+    """Security r1 / thermos r1: the request carries the settings from before
+    a rollout changed them. Compared with the row read before the ownership
+    lock it looks like a status toggle; compared with the row under the lock
+    it is a settings change, so the managed check must run."""
+    created = await triggers.create_trigger(
+        TriggerCreate(name="a", config=_config(workflow))
+    )
+    created_id = created.id
+    await _manage(session, workflow)
+    real_hold = webhook_service.hold_for_customer_write
+
+    async def _rollout_then_hold(db: AsyncSession, workspace_id: uuid.UUID) -> None:
+        # The rollout commits while the request waits for the lock.
+        await db.execute(
+            text("""UPDATE webhook SET methods = '["GET"]' WHERE workflow_id = :id"""),
+            {"id": workflow.id},
+        )
+        await real_hold(db, workspace_id)
+
+    monkeypatch.setattr(webhook_service, "hold_for_customer_write", _rollout_then_hold)
+
+    with pytest.raises(ManagedResourceLockedError):
+        await triggers.update_trigger(
+            created_id,
+            TriggerUpdate(status=TriggerStatus.ONLINE, config=_config(workflow)),
+        )
 
 
 # ----- Bindings are fixed until webhooks read them -----
