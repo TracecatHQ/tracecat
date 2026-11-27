@@ -30,7 +30,7 @@ from starlette.requests import ClientDisconnect
 from tracecat.exceptions import TracecatException
 from tracecat.logger import logger
 from tracecat.triggers.enums import EventSourceKind
-from tracecat.triggers.ingest.service import handle_sns_message
+from tracecat.triggers.ingest.aws_sns.service import handle_sns_message
 from tracecat.triggers.ingest.types import IngestError, IngestErrorCode
 from tracecat.triggers.types import INGEST_PATH_BY_SOURCE_KIND
 

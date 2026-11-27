@@ -249,7 +249,7 @@ from tracecat.tables.folders.router import router as table_folders_router
 from tracecat.tables.router import router as tables_router
 from tracecat.tags.router import router as tags_router
 from tracecat.triggers.exceptions import TriggerError, trigger_error_handler
-from tracecat.triggers.ingest.router import router as trigger_ingest_router
+from tracecat.triggers.ingest.aws_sns.router import router as trigger_ingest_router
 from tracecat.triggers.router import event_sources_router, triggers_router
 from tracecat.variables.router import router as variables_router
 from tracecat.vcs.router import org_router as vcs_router
