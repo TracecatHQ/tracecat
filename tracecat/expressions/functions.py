@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import csv
 import hashlib
+import io
 import ipaddress
 import itertools
 import json
@@ -162,8 +163,9 @@ def str_to_b64url(x: str) -> str:
 
 
 def b64url_to_str(x: str) -> str:
-    """Decode URL-safe base64 string to string."""
-    return base64.urlsafe_b64decode(x.encode("utf-8")).decode()
+    """Decode URL-safe base64 string to string. Padding is optional."""
+    padded = x + "=" * (-len(x) % 4)
+    return base64.urlsafe_b64decode(padded.encode("utf-8")).decode()
 
 
 # Hash functions
@@ -257,9 +259,17 @@ def generate_uuid() -> str:
     return str(uuid4())
 
 
+_NDJSON_LINE_BREAKS = str.maketrans(dict.fromkeys("\r\v\f\x1c\x1d\x1e", "\n"))
+"""ASCII line breaks that `str.splitlines()` also splits on.
+
+They can't appear raw inside a JSON string, unlike U+0085, U+2028 and U+2029.
+"""
+
+
 def deserialize_ndjson(x: str) -> list[dict[str, Any]]:
     """Parse newline-delimited JSON string into list of objects."""
-    return [orjson.loads(line) for line in x.splitlines()]
+    lines = x.translate(_NDJSON_LINE_BREAKS).split("\n")
+    return [orjson.loads(line) for line in lines if line.strip(" \t")]
 
 
 # I/O functions
@@ -267,7 +277,8 @@ def deserialize_ndjson(x: str) -> list[dict[str, Any]]:
 
 def parse_csv(x: str) -> list[dict[str, Any]]:
     """Parse CSV string into list of objects."""
-    return [dict(row) for row in csv.DictReader(x.splitlines())]
+    text = x.removeprefix("\ufeff")
+    return [dict(row) for row in csv.DictReader(io.StringIO(text, newline=""))]
 
 
 # IP address functions

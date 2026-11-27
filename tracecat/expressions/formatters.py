@@ -86,8 +86,9 @@ def _format_html(x: list[dict[str, Any]]) -> str:
     for item in x:
         result.append("    <tr>")
         for key in all_keys:
-            value = item.get(key, "")
-            result.append(f"      <td>{escape(str(value))}</td>")
+            value = item.get(key)
+            cell = "" if value is None else str(value)
+            result.append(f"      <td>{escape(cell)}</td>")
         result.append("    </tr>")
     result.append("  </tbody>")
 

@@ -76,3 +76,15 @@
 - id: json_with_various_protocols
   text: "JSON with various protocols: {'endpoints': {'ftp': 'ftp://storage.example.com:21', 'streaming': 'tcp://stream.example.org:1234'}}"
   expected: ["ftp://storage.example.com:21", "tcp://stream.example.org:1234"]
+- id: url_in_markdown_link_and_parentheses
+  text: "Reported phish: [login page](https://login-example.com/verify) (also http://evil.example.org/a/)"
+  expected: ["https://login-example.com/verify", "http://evil.example.org/a"]
+- id: url_with_balanced_parentheses
+  text: "See (https://en.wikipedia.org/wiki/Mars_(planet)) and https://example.com/a?b=(c)"
+  expected: ["https://en.wikipedia.org/wiki/Mars_(planet)", "https://example.com/a?b=(c)"]
+- id: url_followed_by_unicode_space_or_punctuation
+  text: "Click \u201chttps://login-example.com/verify\u201d or https://evil.example.org/a\u00a0today, https://example.com/x\u2026"
+  expected: ["https://login-example.com/verify", "https://evil.example.org/a", "https://example.com/x"]
+- id: url_with_non_ascii_host_and_path
+  text: "https://\u043f\u0440\u0438\u043c\u0435\u0440.\u0440\u0444/\u043f\u0443\u0442\u044c and https://example.com/caf\u00e9/\u00fc"
+  expected: ["https://\u043f\u0440\u0438\u043c\u0435\u0440.\u0440\u0444/\u043f\u0443\u0442\u044c", "https://example.com/caf\u00e9/\u00fc"]

@@ -21,11 +21,16 @@ import re
 from pydantic import AnyHttpUrl, AnyUrl, TypeAdapter, ValidationError
 
 # URL regexes
+# Non-ASCII hosts and paths, minus U+00A0, U+2000-U+206F (spaces, curly quotes,
+# ellipsis), U+3000-U+3002 (ideographic space and punctuation) and U+FEFF,
+# which end a URL in running text.
+_NON_ASCII = r"\u00A1-\u1FFF\u2070-\u2FFF\u3003-\uFEFE\uFF00-\uFFFF"
+
 # Match only HTTP and HTTPS URLs
-HTTP_URL_REGEX = r"(?:https?):\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=\u00A0-\uFFFF]{1,256}(?:\.[a-zA-Z0-9()\u00A0-\uFFFF]{1,63})+(?::\d{1,5})?(?:\/[-a-zA-Z0-9()@:%_\+.~#?&\/=\u00A0-\uFFFF]*)?(?<![?&=/#.])"
+HTTP_URL_REGEX = rf"(?:https?):\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#={_NON_ASCII}]{{1,256}}(?:\.[a-zA-Z0-9(){_NON_ASCII}]{{1,63}})+(?::\d{{1,5}})?(?:\/[-a-zA-Z0-9()@:%_\+.~#?&\/={_NON_ASCII}]*)?(?<![?&=/#.])"
 
 # Match URLs with all supported protocols (http, https, tcp, udp, ftp, sftp, ftps)
-URL_REGEX = r"(?:https?|tcp|udp|ftp|sftp|ftps):\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=\u00A0-\uFFFF]{1,256}(?:\.[a-zA-Z0-9()\u00A0-\uFFFF]{1,63})+(?::\d{1,5})?(?:\/[-a-zA-Z0-9()@:%_\+.~#?&\/=\u00A0-\uFFFF]*)?(?<![?&=/#.])"
+URL_REGEX = rf"(?:https?|tcp|udp|ftp|sftp|ftps):\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#={_NON_ASCII}]{{1,256}}(?:\.[a-zA-Z0-9(){_NON_ASCII}]{{1,63}})+(?::\d{{1,5}})?(?:\/[-a-zA-Z0-9()@:%_\+.~#?&\/={_NON_ASCII}]*)?(?<![?&=/#.])"
 
 
 # URL type adapters
@@ -50,6 +55,25 @@ def is_http_url(url: str) -> bool:
         return True
     except ValidationError:
         return False
+
+
+_TRAILING_PUNCTUATION = "?&=/#."
+
+
+def _trim_unbalanced_parens(url: str) -> str:
+    """Drop trailing `)` that close a parenthesis opened before the URL.
+
+    Keeps balanced ones such as `https://en.wikipedia.org/wiki/Mars_(planet)`.
+    """
+    unmatched = url.count(")") - url.count("(")
+    end = len(url)
+    while end and unmatched > 0:
+        if url[end - 1] == ")":
+            unmatched -= 1
+        elif url[end - 1] not in _TRAILING_PUNCTUATION:
+            break
+        end -= 1
+    return url[:end].rstrip(_TRAILING_PUNCTUATION)
 
 
 def extract_urls(
@@ -100,5 +124,6 @@ def extract_urls(
         matched_normalized_urls = re.findall(_regex_pattern, normalized_text)
         matched_urls.extend(matched_normalized_urls)
 
-    unique_urls = list({url for url in matched_urls if _is_url(url)})
+    trimmed_urls = (_trim_unbalanced_parens(url) for url in matched_urls)
+    unique_urls = list({url for url in trimmed_urls if _is_url(url)})
     return unique_urls
