@@ -768,8 +768,8 @@ def _create_oidc_auth() -> OIDCProxy:
 
             logger.warning(
                 "OIDC provider rejected refresh scope; retrying authorization without refresh scope",
+                # The transaction ID is the OAuth state from the callback URL.
                 scope=OFFLINE_ACCESS_SCOPE,
-                transaction_id=txn_id,
             )
 
             retry_url = self._build_upstream_authorize_url(

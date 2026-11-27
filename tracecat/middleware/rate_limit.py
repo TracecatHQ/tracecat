@@ -10,6 +10,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.status import HTTP_429_TOO_MANY_REQUESTS
 
 from tracecat.logger import logger
+from tracecat.logger.redaction import redact_url_secrets
 
 
 class TokenBucket:
@@ -150,8 +151,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # Rate limit exceeded
         logger.warning(
             "Rate limit exceeded",
-            bucket_key=bucket_key,
-            path=request.url.path,
+            bucket_key=redact_url_secrets(bucket_key),
+            path=redact_url_secrets(request.url.path),
             method=request.method,
             client_host=self.get_client_ip(request),
         )
