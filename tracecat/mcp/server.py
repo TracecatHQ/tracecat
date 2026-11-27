@@ -7154,8 +7154,8 @@ async def list_trigger_runs(
     """List the runs a trigger started, open runs first, then by close time.
 
     Covers runs started since the `TracecatTriggerId` link shipped, by object
-    storage triggers and by webhooks listed in the Triggers tab. Schedules and
-    case triggers are not linked yet. Workflow runs need `workflow:read` and
+    storage triggers and by webhooks and case triggers listed in the Triggers
+    tab. Schedules are not linked yet. Workflow runs need `workflow:read` and
     agent runs `agent:read`; with only one, only that kind is listed.
 
     Args:

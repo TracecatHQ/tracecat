@@ -178,7 +178,7 @@ for callers without `trigger:update`.
 
 A run a trigger starts carries the trigger's ID in the `TracecatTriggerId`
 search attribute: object storage triggers' workflow and agent runs, and
-webhooks that have a trigger row. Schedules and case triggers are not linked
+webhooks and case triggers that have a trigger row. Schedules are not linked
 yet. `list_trigger_runs` reads those runs (root runs only); workflow runs also
 need `workflow:read` and agent runs `agent:read`. `list_trigger_stopped_events`
 lists an `object_storage` trigger's events that hit the attempt cap, with the
