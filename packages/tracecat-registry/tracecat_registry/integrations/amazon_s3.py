@@ -3,19 +3,10 @@
 import asyncio
 import base64
 import binascii
-import codecs
 import re
-import zlib
 from typing import TYPE_CHECKING, Annotated, Any
 
-from pydantic import Field
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    retry_if_not_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
+from tenacity import retry, stop_after_attempt, wait_exponential
 from typing_extensions import Doc
 
 if TYPE_CHECKING:
@@ -77,135 +68,6 @@ _AWS_SERVICE_REGION_DOC = (
     "for the service client."
 )
 
-_READ_CHUNK_BYTES = 1024 * 1024
-_GZIP_MAGIC = b"\x1f\x8b"
-_GZIP_WBITS = 16 + zlib.MAX_WBITS
-# Feed the inflater small slices: each finished gzip member copies the rest of its
-# input into ``unused_data``, so whole 1 MiB chunks would make a run of tiny members
-# quadratic in CPU.
-_INFLATE_FEED_BYTES = 4096
-# A fixed constant, not TRACECAT__MAX_FILE_SIZE_BYTES: that env var is not passed into
-# the action sandbox, so the indexed schema and the runtime check could disagree.
-_MAX_BYTES_LIMIT = 20 * 1024 * 1024
-
-MaxBytes = Annotated[
-    int,
-    Field(
-        ...,
-        ge=1,
-        le=_MAX_BYTES_LIMIT,
-        description=(
-            "Maximum number of bytes to return, counted after gzip decompression. "
-            "A larger object is cut at this size and the result ends with a "
-            "truncation notice, so checks on the result can miss content past the "
-            "cut. The default, 20 MiB, is also the maximum."
-        ),
-    ),
-]
-
-
-def _check_max_bytes(max_bytes: int) -> None:
-    # The executor does not re-validate action inputs, so enforce the bounds here.
-    if (
-        isinstance(max_bytes, bool)
-        or not isinstance(max_bytes, int)
-        or not 1 <= max_bytes <= _MAX_BYTES_LIMIT
-    ):
-        raise ValueError(
-            f"max_bytes must be an integer between 1 and {_MAX_BYTES_LIMIT}, "
-            f"got {max_bytes!r}."
-        )
-
-
-async def _read_bounded(body: Any, max_bytes: int) -> tuple[bytes, bool, bool]:
-    """Read at most ``max_bytes`` of an S3 body, gunzipping gzip data.
-
-    Gzip is detected from the magic bytes, so it works whatever the key or
-    ``ContentEncoding`` says. The cap applies to the decompressed output and
-    each inflate call is bounded, so a small file cannot expand without limit.
-
-    Returns the bytes, whether the body was gzip, and whether it was cut.
-    """
-    try:
-        head = b""
-        while len(head) < len(_GZIP_MAGIC) and (chunk := await _read_chunk(body)):
-            head += chunk
-        if head.startswith(_GZIP_MAGIC):
-            data, truncated = await _gunzip_bounded(body, head, max_bytes)
-            return data, True, truncated
-
-        out = bytearray(head)
-        while len(out) <= max_bytes and (chunk := await _read_chunk(body)):
-            out += chunk
-        truncated = len(out) > max_bytes
-        del out[max_bytes:]
-        return bytes(out), False, truncated
-    finally:
-        # Stop the download here rather than draining the rest of the object.
-        body.close()
-
-
-async def _gunzip_bounded(body: Any, data: bytes, max_bytes: int) -> tuple[bytes, bool]:
-    out = bytearray()
-    consumed = len(data)
-    inflater = zlib.decompressobj(wbits=_GZIP_WBITS)
-    try:
-        while data:
-            for start in range(0, len(data), _INFLATE_FEED_BYTES):
-                piece = data[start : start + _INFLATE_FEED_BYTES]
-                while piece and len(out) <= max_bytes:
-                    if inflater.eof:
-                        # Between members: skip zero padding, as gzip.decompress
-                        # does, then start the next member (log shippers concatenate
-                        # them).
-                        if not (piece := piece.lstrip(b"\0")):
-                            break
-                        inflater = zlib.decompressobj(wbits=_GZIP_WBITS)
-                    out += inflater.decompress(piece, max_bytes + 1 - len(out))
-                    piece = (
-                        inflater.unused_data
-                        if inflater.eof
-                        else inflater.unconsumed_tail
-                    )
-                if len(out) > max_bytes:
-                    del out[max_bytes:]
-                    return bytes(out), True
-            data = await _read_chunk(body)
-            consumed += len(data)
-            if data and consumed > max_bytes + _READ_CHUNK_BYTES:
-                # Input that inflates to little (padding, tiny members) must not pull
-                # the whole object down: download no more than the plain path does.
-                # The output was not cut, so fail instead of reporting truncation.
-                raise ValueError(
-                    f"Invalid gzip data: more than {max_bytes + _READ_CHUNK_BYTES} "
-                    f"compressed bytes decompressed to only {len(out)} bytes."
-                )
-    except zlib.error as e:
-        raise ValueError(f"Invalid gzip data: {e}") from e
-    if not inflater.eof:
-        raise ValueError("Invalid gzip data: the stream ended early.")
-    return bytes(out), False
-
-
-async def _read_chunk(body: Any) -> bytes:
-    chunk = await body.read(_READ_CHUNK_BYTES)
-    if not isinstance(chunk, bytes):
-        raise ValueError(f"Unexpected body type. Expected bytes, got {type(chunk)}")
-    return chunk
-
-
-def _decode_utf8(data: bytes, *, key: str, truncated: bool) -> str:
-    # When the cut lands inside a multi-byte character, the incremental decoder
-    # holds the partial character back instead of raising.
-    decoder = codecs.getincrementaldecoder("utf-8")()
-    try:
-        return decoder.decode(data, final=not truncated)
-    except UnicodeDecodeError as e:
-        raise ValueError(
-            f"S3 object {key!r} is not UTF-8 text (invalid byte at offset "
-            f"{e.start}). get_object only returns text objects."
-        ) from e
-
 
 @registry.register(
     default_title="Parse S3 URI",
@@ -265,10 +127,7 @@ async def call_method(
 
 @registry.register(
     default_title="Get S3 object",
-    description=(
-        "Download a text object from S3 and return its body as a string. "
-        "Gzip objects are decompressed, and the result is capped at max_bytes."
-    ),
+    description="Download an object from S3 and return its body as a string.",
     display_group="Amazon S3",
     doc_url="https://docs.aws.amazon.com/boto3/latest/reference/services/s3.html#S3.Client.get_object",
     namespace="tools.amazon_s3",
@@ -289,13 +148,7 @@ async def get_object(
     role_session_name: aws_boto3.RoleSessionName = None,
     external_id: aws_boto3.ExternalId = None,
     duration_seconds: aws_boto3.DurationSeconds = None,
-    version_id: Annotated[
-        str | None,
-        Doc("Version ID used to reference a specific version of the object."),
-    ] = None,
-    max_bytes: MaxBytes = _MAX_BYTES_LIMIT,
 ) -> str:
-    _check_max_bytes(max_bytes)
     session = await aws_boto3.get_session(
         region_name=region_name,
         role_arn=role_arn,
@@ -303,29 +156,14 @@ async def get_object(
         external_id=external_id,
         duration_seconds=duration_seconds,
     )
-    params: dict[str, Any] = {"Bucket": bucket, "Key": key}
-    if version_id:
-        params["VersionId"] = version_id
     async with session.client("s3", endpoint_url=endpoint_url) as s3_client:  # type: ignore
-        obj = await s3_client.get_object(**params)
-        data, gzipped, truncated = await _read_bounded(obj["Body"], max_bytes)
-
-    text = _decode_utf8(data, key=key, truncated=truncated)
-    if not truncated:
-        return text
-    if gzipped:
-        whole = "the decompressed object"
-    else:
-        whole = f"the {obj.get('ContentLength')}-byte object"
-    advice = (
-        f" Raise max_bytes (at most {_MAX_BYTES_LIMIT}) to read more."
-        if max_bytes < _MAX_BYTES_LIMIT
-        else ""
-    )
-    return (
-        f"{text}\n\n[Truncated by Tracecat: returned at most the first {max_bytes} "
-        f"bytes of {whole}.{advice}]"
-    )
+        obj = await s3_client.get_object(Bucket=bucket, Key=key)
+        body = await obj["Body"].read()
+        # Defensively handle different types of bodies
+        if isinstance(body, bytes):
+            return body.decode("utf-8")
+        else:
+            raise ValueError(f"Unexpected body type. Expected bytes, got {type(body)}")
 
 
 @registry.register(
@@ -481,19 +319,10 @@ async def get_objects(
     role_session_name: aws_boto3.RoleSessionName = None,
     external_id: aws_boto3.ExternalId = None,
     duration_seconds: aws_boto3.DurationSeconds = None,
-    max_bytes: MaxBytes = _MAX_BYTES_LIMIT,
 ) -> list[str]:
-    _check_max_bytes(max_bytes)
-
     # To prevent Amazon S3 rate limits and resource exhaustion
-    # ValueError means the object itself is unreadable (bad gzip, not UTF-8), so a
-    # retry would only download it again. Keep tenacity's default of retrying only
-    # Exception, so cancellation (a BaseException) is never retried.
     @retry(
-        retry=retry_if_exception_type(Exception)
-        & retry_if_not_exception_type(ValueError),
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=4, max=10),
+        stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10)
     )
     async def get_object_fn(key: str) -> str:
         # Use semaphore to limit concurrent S3 operations
@@ -501,7 +330,6 @@ async def get_objects(
             return await get_object(
                 bucket,
                 key,
-                max_bytes=max_bytes,
                 endpoint_url=endpoint_url,
                 region_name=region_name,
                 role_arn=role_arn,
