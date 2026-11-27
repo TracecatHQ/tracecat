@@ -79,6 +79,7 @@ def test_workflow_spec_omits_inert_case_trigger_and_schedules_by_default(
             status="offline",
             event_types=[],
             tag_filters=[],
+            include_sub_cases=False,
         ),
     )
     workflow.schedules = [
@@ -143,6 +144,7 @@ def test_workflow_spec_includes_configured_case_trigger(
             status="online",
             event_types=[CaseEventType.CASE_CREATED.value],
             tag_filters=["phishing"],
+            include_sub_cases=False,
         ),
     )
 

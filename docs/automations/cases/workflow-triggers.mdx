@@ -37,6 +37,9 @@ Publish the workflow before you turn on its case trigger.
 The tag allowlist limits runs to cases that currently have at least one matching tag, such as `phishing`.
 An empty allowlist runs the workflow for every case.
 
+Case triggers run only for top-level cases by default, so closing a parent case doesn't also run the workflow once per [sub-case](/automations/cases/sub-cases).
+Turn on `Include sub-cases` to also run the workflow for events on sub-cases.
+
 Tracecat ignores case events caused by workflows, so a workflow that updates a case does not trigger itself or other case-triggered workflows.
 See [Case triggers](/automations/triggers/case-triggers) for the trigger payload.
 

@@ -14206,6 +14206,11 @@ export const $CaseTriggerConfig = {
       type: "array",
       title: "Tag Filters",
     },
+    include_sub_cases: {
+      type: "boolean",
+      title: "Include Sub Cases",
+      default: false,
+    },
   },
   type: "object",
   title: "CaseTriggerConfig",
@@ -14232,6 +14237,11 @@ export const $CaseTriggerCreate = {
       },
       type: "array",
       title: "Tag Filters",
+    },
+    include_sub_cases: {
+      type: "boolean",
+      title: "Include Sub Cases",
+      default: false,
     },
   },
   type: "object",
@@ -14268,9 +14278,20 @@ export const $CaseTriggerRead = {
       type: "array",
       title: "Tag Filters",
     },
+    include_sub_cases: {
+      type: "boolean",
+      title: "Include Sub Cases",
+    },
   },
   type: "object",
-  required: ["id", "workflow_id", "status", "event_types", "tag_filters"],
+  required: [
+    "id",
+    "workflow_id",
+    "status",
+    "event_types",
+    "tag_filters",
+    "include_sub_cases",
+  ],
   title: "CaseTriggerRead",
 } as const
 
@@ -14315,6 +14336,17 @@ export const $CaseTriggerUpdate = {
         },
       ],
       title: "Tag Filters",
+    },
+    include_sub_cases: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Include Sub Cases",
     },
   },
   type: "object",

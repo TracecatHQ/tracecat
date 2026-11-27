@@ -66,6 +66,10 @@ Restrict runs to matching tags. If the allowlist is empty, no tag filtering is a
 
 Tracecat saves the tags you pass when creating a case together with the case, so `case_created` matches them unless the case's tags change before the run starts. Tags you add after creating the case fire `tag_added`. To filter `case_created` on a tag, set the tag in the create call.
 
+## Sub-cases
+
+By default, only events on top-level cases start the workflow, including parent cases. Events on [sub-cases](/automations/cases/sub-cases), such as the sub-cases Tracecat closes when their parent closes, are skipped. Turn on `Include sub-cases` (`include_sub_cases: true` in a workflow definition) to also start the workflow for sub-case events. Tracecat checks whether the case is a sub-case when it starts the run.
+
 ## Important behavior
 
 Workflow-originated case events are ignored to avoid loops.

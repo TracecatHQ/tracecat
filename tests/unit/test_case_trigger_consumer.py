@@ -178,6 +178,7 @@ async def test_case_trigger_consumer_lock_prevents_ack():
         user_id=None,
     )
     case = SimpleNamespace(
+        parent_id=None,
         id=case_id,
         workspace_id=workspace_id,
         tags=[],
@@ -227,6 +228,7 @@ async def test_case_trigger_consumer_skips_configured_triggers_without_case_addo
         user_id=None,
     )
     case = SimpleNamespace(
+        parent_id=None,
         id=case_id,
         workspace_id=workspace_id,
         tags=[],
@@ -278,6 +280,7 @@ async def test_case_trigger_consumer_done_allows_ack():
         user_id=None,
     )
     case = SimpleNamespace(
+        parent_id=None,
         id=case_id,
         workspace_id=workspace_id,
         tags=[],
@@ -367,6 +370,7 @@ async def test_case_trigger_consumer_tag_filters(
         user_id=None,
     )
     case = SimpleNamespace(
+        parent_id=None,
         id=case_id,
         workspace_id=workspace_id,
         tags=[SimpleNamespace(ref=ref) for ref in case_tag_refs],
@@ -400,6 +404,65 @@ async def test_case_trigger_consumer_tag_filters(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("parent_id", "include_sub_cases", "should_dispatch"),
+    [
+        (None, False, True),
+        (uuid.uuid4(), False, False),
+        (uuid.uuid4(), True, True),
+    ],
+)
+async def test_case_trigger_consumer_sub_case_filter(
+    parent_id: uuid.UUID | None, include_sub_cases: bool, should_dispatch: bool
+):
+    event_id = uuid.uuid4()
+    case_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+
+    event = SimpleNamespace(
+        id=event_id,
+        data={},
+        created_at=None,
+        type="case_closed",
+        user_id=None,
+    )
+    case = SimpleNamespace(
+        parent_id=parent_id, id=case_id, workspace_id=workspace_id, tags=[]
+    )
+    trigger = SimpleNamespace(
+        workflow_id=uuid.uuid4(),
+        tag_filters=[],
+        include_sub_cases=include_sub_cases,
+    )
+
+    client = AsyncMock()
+    client.exists = AsyncMock(return_value=False)
+    client.set_if_not_exists = AsyncMock(return_value=True)
+
+    dispatch = AsyncMock(return_value=True)
+    consumer = _build_consumer_with_mocks(
+        client,
+        event=event,
+        case=case,
+        triggers=[trigger],
+        role=_build_role(workspace_id),
+        dispatch=dispatch,
+    )
+
+    should_ack = await consumer._process_message(
+        {
+            "event_id": str(event_id),
+            "case_id": str(case_id),
+            "workspace_id": str(workspace_id),
+            "event_type": "case_closed",
+        }
+    )
+
+    assert should_ack is True
+    assert dispatch.await_count == (1 if should_dispatch else 0)
+
+
+@pytest.mark.anyio
 async def test_case_trigger_consumer_missing_definition_allows_ack():
     event_id = uuid.uuid4()
     case_id = uuid.uuid4()
@@ -414,6 +477,7 @@ async def test_case_trigger_consumer_missing_definition_allows_ack():
         user_id=None,
     )
     case = SimpleNamespace(
+        parent_id=None,
         id=case_id,
         workspace_id=workspace_id,
         tags=[],
@@ -637,6 +701,7 @@ async def test_case_trigger_consumer_skips_configured_duplicate_for_explicit_wor
         user_id=uuid.uuid4(),
     )
     case = SimpleNamespace(
+        parent_id=None,
         id=case_id,
         workspace_id=workspace_id,
         tags=[],

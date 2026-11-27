@@ -588,12 +588,20 @@ async def export_workflow(
             status=workflow.case_trigger.status,
             event_types=workflow.case_trigger.event_types,
             tag_filters=workflow.case_trigger.tag_filters,
+            include_sub_cases=workflow.case_trigger.include_sub_cases,
         ):
             case_trigger = CaseTriggerConfig.model_validate(
                 {
                     "status": workflow.case_trigger.status,
                     "event_types": workflow.case_trigger.event_types,
                     "tag_filters": workflow.case_trigger.tag_filters,
+                    # Only set when true so exports of existing triggers don't
+                    # change.
+                    **(
+                        {"include_sub_cases": True}
+                        if workflow.case_trigger.include_sub_cases
+                        else {}
+                    ),
                 }
             )
 
