@@ -4,7 +4,7 @@ from enum import StrEnum
 from typing import Any, Literal, Self
 
 from fastapi_users import schemas
-from pydantic import UUID4, BaseModel, EmailStr
+from pydantic import UUID4, BaseModel, ConfigDict, EmailStr, Field, SecretStr
 
 
 # === Users ===
@@ -72,6 +72,38 @@ class UserUpdate(schemas.BaseUserUpdate):
     first_name: str | None = None
     last_name: str | None = None
     settings: dict[str, Any] | None = None
+
+
+class UserSelfUpdate(BaseModel):
+    """Profile fields a user may change on their own account.
+
+    Email and password changes go through the dedicated credential endpoints,
+    which require the current password.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    first_name: str | None = None
+    last_name: str | None = None
+    settings: dict[str, Any] | None = None
+
+
+class LoginMethodsRead(BaseModel):
+    """Sign-in methods the current user can manage from their account settings."""
+
+    password: bool = Field(
+        description="Whether the user can sign in with, and change, a local password"
+    )
+
+
+class PasswordChange(BaseModel):
+    current_password: SecretStr = Field(min_length=1)
+    new_password: SecretStr = Field(min_length=1)
+
+
+class EmailChange(BaseModel):
+    current_password: SecretStr = Field(min_length=1)
+    new_email: EmailStr
 
 
 # === Sessions ===

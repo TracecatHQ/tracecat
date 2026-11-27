@@ -1207,6 +1207,11 @@ import type {
   UpdateCustomProviderResponse,
   UpdateWorkspaceModelAccessData,
   UpdateWorkspaceModelAccessResponse,
+  UsersChangeCurrentUserEmailData,
+  UsersChangeCurrentUserEmailResponse,
+  UsersChangeCurrentUserPasswordData,
+  UsersChangeCurrentUserPasswordResponse,
+  UsersGetCurrentUserLoginMethodsResponse,
   UsersGetMyScopesData,
   UsersGetMyScopesResponse,
   UsersSearchUserData,
@@ -5468,6 +5473,105 @@ export const tagsDeleteTag = (
       tag_id: data.tagId,
       workspace_id: data.workspaceId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Users:Current User
+ * @returns UserRead Successful Response
+ * @throws ApiError
+ */
+export const usersUsersCurrentUser =
+  (): CancelablePromise<UsersUsersCurrentUserResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/users/me",
+      errors: {
+        401: "Missing token or inactive user.",
+      },
+    })
+  }
+
+/**
+ * Users:Patch Current User
+ * Update the current user's profile.
+ *
+ * Replaces the fastapi-users route, which also accepted email and password
+ * without the current password.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns UserRead Successful Response
+ * @throws ApiError
+ */
+export const usersUsersPatchCurrentUser = (
+  data: UsersUsersPatchCurrentUserData
+): CancelablePromise<UsersUsersPatchCurrentUserResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/users/me",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Current User Login Methods
+ * Report which sign-in credentials the current user can change.
+ * @returns LoginMethodsRead Successful Response
+ * @throws ApiError
+ */
+export const usersGetCurrentUserLoginMethods =
+  (): CancelablePromise<UsersGetCurrentUserLoginMethodsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/users/me/login-methods",
+    })
+  }
+
+/**
+ * Change Current User Password
+ * Change the current user's password and sign out their other sessions.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const usersChangeCurrentUserPassword = (
+  data: UsersChangeCurrentUserPasswordData
+): CancelablePromise<UsersChangeCurrentUserPasswordResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/users/me/password",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Change Current User Email
+ * Change the email the current user signs in with.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns UserRead Successful Response
+ * @throws ApiError
+ */
+export const usersChangeCurrentUserEmail = (
+  data: UsersChangeCurrentUserEmailData
+): CancelablePromise<UsersChangeCurrentUserEmailResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/users/me/email",
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },
@@ -19519,45 +19623,6 @@ export const scimSchemasDocument =
       url: "/scim/v2/Schemas",
     })
   }
-
-/**
- * Users:Current User
- * @returns UserRead Successful Response
- * @throws ApiError
- */
-export const usersUsersCurrentUser =
-  (): CancelablePromise<UsersUsersCurrentUserResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/users/me",
-      errors: {
-        401: "Missing token or inactive user.",
-      },
-    })
-  }
-
-/**
- * Users:Patch Current User
- * @param data The data for the request.
- * @param data.requestBody
- * @returns UserRead Successful Response
- * @throws ApiError
- */
-export const usersUsersPatchCurrentUser = (
-  data: UsersUsersPatchCurrentUserData
-): CancelablePromise<UsersUsersPatchCurrentUserResponse> => {
-  return __request(OpenAPI, {
-    method: "PATCH",
-    url: "/users/me",
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      400: "Bad Request",
-      401: "Missing token or inactive user.",
-      422: "Validation Error",
-    },
-  })
-}
 
 /**
  * Users:User

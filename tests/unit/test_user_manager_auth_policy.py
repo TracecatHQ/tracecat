@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from contextlib import asynccontextmanager
+from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -22,11 +23,12 @@ from tests.support.membership import (
 from tracecat import config
 from tracecat.api.common import bootstrap_role
 from tracecat.auth import users as users_mod
-from tracecat.auth.enums import AuthErrorCode, AuthType
+from tracecat.auth.enums import AuthErrorCode, AuthType, CredentialChangeErrorCode
 from tracecat.auth.schemas import UserCreate
 from tracecat.auth.users import UserManager
 from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.db.models import (
+    AccessToken,
     ExternalUser,
     OAuthAccount,
     Organization,
@@ -675,3 +677,248 @@ async def test_create_masks_case_variant_duplicate_email(
                 password="password-123456",
             )
         )
+
+
+@pytest.fixture
+def credential_audit(user_manager: UserManager) -> AsyncMock:
+    audit = AsyncMock()
+    user_manager._emit_credential_change_audit = audit
+    return audit
+
+
+async def _create_basic_user(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, *, email: str
+) -> User:
+    user, _ = await _create_user_with_org_membership(
+        session, email=email, password="password-123456", saml_enforced=False
+    )
+    monkeypatch.setattr(config, "TRACECAT__AUTH_TYPES", {AuthType.BASIC})
+    monkeypatch.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", set())
+    return user
+
+
+async def _can_log_in(user_manager: UserManager, email: str, password: str) -> bool:
+    form = OAuth2PasswordRequestForm(username=email, password=password)
+    return await user_manager.authenticate(form) is not None
+
+
+@pytest.mark.anyio
+async def test_change_password_rejects_wrong_current_password(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+    credential_audit: AsyncMock,
+) -> None:
+    user = await _create_basic_user(session, monkeypatch, email="pw@acme-pw1.com")
+
+    with pytest.raises(users_mod.CredentialChangeError) as exc_info:
+        await user_manager.change_password(
+            user,
+            current_password="wrong-password",
+            new_password="new-password-123456",
+            current_token="current",
+        )
+
+    assert exc_info.value.code is CredentialChangeErrorCode.INVALID_CURRENT_PASSWORD
+    assert await _can_log_in(user_manager, user.email, "password-123456")
+    credential_audit.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_change_password_replaces_old_password(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+    credential_audit: AsyncMock,
+) -> None:
+    user = await _create_basic_user(session, monkeypatch, email="pw@acme-pw2.com")
+
+    await user_manager.change_password(
+        user,
+        current_password="password-123456",
+        new_password="new-password-123456",
+        current_token="current",
+    )
+
+    assert not await _can_log_in(user_manager, user.email, "password-123456")
+    assert await _can_log_in(user_manager, user.email, "new-password-123456")
+    credential_audit.assert_awaited_once_with(user=user, changed_field="password")
+
+
+@pytest.mark.anyio
+async def test_change_password_revokes_other_sessions_only(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+    credential_audit: AsyncMock,
+) -> None:
+    user = await _create_basic_user(session, monkeypatch, email="pw@acme-pw3.com")
+    session.add_all(
+        [
+            AccessToken(token="current", user_id=user.id),
+            AccessToken(token="other", user_id=user.id),
+        ]
+    )
+    await session.commit()
+
+    await user_manager.change_password(
+        user,
+        current_password="password-123456",
+        new_password="new-password-123456",
+        current_token="current",
+    )
+
+    remaining = (
+        await session.execute(
+            select(AccessToken).where(cast(Any, AccessToken.user_id) == user.id)
+        )
+    ).scalars()
+    assert {token.token for token in remaining} == {"current"}
+
+
+@pytest.mark.anyio
+async def test_change_password_rejects_short_new_password(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+    credential_audit: AsyncMock,
+) -> None:
+    user = await _create_basic_user(session, monkeypatch, email="pw@acme-pw4.com")
+
+    with pytest.raises(users_mod.InvalidPasswordException):
+        await user_manager.change_password(
+            user,
+            current_password="password-123456",
+            new_password="short",
+            current_token="current",
+        )
+
+    assert await _can_log_in(user_manager, user.email, "password-123456")
+
+
+@pytest.mark.anyio
+async def test_change_password_rejected_when_saml_enforced(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+    credential_audit: AsyncMock,
+) -> None:
+    user, _ = await _create_user_with_org_membership(
+        session,
+        email="pw@acme-pw5.com",
+        password="password-123456",
+        saml_enforced=True,
+    )
+    monkeypatch.setattr(config, "TRACECAT__AUTH_TYPES", {AuthType.BASIC, AuthType.SAML})
+
+    assert not await user_manager.can_change_password(user)
+    with pytest.raises(users_mod.CredentialChangeError) as exc_info:
+        await user_manager.change_password(
+            user,
+            current_password="password-123456",
+            new_password="new-password-123456",
+            current_token="current",
+        )
+
+    assert exc_info.value.code is CredentialChangeErrorCode.PASSWORD_LOGIN_NOT_ALLOWED
+
+
+@pytest.mark.anyio
+async def test_change_email_lets_user_log_in_with_new_email(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+    credential_audit: AsyncMock,
+) -> None:
+    user = await _create_basic_user(session, monkeypatch, email="old@acme-em1.com")
+
+    updated = await user_manager.change_email(
+        user, current_password="password-123456", new_email="new@acme-em1.com"
+    )
+
+    assert updated.email == "new@acme-em1.com"
+    assert updated.is_verified is False
+    assert not await _can_log_in(user_manager, "old@acme-em1.com", "password-123456")
+    assert await _can_log_in(user_manager, "new@acme-em1.com", "password-123456")
+    credential_audit.assert_awaited_once_with(user=updated, changed_field="email")
+
+
+@pytest.mark.anyio
+async def test_change_email_rejects_wrong_current_password(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+    credential_audit: AsyncMock,
+) -> None:
+    user = await _create_basic_user(session, monkeypatch, email="old@acme-em2.com")
+
+    with pytest.raises(users_mod.CredentialChangeError) as exc_info:
+        await user_manager.change_email(
+            user, current_password="wrong-password", new_email="new@acme-em2.com"
+        )
+
+    assert exc_info.value.code is CredentialChangeErrorCode.INVALID_CURRENT_PASSWORD
+    credential_audit.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_change_email_rejects_domain_outside_org_policy(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+    credential_audit: AsyncMock,
+) -> None:
+    user = await _create_basic_user(session, monkeypatch, email="old@acme-em3.com")
+
+    with pytest.raises(users_mod.CredentialChangeError) as exc_info:
+        await user_manager.change_email(
+            user, current_password="password-123456", new_email="new@elsewhere.com"
+        )
+
+    assert exc_info.value.code is CredentialChangeErrorCode.INVALID_EMAIL
+
+
+@pytest.mark.anyio
+async def test_change_email_rejects_env_disallowed_domain(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+    credential_audit: AsyncMock,
+) -> None:
+    user = await _create_basic_user(session, monkeypatch, email="old@acme-em4.com")
+    monkeypatch.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", {"other.com"})
+
+    with pytest.raises(users_mod.CredentialChangeError) as exc_info:
+        await user_manager.change_email(
+            user, current_password="password-123456", new_email="new@acme-em4.com"
+        )
+
+    assert exc_info.value.code is CredentialChangeErrorCode.INVALID_EMAIL
+
+
+@pytest.mark.anyio
+async def test_change_email_rejects_email_in_use(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+    credential_audit: AsyncMock,
+) -> None:
+    user = await _create_basic_user(session, monkeypatch, email="old@acme-em5.com")
+    session.add(
+        User(
+            id=uuid.uuid4(),
+            email="taken@acme-em5.com",
+            hashed_password=PasswordHelper().hash("password-123456"),
+            is_active=True,
+            is_verified=True,
+            is_superuser=False,
+        )
+    )
+    await session.commit()
+
+    with pytest.raises(users_mod.CredentialChangeError) as exc_info:
+        await user_manager.change_email(
+            user, current_password="password-123456", new_email="Taken@acme-em5.com"
+        )
+
+    assert exc_info.value.code is CredentialChangeErrorCode.INVALID_EMAIL

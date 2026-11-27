@@ -6183,6 +6183,11 @@ export type EffectiveEntitlements = {
   object_triggers?: boolean
 }
 
+export type EmailChange = {
+  current_password: string
+  new_email: string
+}
+
 /**
  * Availability from existing provider settings and current indexing state.
  */
@@ -8166,6 +8171,16 @@ export type LibrarySkillSourceRead = {
 export type kind3 = "upstream" | "local"
 
 /**
+ * Sign-in methods the current user can manage from their account settings.
+ */
+export type LoginMethodsRead = {
+  /**
+   * Whether the user can sign in with, and change, a local password
+   */
+  password: boolean
+}
+
+/**
  * Authentication type for MCP integrations.
  */
 export type MCPAuthType = "OAUTH2" | "CUSTOM" | "NONE"
@@ -9736,6 +9751,11 @@ export type ParentChangedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+export type PasswordChange = {
+  current_password: string
+  new_password: string
 }
 
 /**
@@ -14201,6 +14221,20 @@ export type UserSearchRead = {
 }
 
 /**
+ * Profile fields a user may change on their own account.
+ *
+ * Email and password changes go through the dedicated credential endpoints,
+ * which require the current password.
+ */
+export type UserSelfUpdate = {
+  first_name?: string | null
+  last_name?: string | null
+  settings?: {
+    [key: string]: unknown
+  } | null
+}
+
+/**
  * Summary of a user for inbox item context.
  */
 export type UserSummary = {
@@ -17442,6 +17476,28 @@ export type TagsDeleteTagData = {
 }
 
 export type TagsDeleteTagResponse = unknown
+
+export type UsersUsersCurrentUserResponse = UserRead
+
+export type UsersUsersPatchCurrentUserData = {
+  requestBody: UserSelfUpdate
+}
+
+export type UsersUsersPatchCurrentUserResponse = UserRead
+
+export type UsersGetCurrentUserLoginMethodsResponse = LoginMethodsRead
+
+export type UsersChangeCurrentUserPasswordData = {
+  requestBody: PasswordChange
+}
+
+export type UsersChangeCurrentUserPasswordResponse = void
+
+export type UsersChangeCurrentUserEmailData = {
+  requestBody: EmailChange
+}
+
+export type UsersChangeCurrentUserEmailResponse = UserRead
 
 export type UsersSearchUserData = {
   email?: string | null
@@ -21778,14 +21834,6 @@ export type ScimResourceTypesResponse = ScimListResponse
 
 export type ScimSchemasDocumentResponse = ScimListResponse
 
-export type UsersUsersCurrentUserResponse = UserRead
-
-export type UsersUsersPatchCurrentUserData = {
-  requestBody: UserUpdate
-}
-
-export type UsersUsersPatchCurrentUserResponse = UserRead
-
 export type UsersUsersUserData = {
   id: string
 }
@@ -24204,6 +24252,73 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/users/me": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: UserRead
+        /**
+         * Missing token or inactive user.
+         */
+        401: unknown
+      }
+    }
+    patch: {
+      req: UsersUsersPatchCurrentUserData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: UserRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/users/me/login-methods": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: LoginMethodsRead
+      }
+    }
+  }
+  "/users/me/password": {
+    post: {
+      req: UsersChangeCurrentUserPasswordData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/users/me/email": {
+    post: {
+      req: UsersChangeCurrentUserEmailData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: UserRead
         /**
          * Validation Error
          */
@@ -32246,41 +32361,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: ScimListResponse
-      }
-    }
-  }
-  "/users/me": {
-    get: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: UserRead
-        /**
-         * Missing token or inactive user.
-         */
-        401: unknown
-      }
-    }
-    patch: {
-      req: UsersUsersPatchCurrentUserData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: UserRead
-        /**
-         * Bad Request
-         */
-        400: ErrorModel
-        /**
-         * Missing token or inactive user.
-         */
-        401: unknown
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
       }
     }
   }

@@ -20482,6 +20482,26 @@ export const $EffectiveEntitlements = {
 Values are resolved from org overrides falling back to tier defaults.`,
 } as const
 
+export const $EmailChange = {
+  properties: {
+    current_password: {
+      type: "string",
+      minLength: 1,
+      format: "password",
+      title: "Current Password",
+      writeOnly: true,
+    },
+    new_email: {
+      type: "string",
+      format: "email",
+      title: "New Email",
+    },
+  },
+  type: "object",
+  required: ["current_password", "new_email"],
+  title: "EmailChange",
+} as const
+
 export const $EmbeddingConfigurationRead = {
   properties: {
     available: {
@@ -26299,6 +26319,22 @@ export const $LibrarySkillSourceRead = {
     "Library group, maintainer, and optional upstream location of a skill.",
 } as const
 
+export const $LoginMethodsRead = {
+  properties: {
+    password: {
+      type: "boolean",
+      title: "Password",
+      description:
+        "Whether the user can sign in with, and change, a local password",
+    },
+  },
+  type: "object",
+  required: ["password"],
+  title: "LoginMethodsRead",
+  description:
+    "Sign-in methods the current user can manage from their account settings.",
+} as const
+
 export const $MCPAuthType = {
   type: "string",
   enum: ["OAUTH2", "CUSTOM", "NONE"],
@@ -31633,6 +31669,28 @@ export const $ParentChangedEventRead = {
   title: "ParentChangedEventRead",
   description:
     "Event for when a case is grouped under, moved to, or removed from a parent.",
+} as const
+
+export const $PasswordChange = {
+  properties: {
+    current_password: {
+      type: "string",
+      minLength: 1,
+      format: "password",
+      title: "Current Password",
+      writeOnly: true,
+    },
+    new_password: {
+      type: "string",
+      minLength: 1,
+      format: "password",
+      title: "New Password",
+      writeOnly: true,
+    },
+  },
+  type: "object",
+  required: ["current_password", "new_password"],
+  title: "PasswordChange",
 } as const
 
 export const $PayloadChangedEventRead = {
@@ -46445,6 +46503,52 @@ export const $UserSearchRead = {
   required: ["id", "email"],
   title: "UserSearchRead",
   description: "Identity fields returned by the org-scoped user email search.",
+} as const
+
+export const $UserSelfUpdate = {
+  properties: {
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+    },
+    settings: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Settings",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "UserSelfUpdate",
+  description: `Profile fields a user may change on their own account.
+
+Email and password changes go through the dedicated credential endpoints,
+which require the current password.`,
 } as const
 
 export const $UserSummary = {

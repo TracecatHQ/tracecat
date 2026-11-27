@@ -13,6 +13,14 @@ class SpecialUserID(StrEnum):
     CURRENT = "current"
 
 
+class CredentialChangeErrorCode(StrEnum):
+    """Why a self-service email or password change was refused."""
+
+    PASSWORD_LOGIN_NOT_ALLOWED = "password_login_not_allowed"
+    INVALID_CURRENT_PASSWORD = "invalid_current_password"
+    INVALID_EMAIL = "invalid_email"
+
+
 class AuthErrorCode(StrEnum):
     """Machine-readable codes for login failures surfaced to the sign-in UI."""
 
