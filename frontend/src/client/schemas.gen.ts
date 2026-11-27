@@ -6738,6 +6738,18 @@ export const $AppSettingsUpdate = {
   description: "Settings for OAuth authentication.",
 } as const
 
+export const $AppVersionRead = {
+  properties: {
+    version: {
+      type: "string",
+      title: "Version",
+    },
+  },
+  type: "object",
+  required: ["version"],
+  title: "AppVersionRead",
+} as const
+
 export const $ApprovalDecision = {
   properties: {
     tool_call_id: {
@@ -8906,6 +8918,160 @@ export const $BooleanApprovalDecision = {
   required: ["value", "metadata"],
   title: "BooleanApprovalDecision",
   description: "Persisted boolean decision enriched with submission metadata.",
+} as const
+
+export const $BrandingRead = {
+  properties: {
+    logo: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Logo",
+      description: "Logo as a data URL",
+    },
+    primary_color_light: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Primary Color Light",
+      description: "Light mode primary color as #RRGGBB",
+    },
+    primary_color_dark: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Primary Color Dark",
+      description: "Dark mode primary color as #RRGGBB",
+    },
+    terms_enabled: {
+      type: "boolean",
+      title: "Terms Enabled",
+      description: "Whether to show the terms notice on sign-in",
+      default: true,
+    },
+  },
+  type: "object",
+  title: "BrandingRead",
+  description: `Effective branding for an organization, safe to show before sign-in.
+
+Unset fields mean the Tracecat default. Organizations without the
+\`\`custom_branding\`\` entitlement always get the defaults.`,
+} as const
+
+export const $BrandingSettingsRead = {
+  properties: {
+    branding_logo: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Branding Logo",
+    },
+    branding_primary_color_light: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Branding Primary Color Light",
+    },
+    branding_primary_color_dark: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Branding Primary Color Dark",
+    },
+    branding_terms_enabled: {
+      type: "boolean",
+      title: "Branding Terms Enabled",
+      default: true,
+    },
+  },
+  type: "object",
+  title: "BrandingSettingsRead",
+  description: "Organization branding settings.",
+} as const
+
+export const $BrandingSettingsUpdate = {
+  properties: {
+    branding_logo: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Branding Logo",
+      description:
+        "Logo as a base64 data URL (PNG, JPEG, WebP, or SVG, at most 256 KB). Null restores the Tracecat logo.",
+    },
+    branding_primary_color_light: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "^#[0-9a-fA-F]{6}$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Branding Primary Color Light",
+      description:
+        "Primary color in light mode as #RRGGBB. Null uses the default.",
+    },
+    branding_primary_color_dark: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "^#[0-9a-fA-F]{6}$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Branding Primary Color Dark",
+      description:
+        "Primary color in dark mode as #RRGGBB. Null uses the default.",
+    },
+    branding_terms_enabled: {
+      type: "boolean",
+      title: "Branding Terms Enabled",
+      description: "Whether sign-in and sign-up pages show the terms notice.",
+      default: true,
+    },
+  },
+  type: "object",
+  title: "BrandingSettingsUpdate",
+  description: "Organization branding settings.",
 } as const
 
 export const $BuildEdition = {
@@ -20474,6 +20640,13 @@ export const $EffectiveEntitlements = {
         "Whether object storage events (S3 object created, over SNS) may start workflows and agents",
       default: false,
     },
+    custom_branding: {
+      type: "boolean",
+      title: "Custom branding",
+      description:
+        "Whether the organization may set its own logo, primary colors, and sign-in page terms notice",
+      default: false,
+    },
   },
   type: "object",
   title: "EffectiveEntitlements",
@@ -20738,6 +20911,12 @@ export const $EntitlementsDict = {
       title: "Object triggers",
       description:
         "Whether object storage events (S3 object created, over SNS) may start workflows and agents",
+    },
+    custom_branding: {
+      type: "boolean",
+      title: "Custom branding",
+      description:
+        "Whether the organization may set its own logo, primary colors, and sign-in page terms notice",
     },
   },
   type: "object",

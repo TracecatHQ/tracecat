@@ -1,10 +1,8 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import Image from "next/image"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import TracecatIcon from "public/icon.png"
 import type React from "react"
 import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
@@ -106,15 +104,9 @@ export function SignUp({
 
   if (!showBasicAuth) {
     return (
-      <div
-        className={cn(
-          "container flex size-full items-center justify-center",
-          className
-        )}
-      >
+      <div className={cn("flex w-full items-center justify-center", className)}>
         <div className="flex w-full flex-1 flex-col justify-center gap-2 px-8 sm:max-w-md">
           <CardHeader className="items-center space-y-2 text-center">
-            <Image src={TracecatIcon} alt="Tracecat" className="mb-8 size-16" />
             <CardTitle className="text-2xl">Sign up unavailable</CardTitle>
             <CardDescription>
               Password sign-up is disabled. Continue with sign in.
@@ -131,15 +123,9 @@ export function SignUp({
   }
 
   return (
-    <div
-      className={cn(
-        "container flex size-full items-center justify-center",
-        className
-      )}
-    >
+    <div className={cn("flex w-full items-center justify-center", className)}>
       <div className="flex w-full flex-1 flex-col justify-center gap-2 px-8 sm:max-w-md">
         <CardHeader className="items-center space-y-2 text-center">
-          <Image src={TracecatIcon} alt="Tracecat" className="mb-8 size-16" />
           <CardTitle className="text-2xl">Create an account</CardTitle>
           <CardDescription>
             Enter your email below to create an account

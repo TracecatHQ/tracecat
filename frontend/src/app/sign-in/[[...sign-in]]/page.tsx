@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation"
 import { Suspense, useEffect, useState } from "react"
+import { AuthLayout } from "@/components/auth/auth-layout"
 import { SignIn } from "@/components/auth/sign-in"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { useAuth } from "@/hooks/use-auth"
@@ -61,13 +62,9 @@ function SignInContent() {
   }
 
   return (
-    <div className="flex size-full items-center justify-center">
-      <SignIn
-        className="flex size-16 w-full justify-center"
-        returnUrl={returnUrl}
-        organizationSlug={organizationSlug}
-      />
-    </div>
+    <AuthLayout organizationSlug={organizationSlug}>
+      <SignIn returnUrl={returnUrl} organizationSlug={organizationSlug} />
+    </AuthLayout>
   )
 }
 

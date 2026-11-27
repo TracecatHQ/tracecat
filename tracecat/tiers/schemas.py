@@ -168,6 +168,12 @@ class EffectiveEntitlements(Schema):
         description="Whether object storage events (S3 object created, over"
         " SNS) may start workflows and agents",
     )
+    custom_branding: bool = Field(
+        default=False,
+        title="Custom branding",
+        description="Whether the organization may set its own logo, primary"
+        " colors, and sign-in page terms notice",
+    )
 
 
 class TierRead(Schema):

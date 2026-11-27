@@ -1,3 +1,5 @@
+import base64
+import binascii
 from enum import StrEnum
 from typing import Any, Literal, cast
 
@@ -330,6 +332,70 @@ class IPAllowlistCheckResult(BaseModel):
     """Name of the allowlist containing ``matched_cidr``."""
     enforced: bool
     """Whether the allowlist is currently enabled and non-empty."""
+
+
+BRANDING_LOGO_MAX_BYTES = 256 * 1024
+"""Largest decoded logo image accepted for organization branding."""
+
+_BRANDING_LOGO_PREFIXES = (
+    "data:image/png;base64,",
+    "data:image/jpeg;base64,",
+    "data:image/webp;base64,",
+    "data:image/svg+xml;base64,",
+)
+_HEX_COLOR_PATTERN = r"^#[0-9a-fA-F]{6}$"
+
+
+class BrandingSettingsRead(BaseSettingsGroup):
+    """Organization branding settings."""
+
+    branding_logo: str | None = Field(default=None)
+    branding_primary_color_light: str | None = Field(default=None)
+    branding_primary_color_dark: str | None = Field(default=None)
+    branding_terms_enabled: bool = Field(default=True)
+
+
+class BrandingSettingsUpdate(BaseSettingsGroup):
+    """Organization branding settings."""
+
+    branding_logo: str | None = Field(
+        default=None,
+        description=(
+            "Logo as a base64 data URL (PNG, JPEG, WebP, or SVG, at most 256 KB)."
+            " Null restores the Tracecat logo."
+        ),
+    )
+    branding_primary_color_light: str | None = Field(
+        default=None,
+        pattern=_HEX_COLOR_PATTERN,
+        description="Primary color in light mode as #RRGGBB. Null uses the default.",
+    )
+    branding_primary_color_dark: str | None = Field(
+        default=None,
+        pattern=_HEX_COLOR_PATTERN,
+        description="Primary color in dark mode as #RRGGBB. Null uses the default.",
+    )
+    branding_terms_enabled: bool = Field(
+        default=True,
+        description="Whether sign-in and sign-up pages show the terms notice.",
+    )
+
+    @field_validator("branding_logo")
+    @classmethod
+    def validate_branding_logo(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        prefix = next((p for p in _BRANDING_LOGO_PREFIXES if value.startswith(p)), None)
+        if prefix is None:
+            raise ValueError("Logo must be a PNG, JPEG, WebP, or SVG data URL")
+        payload = value[len(prefix) :]
+        try:
+            decoded = base64.b64decode(payload, validate=True)
+        except binascii.Error as e:
+            raise ValueError("Logo data URL is not valid base64") from e
+        if len(decoded) > BRANDING_LOGO_MAX_BYTES:
+            raise ValueError("Logo must be at most 256 KB")
+        return value
 
 
 class AgentSettingsRead(BaseSettingsGroup):

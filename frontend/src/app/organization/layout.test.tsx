@@ -22,6 +22,9 @@ jest.mock("@/lib/hooks", () => ({
 jest.mock("@/providers/scopes", () => ({
   ScopeProvider: ({ children }: { children: ReactNode }) => children,
 }))
+jest.mock("@/components/branding/branding-style", () => ({
+  OrganizationBrandingStyle: () => null,
+}))
 jest.mock("@/components/sidebar/organization-sidebar", () => ({
   OrganizationSidebar: () => null,
 }))
