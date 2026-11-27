@@ -148,7 +148,7 @@ def _linked(engine: Engine) -> dict[uuid.UUID, tuple[Any, ...]]:
         FROM schedule s
         LEFT JOIN "trigger" t ON t.id = s.trigger_id
         LEFT JOIN trigger_binding b ON b.trigger_id = t.id
-        GROUP BY s.id, t.id
+        GROUP BY s.surrogate_id, t.surrogate_id
         """,
     )
     return {row[0]: tuple(row[1:]) for row in rows}
