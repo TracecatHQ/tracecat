@@ -184,6 +184,11 @@ _FIXED_FILTER_FIELDS: Mapping[str, ResolvedField] = {
         kind=FieldKind.ENUM,
         allowed_ops=ENUM_OPS,
     ),
+    "verdict": ResolvedField(
+        expr=Case.verdict,
+        kind=FieldKind.ENUM,
+        allowed_ops=ENUM_OPS,
+    ),
     "assignee_id": ResolvedField(
         expr=Case.assignee_id,
         kind=FieldKind.UUID,
@@ -220,6 +225,7 @@ _FIXED_AGGREGATION_FIELDS: Mapping[str, ResolvedAggregationField] = {
     "status": ResolvedAggregationField(expr=Case.status, kind=FieldKind.ENUM),
     "priority": ResolvedAggregationField(expr=Case.priority, kind=FieldKind.ENUM),
     "severity": ResolvedAggregationField(expr=Case.severity, kind=FieldKind.ENUM),
+    "verdict": ResolvedAggregationField(expr=Case.verdict, kind=FieldKind.ENUM),
     "assignee_id": ResolvedAggregationField(
         expr=Case.assignee_id,
         kind=FieldKind.UUID,

@@ -2,6 +2,7 @@
 
 import {
   Check,
+  CircleDashedIcon,
   CircleIcon,
   CircleSlashIcon,
   Copy,
@@ -9,6 +10,7 @@ import {
   ListIcon,
   ListTreeIcon,
   PanelRight,
+  ScaleIcon,
   ShieldAlertIcon,
   SignalHighIcon,
   SignalIcon,
@@ -27,6 +29,7 @@ import type {
   CaseSeverity,
   CaseStatus,
   CaseTagRead,
+  CaseVerdict,
   WorkspaceMember,
 } from "@/client"
 import {
@@ -41,12 +44,14 @@ import {
   tintColor,
 } from "@/components/cases/case-badge"
 import {
+  getCategoryTextClass,
   PRIORITIES,
   SEVERITIES,
   STATUSES,
+  VERDICTS,
 } from "@/components/cases/case-categories"
 import { CaseUserAvatar } from "@/components/cases/case-panel-common"
-import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
+import { NO_VERDICT, UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
 import { RowTimestamps } from "@/components/timestamps"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -171,6 +176,7 @@ export function CaseItem({
   const queryClient = useQueryClient()
   const priorityConfig = PRIORITIES[caseData.priority]
   const severityConfig = SEVERITIES[caseData.severity]
+  const verdictConfig = caseData.verdict ? VERDICTS[caseData.verdict] : null
 
   // Track context menu open state for highlighting
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false)
@@ -444,6 +450,31 @@ export function CaseItem({
     }
   }
 
+  const handleVerdictChange = async (verdict: CaseVerdict | null) => {
+    if (verdict === (caseData.verdict ?? null)) return
+    try {
+      await casesUpdateCase({
+        workspaceId,
+        caseId: caseData.id,
+        requestBody: { verdict },
+      })
+      toast({
+        title: "Verdict updated",
+        description: verdict
+          ? `Case verdict changed to ${VERDICTS[verdict].label}`
+          : "Case verdict cleared",
+      })
+      await queryClient.invalidateQueries({ queryKey: ["cases"] })
+    } catch (error) {
+      console.error("Failed to update verdict:", error)
+      toast({
+        title: "Error",
+        description: "Failed to update case verdict",
+        variant: "destructive",
+      })
+    }
+  }
+
   const handleAssigneeChange = async (assigneeId: string) => {
     const newAssigneeId = assigneeId === UNASSIGNED ? null : assigneeId
     const currentAssigneeId = caseData.assignee?.id ?? null
@@ -596,6 +627,15 @@ export function CaseItem({
                       className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
                     />
                   )}
+                  {verdictConfig && (
+                    <CaseBadge
+                      value={verdictConfig.value}
+                      label={verdictConfig.label}
+                      icon={verdictConfig.icon}
+                      color={verdictConfig.color}
+                      className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
+                    />
+                  )}
                   {/* Custom column badges */}
                   {summaryColumnBadges}
                 </div>
@@ -720,7 +760,12 @@ export function CaseItem({
                     className="text-xs"
                     onClick={() => handleStatusChange(status.value)}
                   >
-                    <StatusIcon className="mr-2 size-3.5" />
+                    <StatusIcon
+                      className={cn(
+                        "mr-2 size-3.5",
+                        getCategoryTextClass(status.color)
+                      )}
+                    />
                     {status.label}
                   </ContextMenuRadioItem>
                 )
@@ -746,7 +791,12 @@ export function CaseItem({
                     className="text-xs"
                     onClick={() => handlePriorityChange(priority.value)}
                   >
-                    <PriorityIcon className="mr-2 size-3.5" />
+                    <PriorityIcon
+                      className={cn(
+                        "mr-2 size-3.5",
+                        getCategoryTextClass(priority.color)
+                      )}
+                    />
                     {priority.label}
                   </ContextMenuRadioItem>
                 )
@@ -772,8 +822,52 @@ export function CaseItem({
                     className="text-xs"
                     onClick={() => handleSeverityChange(severity.value)}
                   >
-                    <SeverityIcon className="mr-2 size-3.5" />
+                    <SeverityIcon
+                      className={cn(
+                        "mr-2 size-3.5",
+                        getCategoryTextClass(severity.color)
+                      )}
+                    />
                     {severity.label}
+                  </ContextMenuRadioItem>
+                )
+              })}
+            </ContextMenuRadioGroup>
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+
+        {/* Verdict submenu */}
+        <ContextMenuSub>
+          <ContextMenuSubTrigger className="text-xs">
+            <ScaleIcon className="mr-2 size-3.5" />
+            Verdict
+          </ContextMenuSubTrigger>
+          <ContextMenuSubContent className="w-40">
+            <ContextMenuRadioGroup value={caseData.verdict ?? NO_VERDICT}>
+              <ContextMenuRadioItem
+                value={NO_VERDICT}
+                className="text-xs"
+                onClick={() => handleVerdictChange(null)}
+              >
+                <CircleDashedIcon className="mr-2 size-3.5 text-muted-foreground" />
+                No verdict
+              </ContextMenuRadioItem>
+              {Object.values(VERDICTS).map((verdict) => {
+                const VerdictIcon = verdict.icon
+                return (
+                  <ContextMenuRadioItem
+                    key={verdict.value}
+                    value={verdict.value}
+                    className="text-xs"
+                    onClick={() => handleVerdictChange(verdict.value)}
+                  >
+                    <VerdictIcon
+                      className={cn(
+                        "mr-2 size-3.5",
+                        getCategoryTextClass(verdict.color)
+                      )}
+                    />
+                    {verdict.label}
                   </ContextMenuRadioItem>
                 )
               })}

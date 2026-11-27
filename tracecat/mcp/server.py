@@ -149,6 +149,7 @@ from tracecat.cases.enums import (
     CaseSeverity,
     CaseStatus,
     CaseTaskStatus,
+    CaseVerdict,
     CaseViewVisibility,
 )
 from tracecat.cases.event_schemas import (
@@ -1293,6 +1294,7 @@ class CaseFullResponse(BaseModel):
     status: str
     priority: str
     severity: str
+    verdict: str | None = None
     description: str | None = None
     assignee: UserRead | None = None
     payload: dict[str, Any] | None = None
@@ -3554,6 +3556,9 @@ unknown, informational, low, medium, high, critical, fatal, other
 ### Status
 unknown, new, in_progress, on_hold, resolved, closed, other
 
+### Verdict (nullable; null means no verdict yet)
+unknown, false_positive, true_positive, disregard, suspicious, benign, test
+
 ### Task Status
 todo, in_progress, completed, blocked
 
@@ -3900,6 +3905,7 @@ def _case_full_payload(
         severity=case.severity.value
         if hasattr(case.severity, "value")
         else str(case.severity),
+        verdict=case.verdict.value if case.verdict is not None else None,
         description=case.description,
         assignee=assignee,
         payload=case.payload,
@@ -7591,12 +7597,15 @@ async def search_cases(
         severity: Comma-separated case severities to filter by. Values:
             unknown, informational, low, medium, high, critical, fatal, other.
         order_by: Column to order by. One of: created_at, updated_at,
-            priority, severity, status, tasks, assignee, tags. Assignee uses
-            lowercase email; tags uses the first normalized tag alphabetically.
-            Missing assignees and tags sort last in either direction.
+            priority, severity, verdict, status, tasks, assignee, tags.
+            Assignee uses lowercase email; tags uses the first normalized tag
+            alphabetically. Missing assignees, tags, and verdicts sort last in
+            either direction.
         sort: Sort direction. One of: asc, desc.
         case_id: Exact case UUID, ANDed with all matching conditions.
-        filters: Shared AND/OR/NOT JSON filter tree. Tag in matches any tag,
+        filters: Shared AND/OR/NOT JSON filter tree. Filter verdict with
+            field="verdict" (e.g. op="in", value=["true_positive"], or
+            op="is_null" for cases without a verdict). Tag in matches any tag,
             AND of contains requires all, NOT in excludes selected tags, and
             is_null matches untagged cases. Scalar exclusions omit unset values
             unless ORed with is_null. Payload equality uses
@@ -7966,6 +7975,7 @@ async def create_case(
     status: str,
     priority: str,
     severity: str,
+    verdict: str | None = None,
     assignee_id: uuid.UUID | None = None,
     fields: dict[str, Any] | None = None,
     payload: dict[str, Any] | None = None,
@@ -7986,6 +7996,9 @@ async def create_case(
             critical, other.
         severity: Case severity. Values: unknown, informational, low,
             medium, high, critical, fatal, other.
+        verdict: Optional case verdict. Values: unknown, false_positive,
+            true_positive, disregard, suspicious, benign, test. Omit to leave
+            the case without a verdict.
         assignee_id: Optional user UUID to assign the case to.
         fields: Optional custom field values object. Field names must match
             existing case field definitions from ``list_case_fields``.
@@ -8016,6 +8029,7 @@ async def create_case(
             status=CaseStatus(status),
             priority=CasePriority(priority),
             severity=CaseSeverity(severity),
+            verdict=CaseVerdict(verdict) if verdict is not None else None,
             assignee_id=assignee_id,
             fields=fields,
             payload=payload,
@@ -8060,6 +8074,7 @@ async def update_case(
     status: str | None = None,
     priority: str | None = None,
     severity: str | None = None,
+    verdict: str | None = None,
     assignee_id: uuid.UUID | None = None,
     fields: dict[str, Any] | None = None,
     payload: dict[str, Any] | None = None,
@@ -8080,6 +8095,9 @@ async def update_case(
             critical, other.
         severity: New case severity. Values: unknown, informational, low,
             medium, high, critical, fatal, other.
+        verdict: New case verdict. Values: unknown, false_positive,
+            true_positive, disregard, suspicious, benign, test, or none to
+            clear the verdict.
         assignee_id: User UUID to assign the case to.
         fields: Custom field values object to update.
         payload: Arbitrary payload object.
@@ -8112,6 +8130,10 @@ async def update_case(
             update_kwargs["priority"] = CasePriority(priority)
         if severity is not None:
             update_kwargs["severity"] = CaseSeverity(severity)
+        if verdict is not None:
+            update_kwargs["verdict"] = (
+                None if verdict == "none" else CaseVerdict(verdict)
+            )
         if assignee_id is not None:
             update_kwargs["assignee_id"] = assignee_id
         if fields is not None:

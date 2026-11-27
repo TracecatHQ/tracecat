@@ -87,6 +87,12 @@ export const CASE_EVENT_SUGGESTIONS: Suggestion[] = [
     group: "Fields",
   },
   {
+    id: "verdict_changed",
+    label: "Verdict changed",
+    value: "verdict_changed",
+    group: "Fields",
+  },
+  {
     id: "fields_changed",
     label: "Fields changed",
     value: "fields_changed",

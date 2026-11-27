@@ -152,6 +152,7 @@ async def list_linked_cases(
         "updated_at",
         "priority",
         "severity",
+        "verdict",
         "status",
         "tasks",
         "assignee",

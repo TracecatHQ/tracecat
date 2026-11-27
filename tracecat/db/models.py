@@ -81,6 +81,7 @@ from tracecat.cases.enums import (
     CaseSeverity,
     CaseStatus,
     CaseTaskStatus,
+    CaseVerdict,
     CaseVersionField,
     CaseViewVisibility,
 )
@@ -110,6 +111,7 @@ _UNSET = object()
 CASE_PRIORITY_ENUM = Enum(CasePriority, name="casepriority")
 CASE_SEVERITY_ENUM = Enum(CaseSeverity, name="caseseverity")
 CASE_STATUS_ENUM = Enum(CaseStatus, name="casestatus")
+CASE_VERDICT_ENUM = Enum(CaseVerdict, name="caseverdict")
 CASE_TASK_STATUS_ENUM = Enum(CaseTaskStatus, name="casetaskstatus")
 CASE_VERSION_FIELD_ENUM = Enum(CaseVersionField, name="caseversionfield")
 
@@ -3506,6 +3508,11 @@ class Case(WorkspaceModel):
         CASE_STATUS_ENUM,
         default=CaseStatus.NEW,
         nullable=False,
+    )
+    verdict: Mapped[CaseVerdict | None] = mapped_column(
+        CASE_VERDICT_ENUM,
+        nullable=True,
+        doc="OCSF incident verdict; null until a verdict is set.",
     )
     payload: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB,

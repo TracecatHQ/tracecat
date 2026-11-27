@@ -15,6 +15,7 @@ from tracecat_registry.sdk.types import (
     CasePriority,
     CaseSeverity,
     CaseStatus,
+    CaseVerdict,
     Unset,
     is_set,
 )
@@ -68,6 +69,7 @@ class CasesClient:
         status: CaseStatus = "new",
         priority: CasePriority = "medium",
         severity: CaseSeverity = "medium",
+        verdict: CaseVerdict | None | Unset = UNSET,
         assignee_id: str | None | Unset = UNSET,
         payload: dict[str, Any] | None | Unset = UNSET,
         tags: list[str] | None | Unset = UNSET,
@@ -82,6 +84,7 @@ class CasesClient:
             status: Case status.
             priority: Case priority.
             severity: Case severity.
+            verdict: Case verdict. Omit or pass None for no verdict.
             assignee_id: User ID to assign the case to.
             payload: Additional JSON payload.
             tags: List of tag names or IDs to attach.
@@ -98,6 +101,8 @@ class CasesClient:
             "priority": priority,
             "severity": severity,
         }
+        if is_set(verdict):
+            data["verdict"] = verdict
         if is_set(assignee_id):
             data["assignee_id"] = assignee_id
         if is_set(payload):
@@ -138,6 +143,7 @@ class CasesClient:
         status: CaseStatus | Unset = UNSET,
         priority: CasePriority | Unset = UNSET,
         severity: CaseSeverity | Unset = UNSET,
+        verdict: CaseVerdict | None | Unset = UNSET,
         assignee_id: str | None | Unset = UNSET,
         payload: dict[str, Any] | None | Unset = UNSET,
         fields: dict[str, Any] | None | Unset = UNSET,
@@ -153,6 +159,7 @@ class CasesClient:
             status: New status.
             priority: New priority.
             severity: New severity.
+            verdict: New verdict. Pass None to clear.
             assignee_id: New assignee user ID. Pass None to unassign.
             payload: New payload (merged with existing). Pass None to clear.
             fields: Custom field values to update.
@@ -173,6 +180,8 @@ class CasesClient:
             data["priority"] = priority
         if is_set(severity):
             data["severity"] = severity
+        if is_set(verdict):
+            data["verdict"] = verdict
         if is_set(assignee_id):
             data["assignee_id"] = assignee_id
         if is_set(payload):
@@ -320,7 +329,7 @@ class CasesClient:
         An empty string in the selector selects the literal empty key.
 
         order_by accepts relevance, created_at, updated_at, priority, severity,
-        status, tasks, assignee, and tags. Assignee uses lowercase email; tags uses the
+        verdict, status, tasks, assignee, and tags. Assignee uses lowercase email; tags uses the
         first normalized tag alphabetically. Missing values sort last.
         """
         params: dict[str, Any] = {"limit": limit}
@@ -774,6 +783,7 @@ class CasesClient:
         status: CaseStatus = "new",
         priority: CasePriority = "medium",
         severity: CaseSeverity = "medium",
+        verdict: CaseVerdict | None | Unset = UNSET,
         assignee_id: str | None | Unset = UNSET,
         payload: dict[str, Any] | None | Unset = UNSET,
         tags: list[str] | None | Unset = UNSET,
@@ -792,6 +802,7 @@ class CasesClient:
             status: Case status.
             priority: Case priority.
             severity: Case severity.
+            verdict: Case verdict. Omit or pass None for no verdict.
             assignee_id: User ID to assign the case to.
             payload: Additional JSON payload.
             tags: List of tag names or IDs to attach.
@@ -810,6 +821,8 @@ class CasesClient:
             "priority": priority,
             "severity": severity,
         }
+        if is_set(verdict):
+            data["verdict"] = verdict
         if is_set(assignee_id):
             data["assignee_id"] = assignee_id
         if is_set(payload):
@@ -870,6 +883,7 @@ class CasesClient:
         status: CaseStatus | Unset = UNSET,
         priority: CasePriority | Unset = UNSET,
         severity: CaseSeverity | Unset = UNSET,
+        verdict: CaseVerdict | None | Unset = UNSET,
         assignee_id: str | None | Unset = UNSET,
         payload: dict[str, Any] | None | Unset = UNSET,
         fields: dict[str, Any] | None | Unset = UNSET,
@@ -889,6 +903,7 @@ class CasesClient:
             status: New status.
             priority: New priority.
             severity: New severity.
+            verdict: New verdict. Pass None to clear.
             assignee_id: New assignee user ID. Pass None to unassign.
             payload: New payload (merged with existing). Pass None to clear.
             fields: Custom field values to update.
@@ -910,6 +925,8 @@ class CasesClient:
             data["priority"] = priority
         if is_set(severity):
             data["severity"] = severity
+        if is_set(verdict):
+            data["verdict"] = verdict
         if is_set(assignee_id):
             data["assignee_id"] = assignee_id
         if is_set(payload):

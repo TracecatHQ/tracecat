@@ -8,6 +8,7 @@ import type {
   CaseSeverity,
   CaseStatus,
   CaseUpdate,
+  CaseVerdict,
 } from "@/client"
 import { CaseClosureDialog } from "@/components/cases/case-closure-dialog"
 import { CommentSection } from "@/components/cases/case-comments-section"
@@ -21,6 +22,7 @@ import {
   PrioritySelect,
   SeveritySelect,
   StatusSelect,
+  VerdictSelect,
 } from "@/components/cases/case-panel-selectors"
 import { CasePanelSummary } from "@/components/cases/case-panel-summary"
 import { CasePanelSwitcher } from "@/components/cases/case-panel-switcher"
@@ -312,6 +314,10 @@ export function CasePanelView({
     await updateCase(params)
   }
 
+  const handleVerdictChange = async (newVerdict: CaseVerdict | null) => {
+    await updateCase({ verdict: newVerdict })
+  }
+
   const handleAssigneeChange = async (newAssignee?: AssigneeInfo | null) => {
     const params: Partial<CaseUpdate> = {
       assignee_id: newAssignee?.id || null,
@@ -433,6 +439,21 @@ export function CasePanelView({
                 <SeveritySelect
                   severity={caseData.severity || "unknown"}
                   onValueChange={handleSeverityChange}
+                  showLabel={false}
+                  triggerClassName={panelSelectTriggerClassName}
+                  valueClassName="text-sm"
+                />
+              </div>
+            </div>
+            <div
+              className={panelFieldRowClassName}
+              onClick={handlePanelFieldRowClick}
+            >
+              <span className={panelLabelClassName}>Verdict</span>
+              <div className={panelControlClassName}>
+                <VerdictSelect
+                  verdict={caseData.verdict}
+                  onValueChange={handleVerdictChange}
                   showLabel={false}
                   triggerClassName={panelSelectTriggerClassName}
                   valueClassName="text-sm"

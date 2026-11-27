@@ -10,7 +10,13 @@ from tracecat_registry import types
 from tracecat_registry._internal.models import WorkflowExecutionID
 from tracecat_registry.sdk.agents import CursorPage
 from tracecat_registry.sdk.client import TracecatClient
-from tracecat_registry.sdk.types import CasePriority, CaseSeverity, CaseStatus, Unset
+from tracecat_registry.sdk.types import (
+    CasePriority,
+    CaseSeverity,
+    CaseStatus,
+    CaseVerdict,
+    Unset,
+)
 from tracecat_registry.sdk.workflows import JsonPatchOperation
 
 T = TypeVar("T")
@@ -271,6 +277,7 @@ class _CasesAsync:
         status: CaseStatus = ...,
         priority: CasePriority = ...,
         severity: CaseSeverity = ...,
+        verdict: CaseVerdict | None | Unset = ...,
         assignee_id: str | None | Unset = ...,
         payload: dict[str, Any] | None | Unset = ...,
         tags: list[str] | None | Unset = ...,
@@ -292,6 +299,7 @@ class _CasesAsync:
         status: CaseStatus | Unset = ...,
         priority: CasePriority | Unset = ...,
         severity: CaseSeverity | Unset = ...,
+        verdict: CaseVerdict | None | Unset = ...,
         assignee_id: str | None | Unset = ...,
         payload: dict[str, Any] | None | Unset = ...,
         fields: dict[str, Any] | None | Unset = ...,
@@ -483,6 +491,7 @@ class _CasesAsync:
         status: CaseStatus = ...,
         priority: CasePriority = ...,
         severity: CaseSeverity = ...,
+        verdict: CaseVerdict | None | Unset = ...,
         assignee_id: str | None | Unset = ...,
         payload: dict[str, Any] | None | Unset = ...,
         tags: list[str] | None | Unset = ...,
@@ -506,6 +515,7 @@ class _CasesAsync:
         status: CaseStatus | Unset = ...,
         priority: CasePriority | Unset = ...,
         severity: CaseSeverity | Unset = ...,
+        verdict: CaseVerdict | None | Unset = ...,
         assignee_id: str | None | Unset = ...,
         payload: dict[str, Any] | None | Unset = ...,
         fields: dict[str, Any] | None | Unset = ...,
@@ -647,6 +657,7 @@ class _Cases:
         status: CaseStatus = ...,
         priority: CasePriority = ...,
         severity: CaseSeverity = ...,
+        verdict: CaseVerdict | None | Unset = ...,
         assignee_id: str | None | Unset = ...,
         payload: dict[str, Any] | None | Unset = ...,
         tags: list[str] | None | Unset = ...,
@@ -668,6 +679,7 @@ class _Cases:
         status: CaseStatus | Unset = ...,
         priority: CasePriority | Unset = ...,
         severity: CaseSeverity | Unset = ...,
+        verdict: CaseVerdict | None | Unset = ...,
         assignee_id: str | None | Unset = ...,
         payload: dict[str, Any] | None | Unset = ...,
         fields: dict[str, Any] | None | Unset = ...,
@@ -859,6 +871,7 @@ class _Cases:
         status: CaseStatus = ...,
         priority: CasePriority = ...,
         severity: CaseSeverity = ...,
+        verdict: CaseVerdict | None | Unset = ...,
         assignee_id: str | None | Unset = ...,
         payload: dict[str, Any] | None | Unset = ...,
         tags: list[str] | None | Unset = ...,
@@ -880,6 +893,7 @@ class _Cases:
         status: CaseStatus | Unset = ...,
         priority: CasePriority | Unset = ...,
         severity: CaseSeverity | Unset = ...,
+        verdict: CaseVerdict | None | Unset = ...,
         assignee_id: str | None | Unset = ...,
         payload: dict[str, Any] | None | Unset = ...,
         fields: dict[str, Any] | None | Unset = ...,

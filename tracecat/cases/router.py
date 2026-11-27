@@ -165,6 +165,7 @@ async def _build_case_read(
         status=case.status,
         priority=case.priority,
         severity=case.severity,
+        verdict=case.verdict,
         description=case.description,
         assignee=UserRead.model_validate(case.assignee, from_attributes=True)
         if case.assignee
