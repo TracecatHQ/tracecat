@@ -12,7 +12,6 @@ import asyncio
 import math
 import time
 import uuid
-from typing import Literal
 
 from tracecat import config
 from tracecat.logger import logger
@@ -20,9 +19,6 @@ from tracecat.redis.client import get_redis_client
 
 WINDOW_SECONDS = 60
 _REDIS_TIMEOUT_SECONDS = 1.0
-# A genuine source sees a confirmation once per subscribe. Confirmations get
-# their own small window so replayed ones never use the notification budget.
-CONFIRMATIONS_PER_MINUTE = 10
 
 
 async def check_source_rate(source_id: uuid.UUID) -> int | None:
@@ -31,25 +27,26 @@ async def check_source_rate(source_id: uuid.UUID) -> int | None:
     Returns:
         ``None`` if within the cap, else the seconds until the window resets.
     """
-    return await _count(
+    return await count_in_window(
         source_id,
         counter="rate",
         limit=config.TRACECAT__TRIGGERS_INGEST_RATE_LIMIT_PER_MINUTE,
     )
 
 
-async def check_confirmation_rate(source_id: uuid.UUID) -> int | None:
-    """Count one subscription confirmation against the source's own small cap.
+async def count_in_window(
+    source_id: uuid.UUID, *, counter: str, limit: int
+) -> int | None:
+    """Count one request in the source's current window for ``counter``.
+
+    Args:
+        source_id: The event source.
+        counter: Names the window in Redis, so each counter has its own budget.
+        limit: Requests allowed per window.
 
     Returns:
-        ``None`` if within the cap, else the seconds until the window resets.
+        ``None`` if within ``limit``, else the seconds until the window resets.
     """
-    return await _count(source_id, counter="confirm", limit=CONFIRMATIONS_PER_MINUTE)
-
-
-async def _count(
-    source_id: uuid.UUID, *, counter: Literal["rate", "confirm"], limit: int
-) -> int | None:
     now = time.time()
     window = int(now // WINDOW_SECONDS)
     key = f"triggers:ingest:{counter}:{source_id}:{window}"

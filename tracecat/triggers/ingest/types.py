@@ -1,4 +1,4 @@
-"""Domain types for the public ingest endpoints."""
+"""Provider-neutral domain types for the public ingest endpoints."""
 
 from __future__ import annotations
 
@@ -13,10 +13,12 @@ from tracecat.triggers.enums import TriggerStatus
 
 
 class IngestErrorCode(StrEnum):
-    """Why an ingest request was refused. The router maps each to a status.
+    """Why an ingest request was refused. A provider's router maps each to a status.
 
-    SNS retries on 5xx, 429 and timeouts. Any other 4xx is final: SNS drops
-    the message, or moves it to the subscription's dead-letter queue.
+    One enum for every provider, since the value is part of the response body.
+    Some codes (``RAW_DELIVERY``, ``CONFIRMATION_REJECTED``) only arise for
+    SNS today. Each provider's router documents which answers its sender
+    retries.
     """
 
     PAYLOAD_TOO_LARGE = "payload_too_large"
@@ -49,50 +51,25 @@ class IngestError(TracecatException):
 
 
 @dataclass(frozen=True, slots=True)
-class SnsIngestSource:
-    """What ingest needs to know about an SNS event source."""
+class IngestSource:
+    """An event source found by its ingest URL token.
+
+    ``pin_value`` is the source config value at ``pin_key`` that a provider
+    checks every message against (for SNS, the topic ARN). Events are queued
+    only while the source still holds that value.
+    """
 
     id: uuid.UUID
     workspace_id: WorkspaceID
     organization_id: OrganizationID
-    topic_arn: str
     status: TriggerStatus
-
-
-@dataclass(frozen=True, slots=True)
-class SnsTopic:
-    """The parts of a pinned topic ARN that ingest uses."""
-
-    arn: str
-    partition: str
-    region: str
-    account: str
-
-    @classmethod
-    def parse(cls, arn: str) -> SnsTopic:
-        """Split an SNS topic ARN already validated by the source schema.
-
-        Raises:
-            ValueError: If the ARN is not an SNS topic ARN.
-        """
-        match arn.split(":"):
-            case ["arn", partition, "sns", region, account, name] if (
-                partition and region and account and name
-            ):
-                return cls(arn=arn, partition=partition, region=region, account=account)
-            case _:
-                raise ValueError("Not an SNS topic ARN")
-
-    @property
-    def sns_host(self) -> str:
-        """The SNS API host for the topic's region, which also serves its certificates."""
-        suffix = "amazonaws.com.cn" if self.partition == "aws-cn" else "amazonaws.com"
-        return f"sns.{self.region}.{suffix}"
+    pin_key: str
+    pin_value: str
 
 
 @dataclass(frozen=True, slots=True)
 class ParsedObjectEvent:
-    """One object event read from an S3 notification, ready to queue."""
+    """One normalized object event read from a provider message, ready to queue."""
 
     occurrence_key: str
     # JSON-ready ``ObjectCreatedEvent``, as stored in ``event_outbox.payload``
@@ -101,8 +78,8 @@ class ParsedObjectEvent:
 
 
 @dataclass(frozen=True, slots=True)
-class ParsedS3Message:
-    """The object events in one S3 notification, and how many records were skipped."""
+class ParsedMessage:
+    """The object events in one provider message, and how many records were skipped."""
 
     events: list[ParsedObjectEvent]
     ignored: int

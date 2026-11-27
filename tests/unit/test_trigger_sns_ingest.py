@@ -46,11 +46,16 @@ from tracecat.triggers.enums import (
     TriggerStatus,
     TriggerTargetType,
 )
-from tracecat.triggers.ingest import rate_limit, sns
+from tracecat.triggers.ingest import rate_limit
 from tracecat.triggers.ingest import service as ingest_service
-from tracecat.triggers.ingest.router import MAX_BODY_BYTES
-from tracecat.triggers.ingest.router import router as ingest_router
-from tracecat.triggers.ingest.types import IngestError, IngestErrorCode, SnsTopic
+from tracecat.triggers.ingest.aws_sns import confirm as sns_confirm
+from tracecat.triggers.ingest.aws_sns import rate_limit as sns_rate_limit
+from tracecat.triggers.ingest.aws_sns import service as sns_service
+from tracecat.triggers.ingest.aws_sns import signature as sns_signature
+from tracecat.triggers.ingest.aws_sns.router import MAX_BODY_BYTES
+from tracecat.triggers.ingest.aws_sns.router import router as ingest_router
+from tracecat.triggers.ingest.aws_sns.types import SnsTopic
+from tracecat.triggers.ingest.types import IngestError, IngestErrorCode
 from tracecat.triggers.types import build_occurrence_key, event_source_endpoint_url
 
 pytestmark = [pytest.mark.usefixtures("db"), pytest.mark.anyio]
@@ -238,12 +243,15 @@ def ingest_env(
     monkeypatch.setattr(
         ingest_service, "get_async_session_bypass_rls_context_manager", _session_cm
     )
+    monkeypatch.setattr(
+        sns_service, "get_async_session_bypass_rls_context_manager", _session_cm
+    )
     monkeypatch.setattr(ingest_service, "is_org_entitled", _entitled)
     monkeypatch.setattr(ingest_service, "check_source_rate", _within_cap)
-    monkeypatch.setattr(ingest_service, "check_confirmation_rate", _within_cap)
-    sns._cert_cache.clear()
+    monkeypatch.setattr(sns_service, "check_confirmation_rate", _within_cap)
+    sns_signature._cert_cache.clear()
     yield
-    sns._cert_cache.clear()
+    sns_signature._cert_cache.clear()
 
 
 @pytest.fixture
@@ -262,7 +270,7 @@ def confirm_calls(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
         calls.append((topic.arn, token))
         return SUBSCRIPTION_ARN
 
-    monkeypatch.setattr(ingest_service, "confirm_subscription", _confirm)
+    monkeypatch.setattr(sns_service, "confirm_subscription", _confirm)
     return calls
 
 
@@ -731,7 +739,7 @@ async def test_cert_redirect_is_not_followed(
     [
         (httpx.Response(503), 503),
         (httpx.ConnectTimeout("slow"), 503),
-        (httpx.Response(200, content=b"x" * (sns.MAX_CERT_BYTES + 1)), 403),
+        (httpx.Response(200, content=b"x" * (sns_signature.MAX_CERT_BYTES + 1)), 403),
         (httpx.Response(200, content=b"not a certificate"), 403),
         (
             httpx.Response(
@@ -1031,7 +1039,7 @@ async def test_source_changed_during_verification_queues_nothing(
 ) -> None:
     # Covers the recheck in the insert transaction. The FOR SHARE lock that
     # serializes it with a concurrent source update is not exercised here.
-    verify = ingest_service.verify_envelope
+    verify = sns_service.verify_envelope
 
     async def _verify_then_change(*args: Any, **kwargs: Any) -> None:
         await verify(*args, **kwargs)
@@ -1040,7 +1048,7 @@ async def test_source_changed_during_verification_queues_nothing(
             setattr(source, name, value)
         await session.commit()
 
-    monkeypatch.setattr(ingest_service, "verify_envelope", _verify_then_change)
+    monkeypatch.setattr(sns_service, "verify_envelope", _verify_then_change)
 
     response = await _post(
         client, source, sign("Notification", _s3_message(_s3_record()))
@@ -1124,7 +1132,7 @@ async def test_confirmations_have_their_own_cap(
         notifications_charged.append(source_id)
         return None
 
-    monkeypatch.setattr(ingest_service, "check_confirmation_rate", _over_cap)
+    monkeypatch.setattr(sns_service, "check_confirmation_rate", _over_cap)
     monkeypatch.setattr(ingest_service, "check_source_rate", _count_notification)
 
     response = await _post(client, source, sign("SubscriptionConfirmation", "confirm"))
@@ -1192,7 +1200,7 @@ async def test_confirmation_rejected_by_sns(
     async def _reject(*, topic: SnsTopic, token: str) -> str:
         raise IngestError(IngestErrorCode.CONFIRMATION_REJECTED, "no")
 
-    monkeypatch.setattr(ingest_service, "confirm_subscription", _reject)
+    monkeypatch.setattr(sns_service, "confirm_subscription", _reject)
 
     response = await _post(client, source, sign("SubscriptionConfirmation", "confirm"))
 
@@ -1300,10 +1308,10 @@ async def test_confirm_subscription_calls_the_topic_region_unsigned(
 ) -> None:
     fake = _FakeSnsClient({"SubscriptionArn": SUBSCRIPTION_ARN})
     fake_session = _FakeSession(fake)
-    monkeypatch.setattr(sns.aioboto3, "Session", lambda: fake_session)
+    monkeypatch.setattr(sns_confirm.aioboto3, "Session", lambda: fake_session)
     topic = SnsTopic.parse("arn:aws:sns:eu-west-2:123456789012:bucket-events")
 
-    arn = await sns.confirm_subscription(topic=topic, token="synthetic-token")
+    arn = await sns_confirm.confirm_subscription(topic=topic, token="synthetic-token")
 
     assert arn == SUBSCRIPTION_ARN
     # AuthenticateOnUnsubscribe would need a signed request.
@@ -1323,10 +1331,10 @@ async def test_confirm_subscription_errors(
     monkeypatch: pytest.MonkeyPatch, error: Exception, code: IngestErrorCode
 ) -> None:
     monkeypatch.setattr(
-        sns.aioboto3, "Session", lambda: _FakeSession(_FakeSnsClient(error))
+        sns_confirm.aioboto3, "Session", lambda: _FakeSession(_FakeSnsClient(error))
     )
     with pytest.raises(IngestError) as exc_info:
-        await sns.confirm_subscription(topic=SnsTopic.parse(TOPIC), token="t")
+        await sns_confirm.confirm_subscription(topic=SnsTopic.parse(TOPIC), token="t")
     assert exc_info.value.code == code
 
 
@@ -1403,9 +1411,9 @@ async def test_confirmation_cap_is_separate_from_notifications(
     monkeypatch.setattr(rate_limit, "get_redis_client", _get)
     source_id = uuid.uuid4()
 
-    for _ in range(rate_limit.CONFIRMATIONS_PER_MINUTE):
-        assert await rate_limit.check_confirmation_rate(source_id) is None
-    assert await rate_limit.check_confirmation_rate(source_id) is not None
+    for _ in range(sns_rate_limit.CONFIRMATIONS_PER_MINUTE):
+        assert await sns_rate_limit.check_confirmation_rate(source_id) is None
+    assert await sns_rate_limit.check_confirmation_rate(source_id) is not None
     assert await rate_limit.check_source_rate(source_id) is None
 
 

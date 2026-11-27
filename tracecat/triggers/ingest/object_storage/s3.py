@@ -1,4 +1,4 @@
-"""Turn the S3 event notification inside an SNS message into object events."""
+"""Turn an S3 event notification into normalized object events."""
 
 from __future__ import annotations
 
@@ -8,17 +8,16 @@ from urllib.parse import unquote_plus
 import orjson
 from pydantic import ValidationError
 
-from tracecat.triggers.ingest.schemas import (
-    ObjectCreatedEvent,
+from tracecat.triggers.ingest.object_storage.schemas import (
     S3CreatedRecord,
     S3EventMessage,
 )
+from tracecat.triggers.ingest.schemas import ObjectCreatedEvent
 from tracecat.triggers.ingest.types import (
     IngestError,
     IngestErrorCode,
+    ParsedMessage,
     ParsedObjectEvent,
-    ParsedS3Message,
-    SnsTopic,
 )
 from tracecat.triggers.types import build_occurrence_key
 
@@ -36,7 +35,7 @@ def _malformed(message: str) -> IngestError:
 
 
 def _to_event(
-    record: S3CreatedRecord, *, topic: SnsTopic, received_at: datetime
+    record: S3CreatedRecord, *, account: str, received_at: datetime
 ) -> ParsedObjectEvent:
     obj = record.s3.object
     bucket = record.s3.bucket.name
@@ -66,7 +65,7 @@ def _to_event(
         bucket=bucket, key=key, version_id=obj.version_id, sequencer=obj.sequencer
     )
     event = ObjectCreatedEvent(
-        account=topic.account,
+        account=account,
         region=record.aws_region,
         bucket=bucket,
         key=key,
@@ -85,8 +84,8 @@ def _to_event(
 
 
 def parse_s3_message(
-    message: str, *, topic: SnsTopic, received_at: datetime
-) -> ParsedS3Message:
+    message: str, *, account: str, received_at: datetime
+) -> ParsedMessage:
     """Read the object-created events from an S3 notification.
 
     Only ``ObjectCreated:*`` records become events. The ``s3:TestEvent`` that
@@ -104,7 +103,7 @@ def parse_s3_message(
 
     match data:
         case {"Event": "s3:TestEvent"}:
-            return ParsedS3Message(events=[], ignored=1)
+            return ParsedMessage(events=[], ignored=1)
         case _:
             pass
 
@@ -128,5 +127,5 @@ def parse_s3_message(
             record = S3CreatedRecord.model_validate(raw)
         except ValidationError:
             raise _malformed("S3 record is missing object fields") from None
-        events.append(_to_event(record, topic=topic, received_at=received_at))
-    return ParsedS3Message(events=events, ignored=ignored)
+        events.append(_to_event(record, account=account, received_at=received_at))
+    return ParsedMessage(events=events, ignored=ignored)
