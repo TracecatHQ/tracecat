@@ -34,7 +34,7 @@ export const TRIGGER_KINDS: Record<TriggerKind, TriggerKindDefinition> = {
   object_storage: {
     kind: "object_storage",
     label: "Object storage",
-    description: "Runs when a new object lands in an S3 bucket, through SNS.",
+    description: "Runs when a new object lands in a storage bucket.",
     icon: DatabaseIcon,
     entitlement: "object_triggers",
     namePlaceholder: "New uploads",

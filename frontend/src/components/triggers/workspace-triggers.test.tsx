@@ -15,7 +15,12 @@ import {
 } from "@/client"
 import { AddTargetDialog } from "@/components/triggers/add-target-dialog"
 import { CreateTriggerDialog } from "@/components/triggers/create-trigger-dialog"
-import { shellQuote } from "@/components/triggers/object-storage/event-source-panel"
+import {
+  describeEventSource,
+  EVENT_SOURCE_PROVIDER_LIST,
+  getEventSourceProvider,
+  shellQuote,
+} from "@/components/triggers/object-storage/event-source-providers"
 import { TriggerDetail } from "@/components/triggers/trigger-detail"
 import { WorkspaceTriggers } from "@/components/triggers/workspace-triggers"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -631,6 +636,76 @@ describe("TriggerDetail for a schedule", () => {
     expect(
       screen.getByRole("button", { name: "Delete Nightly report schedule" })
     ).toBeInTheDocument()
+  })
+})
+
+describe("event source providers", () => {
+  it("offers Amazon S3 via SNS, and names an unknown kind by its raw name", () => {
+    expect(
+      EVENT_SOURCE_PROVIDER_LIST.map((provider) => provider.label)
+    ).toEqual(["Amazon S3 (via SNS)"])
+    expect(getEventSourceProvider("aws_sns")?.sender).toBe("SNS")
+    expect(describeEventSource(SOURCE)).toBe(SOURCE.config.topic_arn)
+    // A kind from a newer API, and a name that would hit the prototype.
+    expect(getEventSourceProvider("gcs_pubsub")).toBeUndefined()
+    expect(getEventSourceProvider("toString")).toBeUndefined()
+    const unknown = {
+      ...SOURCE,
+      kind: "gcs_pubsub",
+    } as unknown as EventSourceRead
+    expect(describeEventSource(unknown)).toBe("gcs_pubsub")
+  })
+
+  it("checks the provider's fields before creating a source", () => {
+    const [sns] = EVENT_SOURCE_PROVIDER_LIST
+    expect(sns.buildConfig({ topicArn: "  " })).toBe("Enter the SNS topic ARN.")
+    expect(
+      sns.buildConfig({ topicArn: ` ${SOURCE.config.topic_arn} ` })
+    ).toEqual({
+      kind: "aws_sns",
+      topic_arn: SOURCE.config.topic_arn,
+    })
+  })
+})
+
+describe("CreateTriggerDialog provider picker", () => {
+  it("describes object storage without a provider and starts a new source with the provider picker", async () => {
+    const user = userEvent.setup()
+    jest
+      .mocked(triggersListEventSources)
+      .mockResolvedValue({ items: [], has_more: false })
+
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
+
+    const kind = screen.getByRole("button", { name: /Object storage/ })
+    expect(kind).toHaveTextContent(
+      "Runs when a new object lands in a storage bucket."
+    )
+    expect(kind).not.toHaveTextContent(/S3|SNS/)
+    await user.click(kind)
+
+    expect(
+      await screen.findByRole("combobox", { name: "Provider" })
+    ).toHaveTextContent("Amazon S3 (via SNS)")
+    expect(screen.getByText("New source")).toBeInTheDocument()
+    expect(screen.getByLabelText("SNS topic ARN")).toBeInTheDocument()
+  })
+})
+
+describe("EventSourcePanel for an unknown provider", () => {
+  it("still shows the source, with its raw kind", async () => {
+    jest.mocked(triggersGetTrigger).mockResolvedValue(TRIGGER)
+    jest.mocked(triggersGetEventSource).mockResolvedValue({
+      ...SOURCE,
+      kind: "gcs_pubsub",
+    } as unknown as EventSourceRead)
+
+    renderWithClient(<TriggerDetail triggerId="trigger-1" />)
+
+    expect(
+      await screen.findByText(/can't show setup steps for gcs_pubsub sources/)
+    ).toBeInTheDocument()
+    expect(screen.getByText("gcs_pubsub")).toBeInTheDocument()
   })
 })
 
