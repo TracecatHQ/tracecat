@@ -250,8 +250,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     canViewServiceAccounts === true ||
     canViewInbox === true ||
     canOpenGitSync === true ||
-    canViewCases === true ||
-    canViewTriggers === true
+    canViewCases === true
   const {
     hasEntitlement,
     hasEntitlementData,
@@ -263,11 +262,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const workspaceChatEnabled = hasEntitlement("workspace_chat")
   const serviceAccountsEnabled = hasEntitlement("service_accounts")
   const gitSyncEnabled = hasEntitlement("git_sync")
-  // Hidden without the entitlement: every trigger route refuses the request.
-  const triggersVisible =
-    canViewTriggers === true &&
-    entitlementsKnown &&
-    hasEntitlement("object_triggers")
+  // Open to every plan; the tab checks each trigger kind's entitlement itself.
+  const triggersVisible = canViewTriggers === true
   // Case views are an enterprise feature (case add-ons).
   const caseViews = useCaseViews(
     workspaceId,
