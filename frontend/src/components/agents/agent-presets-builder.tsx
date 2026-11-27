@@ -20,7 +20,7 @@ import {
   X,
 } from "lucide-react"
 import Link from "next/link"
-import { useRouter, useSearchParams } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
   type FormEvent,
   type ReactNode,
@@ -701,19 +701,29 @@ function AgentPresetChatPane({
     chats?.find((candidate) => !candidate.is_readonly)?.id ?? chats?.[0]?.id
   // ?session= opens one session, such as a trigger's run (Recent runs links).
   // Only a UUID: it becomes an API path segment.
-  // Picking a chat or a history scope leaves the linked session behind.
-  const sessionParam = useSearchParams().get(AGENT_PRESET_SESSION_QUERY_PARAM)
-  const [linkDismissed, setLinkDismissed] = useState(false)
+  // Picking a chat or a history scope leaves the linked session behind, in
+  // the URL too, so remounting the pane doesn't bring it back.
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const sessionParam = searchParams.get(AGENT_PRESET_SESSION_QUERY_PARAM)
   const linkedChatId =
-    !linkDismissed && sessionParam && SESSION_ID_PATTERN.test(sessionParam)
-      ? sessionParam
-      : null
+    sessionParam && SESSION_ID_PATTERN.test(sessionParam) ? sessionParam : null
   const activeChatId = selectedChatId ?? linkedChatId ?? latestChatId
+  const dropLinkedSession = () => {
+    if (sessionParam === null) {
+      return
+    }
+    const params = new URLSearchParams(searchParams.toString())
+    params.delete(AGENT_PRESET_SESSION_QUERY_PARAM)
+    const query = params.toString()
+    router.replace(query ? `${pathname}?${query}` : pathname)
+  }
 
   const handleHistoryScopeChange = (nextScope: ChatHistoryScope) => {
     setHistoryScope(nextScope)
     setSelectedChatId(null)
-    setLinkDismissed(true)
+    dropLinkedSession()
   }
 
   const { createChat, createChatPending } = useCreateChat(workspaceId)
@@ -974,7 +984,7 @@ function AgentPresetChatPane({
                 selectedChatId={activeChatId ?? undefined}
                 onSelectChat={(chatId) => {
                   setSelectedChatId(chatId)
-                  setLinkDismissed(true)
+                  dropLinkedSession()
                 }}
                 workspaceId={workspaceId}
                 scope={historyScope}

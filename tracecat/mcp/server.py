@@ -7157,9 +7157,10 @@ async def list_trigger_runs(
 
     Covers runs started since the `TracecatTriggerId` link shipped, by object
     storage triggers and by webhooks and case triggers listed in the Triggers
-    tab. Schedules are not linked yet. Needs `trigger:read`;
-    workflow runs also need `workflow:read` and agent runs `agent:read`; with
-    only one, only that kind is listed.
+    tab. Schedules are not linked yet. Needs `trigger:read`
+    and the trigger kind's read scope (`workflow:read` for webhooks and case
+    triggers); workflow runs also need `workflow:read` and agent runs
+    `agent:read`; with only one, only that kind is listed.
 
     Args:
         workspace_id: The workspace ID.
@@ -7200,9 +7201,10 @@ async def list_trigger_stopped_events(
 
     An `object_storage` trigger's event is retried with backoff when a target
     fails to start, and stops after 8 attempts. Other kinds list none. The
-    event itself is not returned. An event is shared by every trigger on its
-    source, so an error can name another trigger's targets. Needs
-    `trigger:read`, `workflow:read` and `agent:read`.
+    event itself is not returned. An event is shared by every trigger on the
+    same source whose key prefix matches it, so an error can name another
+    such trigger's targets. Needs `trigger:read`, `workflow:read` and
+    `agent:read`.
 
     Args:
         workspace_id: The workspace ID.
@@ -7235,8 +7237,10 @@ async def get_trigger_run_origin(
 ) -> TriggerRunOrigin | None:
     """Get the trigger that started a workflow run or an agent session.
 
-    Needs `trigger:read`. Give exactly one of `wf_exec_id` (also needs
-    `workflow:read`) and `session_id` (also needs `agent:read`). A child run answers with its root run's trigger.
+    Needs `trigger:read`, and the trigger kind's read scope to name it
+    (`schedule:read` for schedules, `workflow:read` for webhooks and case
+    triggers). Give exactly one of `wf_exec_id` (also needs `workflow:read`)
+    and `session_id` (also needs `agent:read`). A child run answers with its root run's trigger.
 
     Args:
         workspace_id: The workspace ID.
