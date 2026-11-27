@@ -185,7 +185,7 @@ async def test_both_entry_points_write_the_same_rows(
     )
     from_triggers = await triggers.create_trigger(
         TriggerCreate(
-            name="Nightly report schedule",
+            name="Nightly report schedule (0 9 * * *)",
             status=TriggerStatus.OFFLINE,
             config=_config(workflow, every=None, cron="0 9 * * *"),
         )
@@ -213,7 +213,7 @@ async def test_both_entry_points_write_the_same_rows(
     assert shapes[0] == shapes[1]
     assert shapes[0] == (
         "schedule",
-        "Nightly report schedule",
+        "Nightly report schedule (0 9 * * *)",
         "offline",
         "workflow",
         workflow.id,
@@ -281,6 +281,24 @@ def test_default_name_comes_from_the_workflow_title() -> None:
     assert default_trigger_name("  ") == "Schedule"
     assert default_trigger_name(None) == "Schedule"
     assert len(default_trigger_name("x" * 400)) == 255
+
+
+def test_default_names_tell_a_workflows_schedules_apart() -> None:
+    """Staging QA: two schedules of one workflow got the same name."""
+    assert (
+        default_trigger_name("Nightly report", cron=" 0 9 * * * ")
+        == "Nightly report schedule (0 9 * * *)"
+    )
+    assert (
+        default_trigger_name("Sync", every=timedelta(days=1, hours=2, minutes=30))
+        == "Sync schedule (every 1d 2h 30m)"
+    )
+    assert default_trigger_name(None, every=timedelta(minutes=5)) == (
+        "Schedule (every 5m)"
+    )
+    long = default_trigger_name("x" * 400, cron="*/5 * * * *")
+    assert len(long) == 255
+    assert long.endswith(" schedule (*/5 * * * *)")
 
 
 # ----- Status and settings stay together -----
@@ -527,7 +545,7 @@ async def test_updating_a_schedule_without_a_trigger_adopts_it(
     trigger, [binding], _ = await _rows(session, updated.trigger_id)
     assert (trigger.kind, trigger.name, trigger.status) == (
         "schedule",
-        "Nightly report schedule",
+        "Nightly report schedule (every 1h)",
         "offline",
     )
     assert binding.workflow_id == workflow.id
