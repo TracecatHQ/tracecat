@@ -1,7 +1,17 @@
 "use client"
 
-import { type FormEvent, useEffect, useState } from "react"
+import { type FormEvent, type MouseEvent, useEffect, useState } from "react"
 import { type OrgMemberRead, organizationChangeOrgMemberEmail } from "@/client"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -45,7 +55,7 @@ interface ChangeMemberEmailDialogProps {
  * Lets an organization admin change a member's sign-in email.
  *
  * The new email takes effect immediately and signs the member out of every
- * session, so the admin confirms before saving.
+ * session, so the admin confirms in an alert dialog before saving.
  */
 export function ChangeMemberEmailDialog({
   member,
@@ -99,14 +109,17 @@ export function ChangeMemberEmailDialog({
   const error = validateEmail(email, member.email)
   const showError = touched && error !== null
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setTouched(true)
-    if (error !== null || !member?.user_id) {
-      return
-    }
-    if (!confirming) {
+    if (error === null && member?.user_id) {
       setConfirming(true)
+    }
+  }
+
+  async function handleConfirm(event: MouseEvent<HTMLButtonElement>) {
+    event.preventDefault()
+    if (!member?.user_id) {
       return
     }
     await mutateAsync({ userId: member.user_id, email: email.trim() })
@@ -127,7 +140,12 @@ export function ChangeMemberEmailDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
-          <form id={FORM_ID} onSubmit={handleSubmit} className="space-y-4">
+          <form
+            id={FORM_ID}
+            noValidate
+            onSubmit={handleSubmit}
+            className="space-y-4"
+          >
             <div className="space-y-2">
               <Label htmlFor="member-new-email">New email</Label>
               <Input
@@ -136,7 +154,7 @@ export function ChangeMemberEmailDialog({
                 autoComplete="off"
                 placeholder="name@example.com"
                 value={email}
-                disabled={confirming || isPending}
+                disabled={isPending}
                 aria-invalid={showError}
                 aria-describedby={
                   showError ? "member-new-email-error" : undefined
@@ -153,32 +171,37 @@ export function ChangeMemberEmailDialog({
                 </p>
               )}
             </div>
-            {confirming && (
-              <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-                {member.email} will be signed out of all sessions and must sign
-                in again with {email.trim()}. The new address isn&apos;t
-                verified, so make sure it belongs to them.
-              </div>
-            )}
           </form>
         </DialogBody>
         <DialogFooter>
-          {confirming && (
-            <Button
-              size="sm"
-              variant="outline"
-              type="button"
-              disabled={isPending}
-              onClick={() => setConfirming(false)}
-            >
-              Back
-            </Button>
-          )}
           <Button size="sm" type="submit" form={FORM_ID} disabled={isPending}>
-            {confirming ? "Change email and sign out" : "Continue"}
+            Change email and sign out
           </Button>
         </DialogFooter>
       </DialogContent>
+      <AlertDialog
+        open={confirming}
+        onOpenChange={(next) => {
+          if (!isPending) setConfirming(next)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Change email and sign out?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {member.email} will be signed out of all sessions and must sign in
+              again with {email.trim()}. The new email isn&apos;t verified, so
+              make sure it belongs to them.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={isPending} onClick={handleConfirm}>
+              Change email
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   )
 }
