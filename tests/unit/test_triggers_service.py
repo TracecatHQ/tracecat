@@ -233,6 +233,11 @@ def test_bucket_pin_takes_a_name_or_arn(given: str | None, saved: str | None) ->
         "arn:aws:s3:us-east-1:123456789012:my-bucket",
         "arn:aws:sns:us-east-1:123456789012:my-bucket",
         "arn:aws:s3:::Bad_Bucket",
+        "a..b",
+        "192.168.5.4",
+        "xn--bucket",
+        "my-bucket-s3alias",
+        "my-bucket--ol-s3",
     ],
 )
 def test_bucket_pin_refuses_what_is_not_a_bucket(given: str) -> None:
@@ -757,6 +762,14 @@ async def test_turning_on_or_repointing_what_runs_a_target_needs_its_scope(
         )
     # Saving the config unchanged does not.
     await configurer.update_event_source(source.id, EventSourceUpdate(config=_sns()))
+    await service.update_event_source(
+        source.id, EventSourceUpdate(config=_sns(bucket="my-bucket"))
+    )
+    with pytest.raises(ScopeDeniedError):
+        await configurer.update_event_source(
+            source.id, EventSourceUpdate(config=_sns())
+        )
+    await service.update_event_source(source.id, EventSourceUpdate(config=_sns()))
     await service.update_event_source(
         source.id, EventSourceUpdate(status=TriggerStatus.OFFLINE)
     )

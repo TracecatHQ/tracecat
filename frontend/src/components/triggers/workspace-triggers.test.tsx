@@ -634,6 +634,8 @@ describe("TriggerDetail", () => {
     ).toBeInTheDocument()
 
     jest.mocked(triggersUpdateEventSource).mockResolvedValue(SOURCE)
+    // The refetch after the clear returns the unpinned source.
+    jest.mocked(triggersGetEventSource).mockResolvedValue(SOURCE)
     await user.clear(screen.getByLabelText("Pinned S3 bucket"))
     await user.click(screen.getByRole("button", { name: "Clear" }))
 
@@ -650,6 +652,12 @@ describe("TriggerDetail", () => {
         })
       )
     )
+    expect(
+      await screen.findByText(
+        "Every bucket that publishes to the topic is accepted."
+      )
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText("Pinned S3 bucket")).toHaveValue("")
   })
 
   it("shows the bucket pin read-only without trigger:update", async () => {

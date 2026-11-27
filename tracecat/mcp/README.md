@@ -165,8 +165,9 @@ for callers without `trigger:update`.
 An `aws_sns` source config may carry `bucket` (a bucket name or ARN, stored as
 the name): the source then refuses events for any other bucket. Leave it out of
 an update's config to clear it; changing it does not reset the subscription.
-The pin reads the bucket named in each message, so it adds to the topic policy's
-`aws:SourceArn` and `aws:SourceAccount` conditions and does not replace them.
+The pin checks only the bucket name written in each message; it is not an
+ownership check. The topic policy's `aws:SourceArn` and `aws:SourceAccount`
+conditions remain the ownership controls.
 
 - `list_event_sources(workspace_id, limit=..., cursor=None)`
 - `get_event_source(workspace_id, source_id)`

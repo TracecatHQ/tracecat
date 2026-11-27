@@ -179,8 +179,9 @@ function SnsSetup({ workspaceId, source }: ProviderSetupProps) {
   return (
     <div className="space-y-6">
       <SnsBucketPin
-        // Remount on a new saved value so the field starts from it.
-        key={source.config.bucket ?? ""}
+        // Remount on another source or a new saved value, so the field
+        // starts from what is saved.
+        key={`${source.id}:${source.config.bucket ?? ""}`}
         workspaceId={workspaceId}
         source={source}
       />

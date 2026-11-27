@@ -90,6 +90,10 @@ Instruction = Annotated[
 # General purpose bucket names. Older buckets in us-east-1 may break these
 # rules; they cannot be pinned.
 _S3_BUCKET_NAME = re.compile(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]")
+_IP_ADDRESS = re.compile(r"\d{1,3}(\.\d{1,3}){3}")
+# Prefixes and suffixes S3 reserves for other resource types.
+_S3_RESERVED_PREFIXES = ("xn--", "sthree-", "amzn-s3-demo-")
+_S3_RESERVED_SUFFIXES = ("-s3alias", "--ol-s3", ".mrap", "--x-s3", "--table-s3")
 _S3_BUCKET_ARN = re.compile(
     r"arn:(?P<partition>aws(?:-cn|-us-gov)?):s3:::(?P<name>[^/:]+)"
 )
@@ -124,10 +128,17 @@ def _normalize_s3_bucket(value: str, *, topic_arn: str | None) -> str | None:
                 "The bucket ARN is in another AWS partition than the topic"
             )
         name = arn.group("name")
-    if not _S3_BUCKET_NAME.fullmatch(name):
+    if (
+        not _S3_BUCKET_NAME.fullmatch(name)
+        or ".." in name
+        or _IP_ADDRESS.fullmatch(name)
+        or name.startswith(_S3_RESERVED_PREFIXES)
+        or name.endswith(_S3_RESERVED_SUFFIXES)
+    ):
         raise ValueError(
             "Not an S3 bucket name: 3 to 63 lowercase letters, digits, dots or"
-            " hyphens, starting and ending with a letter or digit"
+            " hyphens, starting and ending with a letter or digit, not shaped"
+            " like an IP address, and without a prefix or suffix S3 reserves"
         )
     return name
 
