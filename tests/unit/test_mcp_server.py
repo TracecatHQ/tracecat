@@ -9,7 +9,7 @@ import uuid
 from collections.abc import Callable, Coroutine, Sequence
 from datetime import UTC, datetime, timedelta
 from types import ModuleType, SimpleNamespace
-from typing import Any, cast
+from typing import Any, Literal, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -59,7 +59,7 @@ from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseFieldReadType, CaseVerdict, CaseViewVisibility
 from tracecat.cases.schemas import CaseFieldRead
 from tracecat.cases.search_schemas import CaseCriteria, CaseQuery, CaseSearchRequest
-from tracecat.db.models import Schedule, Workflow
+from tracecat.db.models import CaseTrigger, Schedule, Workflow, WorkflowDefinition
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.dsl.schemas import ROOT_STREAM, ActionStatement, StreamID
 from tracecat.exceptions import (
@@ -5167,6 +5167,36 @@ async def test_a_tool_refusal_reads_as_itself_not_an_internal_error() -> None:
 
     with pytest.raises(McpError, match="Internal error: boom"):
         await mw.on_message(ctx, _fail)
+
+
+@pytest.mark.anyio
+async def test_a_tool_refusal_logs_a_warning_and_a_fault_an_error() -> None:
+    """A refusal is an expected answer: WARNING. A server fault stays ERROR.
+    Both are counted as before."""
+    logged = MagicMock()
+    mw = MCPErrorHandlingMiddleware(
+        logger=logged, include_traceback=False, transform_errors=True
+    )
+    ctx = _make_tool_context()
+
+    async def _refuse(context: MiddlewareContext[CallToolRequestParams]) -> Any:
+        raise ToolError("refused")
+
+    async def _fail(context: MiddlewareContext[CallToolRequestParams]) -> Any:
+        raise RuntimeError("boom")
+
+    with pytest.raises(ToolError):
+        await mw.on_message(ctx, _refuse)
+    with pytest.raises(McpError):
+        await mw.on_message(ctx, _fail)
+
+    method = ctx.method or "unknown"
+    logged.warning.assert_called_once_with(f"Error in {method}: ToolError: refused")
+    logged.error.assert_called_once_with(f"Error in {method}: RuntimeError: boom")
+    assert mw.get_error_stats() == {
+        f"ToolError:{method}": 1,
+        f"RuntimeError:{method}": 1,
+    }
 
 
 @pytest.mark.anyio
@@ -11218,3 +11248,174 @@ async def test_get_concurrency_limits_requires_organization_context(monkeypatch)
 
     with pytest.raises(ToolError, match="organization context"):
         await _tool(mcp_server.get_concurrency_limits)()
+
+
+async def _seed_case_trigger(
+    session: AsyncSession,
+    role: Role,
+    *,
+    status: Literal["online", "offline"],
+    event_types: list[str],
+    tag_filters: list[str],
+) -> uuid.UUID:
+    """A published workflow with a case trigger holding the given settings.
+
+    Returns the workflow ID: the tools commit on this session, which expires
+    the ORM objects.
+    """
+    workflow = Workflow(
+        title="Case trigger MCP update",
+        description="MCP update_case_trigger test",
+        status="offline",
+        workspace_id=role.workspace_id,
+        version=1,
+    )
+    session.add(workflow)
+    await session.flush()
+    definition = mcp_server.DSLInput.model_validate(
+        {
+            "title": "Case trigger MCP update",
+            "description": "MCP update_case_trigger test",
+            "entrypoint": {"ref": "start"},
+            "actions": [
+                {
+                    "ref": "start",
+                    "action": "core.transform.reshape",
+                    "args": {"value": "ok"},
+                }
+            ],
+        }
+    )
+    session.add(
+        WorkflowDefinition(
+            workspace_id=role.workspace_id,
+            workflow_id=workflow.id,
+            version=1,
+            content=definition.model_dump(exclude_unset=True),
+        )
+    )
+    session.add(
+        CaseTrigger(
+            workspace_id=role.workspace_id,
+            workflow_id=workflow.id,
+            status=status,
+            event_types=event_types,
+            tag_filters=tag_filters,
+        )
+    )
+    workflow_id = workflow.id
+    await session.commit()
+    return workflow_id
+
+
+def _patch_case_triggers_session(
+    monkeypatch: pytest.MonkeyPatch, session: AsyncSession, role: Role
+) -> None:
+    """Run the case trigger tools on the test session as ``role``."""
+
+    async def _resolve(workspace_id):
+        return workspace_id, role
+
+    def _with_session(*, role: Role):
+        return _AsyncContext(mcp_server.CaseTriggersService(session, role=role))
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server.CaseTriggersService, "with_session", _with_session)
+
+
+async def _saved_case_trigger(
+    session: AsyncSession, workflow_id: uuid.UUID
+) -> CaseTrigger:
+    session.expire_all()
+    return (
+        await session.execute(
+            select(CaseTrigger).where(CaseTrigger.workflow_id == workflow_id)
+        )
+    ).scalar_one()
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+@pytest.mark.parametrize(
+    ("before", "after"), [("online", "offline"), ("offline", "online")]
+)
+async def test_update_case_trigger_status_only_keeps_settings(
+    session: AsyncSession,
+    svc_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+    before: Literal["online", "offline"],
+    after: Literal["online", "offline"],
+) -> None:
+    """A status-only call turns the trigger on or off and keeps its events
+    and tag filters (it used to clear them, and refuse turning on)."""
+    workflow_id = await _seed_case_trigger(
+        session,
+        svc_role,
+        status=before,
+        event_types=["case_closed", "case_created"],
+        tag_filters=["phishing"],
+    )
+    _patch_case_triggers_session(monkeypatch, session, svc_role)
+
+    await _tool(mcp_server.update_case_trigger)(
+        workspace_id=str(svc_role.workspace_id),
+        workflow_id=str(workflow_id),
+        status=after,
+    )
+
+    saved = await _saved_case_trigger(session, workflow_id)
+    assert saved.status == after
+    assert sorted(saved.event_types) == ["case_closed", "case_created"]
+    assert saved.tag_filters == ["phishing"]
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_update_case_trigger_empty_lists_clear_settings(
+    session: AsyncSession, svc_role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An explicit empty list still clears, and leaves the other field alone."""
+    workflow_id = await _seed_case_trigger(
+        session,
+        svc_role,
+        status="offline",
+        event_types=["case_closed"],
+        tag_filters=["phishing"],
+    )
+    _patch_case_triggers_session(monkeypatch, session, svc_role)
+    update = _tool(mcp_server.update_case_trigger)
+    workspace_id = str(svc_role.workspace_id)
+
+    await update(
+        workspace_id=workspace_id, workflow_id=str(workflow_id), tag_filters=[]
+    )
+
+    saved = await _saved_case_trigger(session, workflow_id)
+    assert saved.tag_filters == []
+    assert saved.event_types == ["case_closed"]
+
+    await update(
+        workspace_id=workspace_id, workflow_id=str(workflow_id), event_types=[]
+    )
+
+    saved = await _saved_case_trigger(session, workflow_id)
+    assert saved.event_types == []
+    assert saved.status == "offline"
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_update_case_trigger_online_without_events_is_refused(
+    session: AsyncSession, svc_role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workflow_id = await _seed_case_trigger(
+        session, svc_role, status="offline", event_types=[], tag_filters=[]
+    )
+    _patch_case_triggers_session(monkeypatch, session, svc_role)
+
+    with pytest.raises(ToolError, match="event_types must be non-empty"):
+        await _tool(mcp_server.update_case_trigger)(
+            workspace_id=str(svc_role.workspace_id),
+            workflow_id=str(workflow_id),
+            status="online",
+        )

@@ -48,9 +48,27 @@ class MCPErrorHandlingMiddleware(ErrorHandlingMiddleware):
     A ``ToolError`` is a tool's own answer to the caller, such as a refused
     request, and its message is written for them. The base class would wrap
     it as "Internal error: ...". Passed through, the MCP server returns it as
-    a tool error with the message as is. Logging and error counts stay the
-    base class's.
+    a tool error with the message as is. It is logged at WARNING, not ERROR:
+    it is an expected answer, not a server fault. Error counts and the error
+    callback stay the base class's.
     """
+
+    # Overrides the base class's hook, which ``on_message`` calls for every
+    # error it catches before transforming it.
+    def _log_error(self, error: Exception, context: MiddlewareContext) -> None:
+        if not isinstance(error, ToolError):
+            super()._log_error(error, context)
+            return
+        error_type = type(error).__name__
+        method = context.method or "unknown"
+        error_key = f"{error_type}:{method}"
+        self.error_counts[error_key] = self.error_counts.get(error_key, 0) + 1
+        self.logger.warning(f"Error in {method}: {error_type}: {error!s}")
+        if self.error_callback:
+            try:
+                self.error_callback(error, context)
+            except Exception as callback_error:
+                self.logger.error(f"Error in error callback: {callback_error}")
 
     # Overrides the base class's hook, which ``on_message`` calls for every
     # error it catches.

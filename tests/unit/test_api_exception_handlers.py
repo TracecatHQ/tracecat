@@ -454,8 +454,11 @@ def test_validation_errors_leave_the_rejected_input_out_of_logs(
     [error] = response.json()["detail"]
     assert error["msg"] == "Value error, Image content is not a valid png file"
     assert error["loc"][-1] == "image"
-    logged.error.assert_called_once()
-    assert "A" * 100 not in str(logged.error.call_args)
+    # A client's bad request is a WARNING on the API. A gateway 422 is from
+    # the executor, so it is our own bug and stays an ERROR.
+    log_call = logged.error if gateway else logged.warning
+    log_call.assert_called_once()
+    assert "A" * 100 not in str(log_call.call_args)
     # The executor keeps a gateway error with the run, so it is left out there too.
     assert ("input" in error) is not gateway
 

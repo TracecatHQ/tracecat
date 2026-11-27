@@ -6674,12 +6674,9 @@ async def get_case_trigger(
 # than interpolated here - that keeps this the single source of the prose.
 _UPDATE_CASE_TRIGGER_DESCRIPTION = """Update an existing case trigger for a workflow.
 
-This tool replaces the whole trigger: every call sends `status`, `event_types`
-and `tag_filters`, so pass all three. Omitting `event_types` or `tag_filters`
-clears them, and omitting `status` fails the write outright because the column
-is non-null. Call `get_case_trigger` first and send its current values back,
-changing only what you mean to change. Patching `/case_trigger` through
-`edit_workflow` is partial, unlike this tool.
+Only the arguments you pass change; the rest keep their saved values. A
+status-only call turns the trigger on or off and keeps its `event_types` and
+`tag_filters`. Pass an empty list to clear `event_types` or `tag_filters`.
 
 Valid `event_types` values: {_CASE_EVENT_TYPE_VALUES_CSV}.
 
@@ -6687,15 +6684,17 @@ Args:
     workspace_id: The workspace ID.
     workflow_id: The workflow ID.
     status: Enum string: `"online"` or `"offline"`. `"online"` is rejected
-        unless `event_types` is non-empty and the workflow has a runnable
-        published definition, so publish before enabling.
+        unless the trigger's event types (saved or passed) are non-empty and
+        the workflow has a runnable published definition, so publish before
+        enabling. Omit to leave unchanged.
     event_types: List of case event type strings using underscores. The
-        valid values are listed above.
+        valid values are listed above. Omit to leave unchanged.
     tag_filters: List of case tag *refs* (slugs), e.g. `["malware","phishing"]`,
         not tag names or UUIDs. Refs are OR-matched: the trigger fires when the
         case carries any listed tag, or for `tag_added`/`tag_removed` when the
         added or removed tag is listed. An empty list means no tag filtering.
-        Refs that do not exist yet are created automatically.
+        Refs that do not exist yet are created automatically. Omit to leave
+        unchanged.
 
 Returns a confirmation message.
 """
@@ -6721,11 +6720,16 @@ async def update_case_trigger(
         if status is not None and status not in {"online", "offline"}:
             raise ToolError("status must be 'online' or 'offline'")
 
-        update_params = CaseTriggerUpdate(
-            status=cast(Literal["online", "offline"] | None, status),
-            event_types=event_types,
-            tag_filters=tag_filters,
-        )
+        # Only the arguments given count as set: the service reads the update
+        # with `exclude_unset`, so a `None` default would clear the field.
+        update_kwargs: dict[str, Any] = {}
+        if status is not None:
+            update_kwargs["status"] = status
+        if event_types is not None:
+            update_kwargs["event_types"] = event_types
+        if tag_filters is not None:
+            update_kwargs["tag_filters"] = tag_filters
+        update_params = CaseTriggerUpdate(**update_kwargs)
 
         async with CaseTriggersService.with_session(role=role) as svc:
             await svc.update_case_trigger(
@@ -6738,7 +6742,7 @@ async def update_case_trigger(
         raise ToolError(str(e)) from e
     except ToolError:
         raise
-    except ValueError as e:
+    except (ValueError, TracecatValidationError) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to update case trigger", error=str(e))

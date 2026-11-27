@@ -325,3 +325,33 @@ describe("Case trigger triggers", () => {
     )
   })
 })
+
+describe("CreateTriggerDialog for a case trigger already a trigger", () => {
+  it("marks workflows whose case trigger is already a trigger", async () => {
+    const user = userEvent.setup()
+    workflows = [
+      { id: WORKFLOW_ID, title: "Listed", version: 1 },
+      { id: "wf_closed", title: "Closed cases", version: 1 },
+    ]
+    jest.mocked(triggersListTriggers).mockResolvedValue({
+      items: [CASE_TRIGGER],
+      has_more: false,
+      locked: [],
+    })
+
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
+
+    await user.click(screen.getByRole("button", { name: /Case event/ }))
+    await user.click(screen.getByRole("combobox", { name: "Workflow" }))
+
+    expect(
+      await screen.findByRole("option", { name: /Listed.*Already a trigger/ })
+    ).toHaveAttribute("aria-disabled", "true")
+    expect(
+      screen.getByRole("option", { name: "Closed cases" })
+    ).not.toHaveAttribute("aria-disabled")
+    expect(triggersListTriggers).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "case_trigger" })
+    )
+  })
+})
