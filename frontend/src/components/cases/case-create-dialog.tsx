@@ -4,13 +4,21 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useRouter } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import type { CasePriority, CaseRead, CaseSeverity, CaseStatus } from "@/client"
+import type {
+  CasePriority,
+  CaseRead,
+  CaseSeverity,
+  CaseStatus,
+  CaseVerdict,
+} from "@/client"
 import { ApiError } from "@/client"
 import {
   PRIORITIES,
   SEVERITIES,
   STATUSES,
+  VERDICTS,
 } from "@/components/cases/case-categories"
+import { NO_VERDICT } from "@/components/cases/case-panel-selectors"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -51,6 +59,7 @@ const createCaseSchema = z.object({
   status: z.string() as z.ZodType<CaseStatus>,
   priority: z.string() as z.ZodType<CasePriority>,
   severity: z.string() as z.ZodType<CaseSeverity>,
+  verdict: z.string() as z.ZodType<CaseVerdict | typeof NO_VERDICT>,
   assignee_id: z.string().optional(),
 })
 
@@ -75,6 +84,7 @@ export function CreateCaseDialog({
       status: "new",
       priority: "medium",
       severity: "medium",
+      verdict: NO_VERDICT,
     },
     mode: "onSubmit",
   })
@@ -87,6 +97,7 @@ export function CreateCaseDialog({
         status: data.status,
         priority: data.priority,
         severity: data.severity,
+        verdict: data.verdict === NO_VERDICT ? null : data.verdict,
         assignee_id: data.assignee_id || null,
       })
 
@@ -168,7 +179,7 @@ export function CreateCaseDialog({
                 )}
               />
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="status"
@@ -260,6 +271,45 @@ export function CreateCaseDialog({
                                 <div className="flex items-center gap-2">
                                   <severity.icon className="h-3 w-3" />
                                   {severity.label}
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="verdict"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Verdict</FormLabel>
+                      <FormControl>
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select verdict" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={NO_VERDICT}>
+                              <span className="text-muted-foreground">
+                                No verdict
+                              </span>
+                            </SelectItem>
+                            {Object.values(VERDICTS).map((verdict) => (
+                              <SelectItem
+                                key={verdict.value}
+                                value={verdict.value}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <verdict.icon className="h-3 w-3" />
+                                  {verdict.label}
                                 </div>
                               </SelectItem>
                             ))}

@@ -5,7 +5,7 @@ from uuid import UUID
 
 import sqlalchemy as sa
 
-from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus, CaseVerdict
 from tracecat.cases.query import CaseFieldResolver
 from tracecat.cases.search_schemas import CaseFilterField, CaseFilterMetadata
 from tracecat.exceptions import TracecatValidationError
@@ -28,6 +28,7 @@ def case_filter_metadata(
         "status",
         "priority",
         "severity",
+        "verdict",
         "assignee_id",
         "created_by",
         "tags",
@@ -44,11 +45,13 @@ def case_filter_metadata(
         "status": [item.value for item in CaseStatus],
         "priority": [item.value for item in CasePriority],
         "severity": [item.value for item in CaseSeverity],
+        "verdict": [item.value for item in CaseVerdict],
     }
     labels = {
         "status": "Status",
         "priority": "Priority",
         "severity": "Severity",
+        "verdict": "Verdict",
         "assignee_id": "Assignee",
         "created_by": "Created by",
         "tags": "Tags",

@@ -86,6 +86,16 @@ CaseSeverity = Literal[
     "other",
 ]
 
+CaseVerdict = Literal[
+    "unknown",
+    "false_positive",
+    "true_positive",
+    "disregard",
+    "suspicious",
+    "benign",
+    "test",
+]
+
 CaseStatus = Literal[
     "unknown",
     "new",
@@ -106,6 +116,7 @@ class CaseData:
     status: CaseStatus
     priority: CasePriority
     severity: CaseSeverity
+    verdict: CaseVerdict | None = None
     description: str | None = None
     assignee_id: str | None = None
     created_at: str | None = None
@@ -123,6 +134,7 @@ class CaseData:
             status=data["status"],
             priority=data["priority"],
             severity=data["severity"],
+            verdict=data.get("verdict"),
             description=data.get("description"),
             assignee_id=str(data["assignee_id"]) if data.get("assignee_id") else None,
             created_at=data.get("created_at"),

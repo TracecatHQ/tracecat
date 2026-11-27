@@ -20,7 +20,13 @@ from tracecat.auth.types import Role
 from tracecat.cases import text_search_indexes
 from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
 from tracecat.cases.durations.schemas import CaseDurationRead
-from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus, CaseTaskStatus
+from tracecat.cases.enums import (
+    CasePriority,
+    CaseSeverity,
+    CaseStatus,
+    CaseTaskStatus,
+    CaseVerdict,
+)
 from tracecat.cases.exact_search import (
     MAX_CASE_NUMBER,
     SHORT_ID_PATTERN,
@@ -90,6 +96,7 @@ if TYPE_CHECKING:
 CASE_PRIORITY_SORT_ORDER = tuple(priority.value for priority in CasePriority)
 CASE_SEVERITY_SORT_ORDER = tuple(severity.value for severity in CaseSeverity)
 CASE_STATUS_SORT_ORDER = tuple(status.value for status in CaseStatus)
+CASE_VERDICT_SORT_ORDER = tuple(verdict.value for verdict in CaseVerdict)
 # Every short ID is this prefix and zero-padded digits, such as CASE-0042.
 _SHORT_ID_PREFIX = "CASE-"
 # A suffix of the prefix (or none), then digits: the tail of a short ID.
@@ -534,6 +541,7 @@ class CaseSearchService(BaseWorkspaceService):
                     Case.status,
                     Case.priority,
                     Case.severity,
+                    Case.verdict,
                     Case.assignee_id,
                     Case.parent_id,
                     raiseload=True,
@@ -599,6 +607,9 @@ class CaseSearchService(BaseWorkspaceService):
         elif sort_column == "severity":
             enum_sort_values = CASE_SEVERITY_SORT_ORDER
             sort_attr = _enum_sort_expr(Case.severity, enum_sort_values)
+        elif sort_column == "verdict":
+            enum_sort_values = CASE_VERDICT_SORT_ORDER
+            sort_attr = _enum_sort_expr(Case.verdict, enum_sort_values)
         elif sort_column == "status":
             enum_sort_values = CASE_STATUS_SORT_ORDER
             sort_attr = _enum_sort_expr(Case.status, enum_sort_values)
@@ -771,6 +782,7 @@ class CaseSearchService(BaseWorkspaceService):
                     status=case.status,
                     priority=case.priority,
                     severity=case.severity,
+                    verdict=case.verdict,
                     assignee=UserRead.model_validate(
                         case.assignee, from_attributes=True
                     )

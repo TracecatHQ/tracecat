@@ -2719,6 +2719,7 @@ export type CaseCreate = {
   status: CaseStatus
   priority: CasePriority
   severity: CaseSeverity
+  verdict?: CaseVerdict | null
   fields?: {
     [key: string]: unknown
   } | null
@@ -3159,6 +3160,7 @@ export type CaseEventRead =
   | StatusChangedEventRead
   | PriorityChangedEventRead
   | SeverityChangedEventRead
+  | VerdictChangedEventRead
   | FieldChangedEventRead
   | AssigneeChangedEventRead
   | AttachmentCreatedEventRead
@@ -3196,6 +3198,7 @@ export type CaseEventType =
   | "case_viewed"
   | "priority_changed"
   | "severity_changed"
+  | "verdict_changed"
   | "status_changed"
   | "fields_changed"
   | "assignee_changed"
@@ -3496,6 +3499,7 @@ export type CaseRead = {
   status: CaseStatus
   priority: CasePriority
   severity: CaseSeverity
+  verdict?: CaseVerdict | null
   description: string
   fields: Array<CaseFieldRead>
   assignee?: UserRead | null
@@ -3527,6 +3531,7 @@ export type CaseReadMinimal = {
   status: CaseStatus
   priority: CasePriority
   severity: CaseSeverity
+  verdict?: CaseVerdict | null
   assignee?: UserRead | null
   tags?: Array<CaseTagRead>
   dropdown_values: Array<CaseDropdownValueRead>
@@ -3582,6 +3587,7 @@ export type CaseSearchOrder =
   | "updated_at"
   | "priority"
   | "severity"
+  | "verdict"
   | "status"
   | "tasks"
   | "id"
@@ -3861,6 +3867,10 @@ export type CaseUpdate = {
   status?: CaseStatus | null
   priority?: CasePriority | null
   severity?: CaseSeverity | null
+  /**
+   * Set to null to clear the verdict.
+   */
+  verdict?: CaseVerdict | null
   fields?: {
     [key: string]: unknown
   } | null
@@ -3870,6 +3880,27 @@ export type CaseUpdate = {
     [key: string]: unknown
   } | null
 }
+
+/**
+ * Case verdict values aligned with OCSF Incident Finding verdict.
+ *
+ * Values:
+ * UNKNOWN (0): The type is unknown
+ * FALSE_POSITIVE (1): The incident is a false positive
+ * TRUE_POSITIVE (2): The incident is a true positive
+ * DISREGARD (3): The incident can be disregarded as it is unimportant, an error or accident
+ * SUSPICIOUS (4): The incident is suspicious
+ * BENIGN (5): The incident is benign
+ * TEST (6): The incident is a test
+ */
+export type CaseVerdict =
+  | "unknown"
+  | "false_positive"
+  | "true_positive"
+  | "disregard"
+  | "suspicious"
+  | "benign"
+  | "test"
 
 /**
  * Minimal user metadata for a case-version author.
@@ -14343,6 +14374,27 @@ export type VercelChatRequest = {
    * The page the chat is docked on. Only Workspace chat uses it.
    */
   page_context?: ChatPageContext | null
+}
+
+/**
+ * Event for when a case verdict is set, changed, or cleared.
+ */
+export type VerdictChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "verdict_changed"
+  old: CaseVerdict | null
+  new: CaseVerdict | null
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
 }
 
 /**

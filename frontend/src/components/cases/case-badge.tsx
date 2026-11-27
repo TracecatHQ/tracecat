@@ -1,12 +1,17 @@
 import { CircleIcon, type LucideIcon } from "lucide-react"
 import type { PropsWithChildren } from "react"
 import * as React from "react"
-import type { CasePriority, CaseSeverity, CaseStatus } from "@/client"
+import type {
+  CasePriority,
+  CaseSeverity,
+  CaseStatus,
+  CaseVerdict,
+} from "@/client"
 import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 
-type CaseBadgeValue = CaseStatus | CasePriority | CaseSeverity
+type CaseBadgeValue = CaseStatus | CasePriority | CaseSeverity | CaseVerdict
 export interface CaseBadgeProps<T extends CaseBadgeValue>
   extends PropsWithChildren<React.HTMLAttributes<HTMLElement>> {
   value: T

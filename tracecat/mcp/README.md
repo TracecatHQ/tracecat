@@ -184,6 +184,11 @@ binding offline instead. The API deletes triggers and bindings.
 
 - `search_cases(..., search_mode="full_text", cap_broad_matches=True, include_count=False)` ranks only the 10,000 newest matches when a keyword matches more cases than that, in relevance order. Broad keywords then return in milliseconds instead of seconds at large case counts, but older matches are left out. Pass `order_by` (for example `created_at`) to page through every match, and pass the flag again with each cursor. `include_count`'s `total_estimate` stays exact, so it still reads every match.
 
+## Case verdict
+
+- `create_case(..., verdict=None)` and `update_case(..., verdict=None)` take an OCSF Incident Finding verdict: `unknown`, `false_positive`, `true_positive`, `disregard`, `suspicious`, `benign`, or `test`. Cases have no verdict until one is set; pass `verdict="none"` to `update_case` to clear it.
+- `search_cases(filters=...)` and `order_by="verdict"` filter and sort by verdict. Use `{"field": "verdict", "op": "is_null"}` for cases without a verdict.
+
 ## Sub-case tools
 
 - `search_cases(..., parent_id=None, hierarchy="all")` lists a parent's sub-cases with `parent_id`, or only top-level cases with `hierarchy="top_level"`

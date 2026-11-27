@@ -15,6 +15,7 @@ from tracecat.cases.enums import (
     CaseSeverity,
     CaseStatus,
     CaseTaskStatus,
+    CaseVerdict,
 )
 from tracecat.cases.schemas import CaseCommentDeleteMode, CaseRef
 from tracecat.core.schemas import Schema
@@ -60,6 +61,12 @@ class SeverityChangedEvent(CaseEventBase):
     type: Literal[CaseEventType.SEVERITY_CHANGED] = CaseEventType.SEVERITY_CHANGED
     old: CaseSeverity
     new: CaseSeverity
+
+
+class VerdictChangedEvent(CaseEventBase):
+    type: Literal[CaseEventType.VERDICT_CHANGED] = CaseEventType.VERDICT_CHANGED
+    old: CaseVerdict | None
+    new: CaseVerdict | None
 
 
 class ClosedEvent(CaseEventBase):
@@ -211,6 +218,10 @@ class PriorityChangedEventRead(CaseEventReadBase, PriorityChangedEvent):
 
 class SeverityChangedEventRead(CaseEventReadBase, SeverityChangedEvent):
     """Event for when a case severity is changed."""
+
+
+class VerdictChangedEventRead(CaseEventReadBase, VerdictChangedEvent):
+    """Event for when a case verdict is set, changed, or cleared."""
 
 
 class FieldChangedEventRead(CaseEventReadBase, FieldsChangedEvent):
@@ -420,6 +431,7 @@ type CaseEventVariant = Annotated[
     | StatusChangedEvent
     | PriorityChangedEvent
     | SeverityChangedEvent
+    | VerdictChangedEvent
     | FieldsChangedEvent
     | AssigneeChangedEvent
     | AttachmentCreatedEvent
@@ -462,6 +474,7 @@ class CaseEventRead(RootModel):
         | StatusChangedEventRead
         | PriorityChangedEventRead
         | SeverityChangedEventRead
+        | VerdictChangedEventRead
         | FieldChangedEventRead
         | AssigneeChangedEventRead
         | AttachmentCreatedEventRead

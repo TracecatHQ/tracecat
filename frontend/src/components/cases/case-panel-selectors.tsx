@@ -1,6 +1,11 @@
 "use client"
 
-import { CircleIcon, CircleSlashIcon, ListIcon } from "lucide-react"
+import {
+  CircleDashedIcon,
+  CircleIcon,
+  CircleSlashIcon,
+  ListIcon,
+} from "lucide-react"
 import { useMemo, useState } from "react"
 import type {
   CaseDropdownDefinitionRead,
@@ -8,12 +13,14 @@ import type {
   CasePriority,
   CaseSeverity,
   CaseStatus,
+  CaseVerdict,
   WorkspaceMember,
 } from "@/client"
 import {
   PRIORITIES,
   SEVERITIES,
   STATUSES,
+  VERDICTS,
 } from "@/components/cases/case-categories"
 import { CaseValueDisplay } from "@/components/cases/case-value-display"
 import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
@@ -277,6 +284,107 @@ export function SeveritySelect({
               icon={props.icon}
               label={props.label}
               color={getSeverityColor(props.value)}
+            />
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
+function getVerdictColor(verdict: CaseVerdict): string {
+  switch (verdict) {
+    case "true_positive":
+      return "text-red-600"
+    case "suspicious":
+      return "text-orange-600"
+    case "false_positive":
+      return "text-green-600"
+    case "benign":
+      return "text-blue-600"
+    case "test":
+      return "text-violet-600"
+    default:
+      return "text-muted-foreground"
+  }
+}
+
+/** Select value used for a case without a verdict. */
+export const NO_VERDICT = "__NO_VERDICT__" as const
+
+interface VerdictSelectProps {
+  verdict: CaseVerdict | null | undefined
+  onValueChange: (verdict: CaseVerdict | null) => void
+  showLabel?: boolean
+  triggerClassName?: string
+  valueClassName?: string
+}
+
+/** Select for a case verdict, including a "No verdict" option that clears it. */
+export function VerdictSelect({
+  verdict,
+  onValueChange,
+  showLabel = true,
+  triggerClassName,
+  valueClassName,
+}: VerdictSelectProps) {
+  const currentVerdict = verdict ? VERDICTS[verdict] : null
+
+  function handleValueChange(value: string) {
+    onValueChange(value === NO_VERDICT ? null : (value as CaseVerdict))
+  }
+
+  return (
+    <Select value={verdict ?? NO_VERDICT} onValueChange={handleValueChange}>
+      <SelectTrigger
+        className={cn(
+          linearStyles.trigger.base,
+          linearStyles.trigger.hover,
+          triggerClassName
+        )}
+      >
+        <SelectValue>
+          <div
+            className={cn(
+              "flex items-center gap-2",
+              !showLabel && "w-full justify-end"
+            )}
+          >
+            {showLabel && (
+              <span className="text-xs text-muted-foreground">Verdict</span>
+            )}
+            {currentVerdict ? (
+              <CaseValueDisplay
+                icon={currentVerdict.icon}
+                label={currentVerdict.label}
+                color={getVerdictColor(currentVerdict.value)}
+                labelClassName={valueClassName}
+              />
+            ) : (
+              <CaseValueDisplay
+                icon={CircleDashedIcon}
+                label="No verdict"
+                color="text-muted-foreground"
+                labelClassName={valueClassName}
+              />
+            )}
+          </div>
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={NO_VERDICT}>
+          <CaseValueDisplay
+            icon={CircleDashedIcon}
+            label="No verdict"
+            color="text-muted-foreground"
+          />
+        </SelectItem>
+        {Object.values(VERDICTS).map((props) => (
+          <SelectItem key={props.value} value={props.value}>
+            <CaseValueDisplay
+              icon={props.icon}
+              label={props.label}
+              color={getVerdictColor(props.value)}
             />
           </SelectItem>
         ))}

@@ -30,6 +30,7 @@ from tracecat.cases.enums import (
     CaseSeverity,
     CaseStatus,
     CaseTaskStatus,
+    CaseVerdict,
     MentionTargetType,
 )
 from tracecat.cases.rows.schemas import CaseTableRowRead
@@ -153,6 +154,7 @@ class CaseReadMinimal(Schema):
     status: CaseStatus
     priority: CasePriority
     severity: CaseSeverity
+    verdict: CaseVerdict | None = None
     assignee: UserRead | None = None
     tags: list[CaseTagRead] = Field(default_factory=list)
     dropdown_values: list[CaseDropdownValueRead]
@@ -211,6 +213,7 @@ class CaseRead(Schema):
     status: CaseStatus
     priority: CasePriority
     severity: CaseSeverity
+    verdict: CaseVerdict | None = None
     description: str
     fields: list[CaseFieldRead]
     assignee: UserRead | None = None
@@ -228,6 +231,7 @@ class CaseCreate(Schema):
     status: CaseStatus
     priority: CasePriority
     severity: CaseSeverity
+    verdict: CaseVerdict | None = None
     fields: dict[str, Any] | None = None
     # Write payload field for persisted per-case dropdown selections.
     # Search filters use the `dropdown` query parameter in routes.
@@ -246,6 +250,9 @@ class CaseUpdate(Schema):
     status: CaseStatus | None = None
     priority: CasePriority | None = None
     severity: CaseSeverity | None = None
+    verdict: CaseVerdict | None = Field(
+        default=None, description="Set to null to clear the verdict."
+    )
     fields: dict[str, Any] | None = None
     # Same persisted write payload shape as create; values here set/clear
     # dropdown selections for this case.
@@ -607,6 +614,7 @@ class InternalCaseData(Schema):
     priority: CasePriority
     severity: CaseSeverity
     status: CaseStatus
+    verdict: CaseVerdict | None = None
     payload: dict[str, Any] | None
     assignee_id: uuid.UUID | None
     workspace_id: uuid.UUID

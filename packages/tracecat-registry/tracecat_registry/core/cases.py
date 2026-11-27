@@ -35,6 +35,16 @@ SeverityType = Literal[
     "other",
 ]
 
+VerdictType = Literal[
+    "unknown",
+    "false_positive",
+    "true_positive",
+    "disregard",
+    "suspicious",
+    "benign",
+    "test",
+]
+
 StatusType = Literal[
     "unknown",
     "new",
@@ -74,8 +84,8 @@ async def aggregate_cases(
             "\n"
             "Fields you can group by:\n"
             "\n"
-            "- Built-in fields: `status`, `priority`, `severity`, and `assignee_id` (a "
-            "user UUID).\n"
+            "- Built-in fields: `status`, `priority`, `severity`, `verdict`, and "
+            "`assignee_id` (a user UUID).\n"
             "- Custom fields: `fields.region`, replacing `region` with a defined field name. URL "
             "fields use the URL, not the display label. LONG_TEXT fields work as text. "
             "Other JSONB fields and MULTI_SELECT fields are unsupported.\n"
@@ -139,6 +149,9 @@ async def aggregate_cases(
             "- Priority, from lowest to highest: `low`, `medium`, `high`, `critical`.\n"
             "- Severity, from lowest to highest: `informational`, `low`, `medium`, "
             "`high`, `critical`, `fatal`.\n"
+            "- Verdict: `unknown`, `false_positive`, `true_positive`, `disregard`, "
+            "`suspicious`, `benign`, `test`. Verdict does not support range "
+            "comparisons; use `is_null` for cases without a verdict.\n"
             "- Priority and severity also accept `unknown` and `other` for equality or "
             "list matching. These values never match a range and cannot be range "
             "boundaries.\n"
@@ -267,6 +280,10 @@ async def create_case(
         StatusType,
         Doc("The status of the case."),
     ] = "unknown",
+    verdict: Annotated[
+        VerdictType | None,
+        Doc("The verdict of the case. Leave unset for no verdict."),
+    ] = None,
     fields: Annotated[
         dict[str, Any] | None,
         Doc("Custom fields for the case."),
@@ -309,6 +326,8 @@ async def create_case(
         params["severity"] = severity
     if status is not None:
         params["status"] = status
+    if verdict is not None:
+        params["verdict"] = verdict
     if fields is not None:
         params["fields"] = fields
     if payload is not None:
@@ -355,6 +374,10 @@ async def update_case(
         StatusType | None,
         Doc("The updated status of the case."),
     ] = None,
+    verdict: Annotated[
+        VerdictType | Literal["none"] | None,
+        Doc('The updated verdict of the case. Use "none" to clear the verdict.'),
+    ] = None,
     fields: Annotated[
         dict[str, Any] | None,
         Doc("Updated custom fields for the case."),
@@ -398,6 +421,8 @@ async def update_case(
         client_params["severity"] = severity
     if status is not None:
         client_params["status"] = status
+    if verdict is not None:
+        client_params["verdict"] = None if verdict == "none" else verdict
     if fields is not None:
         # Empty dict or None means fields are not updated
         # You must explicitly set fields to None to remove their values
@@ -592,6 +617,7 @@ async def list_cases_by_row(
             "updated_at",
             "priority",
             "severity",
+            "verdict",
             "status",
             "tasks",
             "assignee",
@@ -656,6 +682,7 @@ async def list_cases(
             "updated_at",
             "priority",
             "severity",
+            "verdict",
             "status",
             "tasks",
             "assignee",
@@ -842,6 +869,7 @@ async def search_cases(
             "updated_at",
             "priority",
             "severity",
+            "verdict",
             "status",
             "tasks",
             "assignee",

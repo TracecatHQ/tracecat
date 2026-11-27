@@ -4,14 +4,25 @@ import {
   CircleHelpIcon,
   CircleIcon,
   CirclePauseIcon,
+  CircleSlashIcon,
+  EyeIcon,
   FlagTriangleRightIcon,
+  FlaskConicalIcon,
   InfoIcon,
+  ShieldAlertIcon,
+  ShieldCheckIcon,
+  ShieldIcon,
   SignalHighIcon,
   SignalIcon,
   SignalMediumIcon,
   TrafficConeIcon,
 } from "lucide-react"
-import type { CasePriority, CaseSeverity, CaseStatus } from "@/client"
+import type {
+  CasePriority,
+  CaseSeverity,
+  CaseStatus,
+  CaseVerdict,
+} from "@/client"
 
 import type { CaseBadgeProps } from "@/components/cases/case-badge"
 
@@ -159,5 +170,51 @@ export const SEVERITIES: Record<CaseSeverity, CaseBadgeProps<CaseSeverity>> = {
     value: "other",
     icon: CircleIcon,
     color: palette.gray,
+  },
+}
+
+/** Case verdicts aligned with OCSF Incident Finding verdict IDs 0-6. */
+export const VERDICTS: Record<CaseVerdict, CaseBadgeProps<CaseVerdict>> = {
+  unknown: {
+    label: "Unknown",
+    value: "unknown",
+    icon: CircleHelpIcon,
+    color: palette.gray,
+  },
+  false_positive: {
+    label: "False positive",
+    value: "false_positive",
+    icon: ShieldCheckIcon,
+    color: palette.emerald,
+  },
+  true_positive: {
+    label: "True positive",
+    value: "true_positive",
+    icon: ShieldAlertIcon,
+    color: palette.red,
+  },
+  disregard: {
+    label: "Disregard",
+    value: "disregard",
+    icon: CircleSlashIcon,
+    color: palette.slate,
+  },
+  suspicious: {
+    label: "Suspicious",
+    value: "suspicious",
+    icon: EyeIcon,
+    color: palette.orange,
+  },
+  benign: {
+    label: "Benign",
+    value: "benign",
+    icon: ShieldIcon,
+    color: palette.sky,
+  },
+  test: {
+    label: "Test",
+    value: "test",
+    icon: FlaskConicalIcon,
+    color: palette.violet,
   },
 }
