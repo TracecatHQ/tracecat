@@ -278,6 +278,7 @@ def test_readonly_keyring_never_reads_credentials(topology: Topology) -> None:
         ("mfa_recovery_code", "code_hash"),
         ("agent_channel_token", "config"),
         ("event_source", "endpoint_token"),
+        ("event_source", "previous_endpoint_token"),
         ("event_source", "subscription_ref"),
     }
     with psycopg.connect(topology.url(topology.admin)) as conn:
@@ -911,6 +912,8 @@ SAFE_CREDENTIAL_NAMED_COLUMNS = {
     ("agent_custom_provider", "api_key_header"),  # a header name
     ("agent_custom_provider", "last_refreshed_at"),
     ("agent_session_command", "payload_hash"),
+    ("event_source", "endpoint_token_confirmed_at"),  # a timestamp
+    ("event_source", "previous_endpoint_token_expires_at"),  # a timestamp
     ("mcp_personal_access_token", "hashed"),  # hash of a random key
     ("mcp_refresh_token", "token_hash"),  # hash of a random token
     ("oauth_integration", "use_workspace_credentials"),

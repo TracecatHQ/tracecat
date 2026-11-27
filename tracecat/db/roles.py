@@ -131,9 +131,13 @@ READONLY_HIDDEN_COLUMNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("mfa_recovery_code", ("code_hash",)),
     # Legacy rows keep Slack tokens and secrets in plaintext.
     ("agent_channel_token", ("config",)),
-    # The token in a customer's ingest URL, and the SNS subscription ARN,
-    # which is enough to unsubscribe an unauthenticated subscription.
-    ("event_source", ("endpoint_token", "subscription_ref")),
+    # The tokens in a customer's ingest URLs (current and, after a rotation,
+    # previous), and the SNS subscription ARN, which is enough to unsubscribe
+    # an unauthenticated subscription.
+    (
+        "event_source",
+        ("endpoint_token", "previous_endpoint_token", "subscription_ref"),
+    ),
 )
 """Columns ``tracecat_readonly`` never reads: bearer tokens stored in plaintext
 and crackable password or recovery-code hashes. Encrypted columns stay

@@ -2218,7 +2218,32 @@ class EventSource(WorkspaceModel):
         unique=True,
         doc=(
             "Random token in the endpoint URL handed to the customer. "
-            "Set once at creation; the URL must not change after that."
+            "Replaced only by a rotation."
+        ),
+    )
+    previous_endpoint_token: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        unique=True,
+        doc=(
+            "The token a rotation replaced, while its subscription may still "
+            "be the live one. Accepts notifications only, until the new URL's "
+            "subscription is confirmed or the expiry passes."
+        ),
+    )
+    previous_endpoint_token_expires_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="When the previous token stops at the latest; fixed at rotation",
+    )
+    endpoint_token_confirmed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc=(
+            "When a subscription to the current token's URL was first "
+            "confirmed. Kept through an unsubscribe, since SNS can restore a "
+            "subscription; reset only with the token. The URL is shown only "
+            "while this is null."
         ),
     )
 

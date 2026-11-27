@@ -6988,7 +6988,8 @@ async def list_event_sources(
         cursor: `next_cursor` from a previous page.
 
     Returns JSON with `items` (id, kind, name, config, status,
-    subscription_status, subscription_ref, endpoint_url) and the cursor fields.
+    subscription_status, subscription_ref, endpoint_url,
+    previous_url_expires_at) and the cursor fields.
     """
     async with _triggers_service(
         workspace_id, "list event sources", "trigger:read", event_sources=True
@@ -7016,10 +7017,13 @@ async def get_event_source(
         workspace_id: The workspace ID.
         source_id: The source ID, from `list_event_sources`.
 
-    Returns the source as JSON. `endpoint_url` (null without `trigger:update`)
-    is the HTTPS URL the feed must
-    deliver to (for `aws_sns`, the SNS subscription endpoint). It never changes.
-    `subscription_ref` is also null without `trigger:update`.
+    Returns the source as JSON. `endpoint_url` is the HTTPS URL the feed must
+    deliver to (for `aws_sns`, the SNS subscription endpoint). It is shown only
+    with `trigger:update` and only until a subscription to it is first
+    confirmed; after that it is null for everyone, even if the subscription
+    later shows `pending`, and `rotate_event_source_endpoint` issues a new one. `subscription_ref` is also null without `trigger:update`.
+    `previous_url_expires_at` is set while a rotated-away URL still accepts
+    notifications.
     """
     async with _triggers_service(
         workspace_id, "get event source", "trigger:read", event_sources=True
@@ -7071,11 +7075,13 @@ async def update_event_source(
     """Rename an event source, change its feed, or take it online or offline.
 
     There is no delete: take a source offline instead. Changing where events
-    come from (for `aws_sns`, the topic ARN) resets the subscription to pending.
+    come from (for `aws_sns`, the topic ARN) resets the subscription to pending
+    and gives the source a new endpoint URL.
     Turning a source online, or changing the feed of a source that stays or
     becomes online, also needs `workflow:execute` or `agent:execute` for the
     targets its online triggers run.
-    The kind cannot change. The endpoint URL never changes.
+    The kind cannot change. To replace the URL alone, use
+    `rotate_event_source_endpoint`.
 
     Args:
         workspace_id: The workspace ID.
@@ -7096,6 +7102,52 @@ async def update_event_source(
         )
         source = await svc.update_event_source(
             _coerce_uuid_arg(source_id, "source_id"), params
+        )
+        return read_event_source(source, svc.role)
+
+
+@mcp.tool()
+async def rotate_event_source_endpoint(
+    workspace_id: uuid.UUID,
+    source_id: uuid.UUID,
+    confirm: bool = False,
+) -> EventSourceRead:
+    """Give an event source a new endpoint URL and retire the current one.
+
+    This breaks the source's live subscription. Use it when the URL may have
+    leaked, or to read a URL again after its subscription was confirmed.
+    The subscription resets to pending. Then, on the provider side (for
+    `aws_sns`): subscribe the topic to the returned `endpoint_url` over HTTPS
+    with raw message delivery off, wait for it to show as confirmed, then
+    delete the old subscription. If a subscription to the old URL was ever
+    confirmed, the old URL keeps accepting notifications until the new subscription is
+    confirmed, or until `previous_url_expires_at` (24 hours) at the latest;
+    after that, events sent to it are refused. A URL never confirmed stops at
+    once. Call it with `confirm=true`; without it the tool refuses. Needs
+    `trigger:update` and the `object_triggers` plan feature.
+
+    Args:
+        workspace_id: The workspace ID.
+        source_id: The source ID.
+        confirm: Must be true. Confirms that the caller accepts breaking the
+            live subscription.
+
+    Returns the source as JSON with the new `endpoint_url`.
+    """
+    async with _triggers_service(
+        workspace_id,
+        "rotate event source endpoint",
+        "trigger:update",
+        event_sources=True,
+    ) as svc:
+        if not confirm:
+            raise ToolError(
+                "Rotating breaks the source's live subscription: the old URL"
+                " stops once the new one is confirmed, or after 24 hours."
+                " Call again with confirm=true to rotate."
+            )
+        source = await svc.rotate_event_source_endpoint(
+            _coerce_uuid_arg(source_id, "source_id")
         )
         return read_event_source(source, svc.role)
 

@@ -46,6 +46,8 @@ export interface EventSourceProviderDefinition {
   describeSource: (source: EventSourceRead) => string
   /** Who calls the endpoint URL, for "the URL ... delivers to". */
   sender: string
+  /** What to do at the provider after the endpoint URL is rotated, in order. */
+  rotateSteps: string[]
   Setup: ComponentType<ProviderSetupProps>
 }
 
@@ -134,6 +136,11 @@ export const EVENT_SOURCE_PROVIDERS: Record<
     },
     describeSource: (source) => source.config.topic_arn,
     sender: "SNS",
+    rotateSteps: [
+      "Subscribe the new endpoint URL to the topic (HTTPS, raw message delivery off), with the same retry policy and dead-letter queue.",
+      "Wait until this source shows the subscription as confirmed.",
+      "Delete the old subscription in SNS.",
+    ],
     Setup: SnsSetup,
   },
 }

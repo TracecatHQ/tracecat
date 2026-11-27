@@ -75,7 +75,10 @@ async def list_event_sources(
 async def create_event_source(
     *, role: WorkspaceActorRouteRole, session: AsyncDBSession, params: EventSourceCreate
 ) -> EventSourceRead:
-    """Create an event source. Its endpoint URL is fixed from now on."""
+    """Create an event source with the endpoint URL to subscribe.
+
+    ``endpoint_url`` is null unless the caller also holds ``trigger:update``.
+    """
     source = await TriggersService(session, role).create_event_source(params)
     return read_event_source(source, role)
 
@@ -102,6 +105,22 @@ async def update_event_source(
     """Rename a source, change its feed, or take it online or offline."""
     service = TriggersService(session, role)
     source = await service.update_event_source(source_id, params)
+    return read_event_source(source, role)
+
+
+@event_sources_router.post("/{source_id}/rotate-endpoint", responses=_errors(404, 409))
+@require_scope("trigger:update")
+async def rotate_event_source_endpoint(
+    *, role: WorkspaceActorRouteRole, session: AsyncDBSession, source_id: uuid.UUID
+) -> EventSourceRead:
+    """Give an event source a new endpoint URL and retire the current one.
+
+    Breaks the live subscription: subscribe the returned URL and confirm it.
+    A confirmed URL keeps accepting notifications until then, for 24 hours at
+    most (``previous_url_expires_at``).
+    """
+    service = TriggersService(session, role)
+    source = await service.rotate_event_source_endpoint(source_id)
     return read_event_source(source, role)
 
 

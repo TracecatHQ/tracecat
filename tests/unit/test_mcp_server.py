@@ -61,7 +61,13 @@ from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseFieldReadType, CaseVerdict, CaseViewVisibility
 from tracecat.cases.schemas import CaseFieldRead
 from tracecat.cases.search_schemas import CaseCriteria, CaseQuery, CaseSearchRequest
-from tracecat.db.models import CaseTrigger, Schedule, Workflow, WorkflowDefinition
+from tracecat.db.models import (
+    CaseTrigger,
+    EventSource,
+    Schedule,
+    Workflow,
+    WorkflowDefinition,
+)
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.dsl.schemas import ROOT_STREAM, ActionStatement, StreamID
 from tracecat.exceptions import (
@@ -10336,6 +10342,10 @@ _TRIGGER_TOOL_ARGUMENTS: dict[str, tuple[dict[str, Any], str]] = {
         "trigger:create",
     ),
     "update_event_source": ({"source_id": str(uuid.uuid4())}, "trigger:update"),
+    "rotate_event_source_endpoint": (
+        {"source_id": str(uuid.uuid4()), "confirm": True},
+        "trigger:update",
+    ),
     "list_triggers": ({}, "trigger:read"),
     "get_trigger": ({"trigger_id": str(uuid.uuid4())}, "trigger:read"),
     "create_trigger": (
@@ -10633,6 +10643,60 @@ async def test_trigger_tools_need_their_scope(
 
     with pytest.raises(ToolError, match=f"Missing required scope: .*{scope}"):
         await _call_trigger_tool(tool_name)
+
+
+@pytest.mark.anyio
+async def test_rotate_event_source_endpoint_needs_an_explicit_confirm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rotate = AsyncMock()
+    _patch_triggers(monkeypatch, rotate_event_source_endpoint=rotate)
+
+    with pytest.raises(ToolError, match="breaks the source's live subscription"):
+        await _call_trigger_tool("rotate_event_source_endpoint", confirm=False)
+
+    rotate.assert_not_awaited()
+    tool = next(
+        tool
+        for tool in await mcp_server.mcp.list_tools()
+        if tool.name == "rotate_event_source_endpoint"
+    )
+    assert tool.description is not None
+    assert "breaks the source's live subscription" in tool.description
+    assert tool.parameters["properties"]["confirm"]["default"] is False
+
+
+@pytest.mark.anyio
+async def test_rotate_event_source_endpoint_returns_the_new_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_id = uuid.uuid4()
+    rotated = EventSource(
+        id=source_id,
+        workspace_id=uuid.uuid4(),
+        kind="aws_sns",
+        name="bucket",
+        config={"topic_arn": _SNS_CONFIG["topic_arn"]},
+        status="online",
+        subscription_status="pending",
+        endpoint_token="new-token",
+        previous_endpoint_token="old-token",
+        previous_endpoint_token_expires_at=datetime.now(UTC) + timedelta(hours=1),
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    rotate = AsyncMock(return_value=rotated)
+    _patch_triggers(monkeypatch, rotate_event_source_endpoint=rotate)
+
+    result = await _call_trigger_tool(
+        "rotate_event_source_endpoint", source_id=str(source_id), confirm=True
+    )
+
+    rotate.assert_awaited_once_with(source_id)
+    assert result.endpoint_url is not None
+    assert result.endpoint_url.endswith("/ingest/sns/new-token")
+    assert result.previous_url_expires_at == rotated.previous_endpoint_token_expires_at
+    assert "old-token" not in result.model_dump_json()
 
 
 @pytest.mark.anyio

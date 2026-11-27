@@ -788,6 +788,7 @@ async def test_mcp_create_scope_guards(endpoint: AsyncEndpoint) -> None:
         (triggers_router.create_event_source, ("trigger:create",)),
         (triggers_router.get_event_source, ("trigger:read",)),
         (triggers_router.update_event_source, ("trigger:update",)),
+        (triggers_router.rotate_event_source_endpoint, ("trigger:update",)),
         (triggers_router.list_triggers, ("trigger:read",)),
         (triggers_router.create_trigger, ("trigger:create",)),
         (triggers_router.get_trigger, ("trigger:read",)),

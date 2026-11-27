@@ -6,7 +6,8 @@ known to be a genuine SNS message from the source's pinned topic:
 1. Parse the envelope (the router has already capped the body size). Raw
    message delivery is refused: it carries no signature.
 2. Look the source up by its URL token (404 if unknown) and require the
-   organization's ``object_triggers`` entitlement.
+   organization's ``object_triggers`` entitlement. The URL a rotation
+   replaced, during its overlap, takes notifications only (404 otherwise).
 3. The signed ``TopicArn`` must equal the pinned topic. A valid signature
    only proves the message came from SNS, not from this topic.
 4. Verify the signature, the certificate origin and the message's age.
@@ -95,7 +96,11 @@ async def _handle_notification(
 
 
 async def _handle_subscription_confirmation(
-    envelope: SnsEnvelope, *, source: IngestSource, topic: SnsTopic
+    envelope: SnsEnvelope,
+    *,
+    source: IngestSource,
+    topic: SnsTopic,
+    endpoint_token: str,
 ) -> IngestResult:
     # Each confirmation calls the SNS API, so it has a cap of its own, apart
     # from notifications: replayed confirmations cannot crowd out events.
@@ -108,12 +113,22 @@ async def _handle_subscription_confirmation(
         .where(
             EventSource.id == source.id,
             EventSource.workspace_id == source.workspace_id,
-            # Only while the source is still pinned to the confirmed topic.
+            # Only while the source is still pinned to the confirmed topic,
+            # and the URL confirmed is still its current one: a rotation in
+            # between leaves the new URL pending.
             EventSource.config[TOPIC_ARN_KEY].astext == topic.arn,
+            EventSource.endpoint_token == endpoint_token,
         )
         .values(
             subscription_status=SubscriptionStatus.CONFIRMED.value,
             subscription_ref=subscription_arn,
+            # The URL is live from now on: reads stop showing it.
+            endpoint_token_confirmed_at=func.coalesce(
+                EventSource.endpoint_token_confirmed_at, func.now()
+            ),
+            # The new URL is live: the URL a rotation replaced stops now.
+            previous_endpoint_token=None,
+            previous_endpoint_token_expires_at=None,
         )
         .returning(EventSource.id)
     )
@@ -123,7 +138,7 @@ async def _handle_subscription_confirmation(
     confirmed = updated is not None
     if not confirmed:
         logger.warning(
-            "Event source changed topic during subscription confirmation",
+            "Event source changed topic or URL during subscription confirmation",
             source_id=str(source.id),
         )
     return IngestResult(confirmed=confirmed)
@@ -174,6 +189,9 @@ async def handle_sns_message(
     source = await load_source(
         EventSourceKind.AWS_SNS, endpoint_token, pin_key=TOPIC_ARN_KEY
     )
+    if source.previous_url and envelope.type != SnsMessageType.NOTIFICATION:
+        # The replaced URL can no longer change the subscription state.
+        raise IngestError(IngestErrorCode.SOURCE_NOT_FOUND, "Not found")
     if envelope.topic_arn != source.pin_value:
         raise IngestError(
             IngestErrorCode.TOPIC_MISMATCH, "Topic is not the one this source accepts"
@@ -188,7 +206,7 @@ async def handle_sns_message(
             )
         case SnsMessageType.SUBSCRIPTION_CONFIRMATION:
             result = await _handle_subscription_confirmation(
-                envelope, source=source, topic=topic
+                envelope, source=source, topic=topic, endpoint_token=endpoint_token
             )
         case SnsMessageType.UNSUBSCRIBE_CONFIRMATION:
             result = await _handle_unsubscribe_confirmation(
@@ -201,6 +219,7 @@ async def handle_sns_message(
         workspace_id=str(source.workspace_id),
         message_type=envelope.type.value,
         message_id=envelope.message_id,
+        previous_url=source.previous_url,
         queued=result.queued,
         duplicates=result.duplicates,
         ignored=result.ignored,
