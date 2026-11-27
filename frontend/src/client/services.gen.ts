@@ -1188,6 +1188,8 @@ import type {
   TriggersListTriggersResponse,
   TriggersRevokeWebhookApiKeyData,
   TriggersRevokeWebhookApiKeyResponse,
+  TriggersRotateEventSourceEndpointData,
+  TriggersRotateEventSourceEndpointResponse,
   TriggersUpdateCaseTriggerData,
   TriggersUpdateCaseTriggerResponse,
   TriggersUpdateEventSourceData,
@@ -14549,7 +14551,7 @@ export const triggersListEventSources = (
 
 /**
  * Create Event Source
- * Create an event source. Its endpoint URL is fixed from now on.
+ * Create an event source with the endpoint URL to subscribe.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
@@ -14624,6 +14626,37 @@ export const triggersUpdateEventSource = (
     mediaType: "application/json",
     errors: {
       400: "See detail.code",
+      404: "See detail.code",
+      409: "See detail.code",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Rotate Event Source Endpoint
+ * Give an event source a new endpoint URL and retire the current one.
+ *
+ * Breaks the live subscription: subscribe the returned URL and confirm it.
+ * A confirmed URL keeps accepting notifications until then, for 24 hours at
+ * most (``previous_url_expires_at``).
+ * @param data The data for the request.
+ * @param data.sourceId
+ * @param data.workspaceId
+ * @returns EventSourceRead Successful Response
+ * @throws ApiError
+ */
+export const triggersRotateEventSourceEndpoint = (
+  data: TriggersRotateEventSourceEndpointData
+): CancelablePromise<TriggersRotateEventSourceEndpointResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/event-sources/{source_id}/rotate-endpoint",
+    path: {
+      source_id: data.sourceId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
       404: "See detail.code",
       409: "See detail.code",
       422: "Validation Error",

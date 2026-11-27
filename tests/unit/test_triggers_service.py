@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.audit.enums import AuditEventStatus
+from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES
 from tracecat.db.models import (
     AgentPreset,
+    EventSource,
     ObjectStorageTrigger,
     Trigger,
     TriggerBinding,
@@ -189,11 +194,13 @@ async def test_changing_the_topic_resets_the_subscription(
     source.subscription_status = SubscriptionStatus.CONFIRMED.value
     source.subscription_ref = f"{TOPIC}:sub"
     await service.session.commit()
+    old_token = source.endpoint_token
 
     same = await service.update_event_source(
         source.id, EventSourceUpdate(config=_sns())
     )
     assert same.subscription_status == SubscriptionStatus.CONFIRMED
+    assert same.endpoint_token == old_token
 
     moved = await service.update_event_source(
         source.id, EventSourceUpdate(config=_sns(f"{TOPIC}-2"))
@@ -201,6 +208,141 @@ async def test_changing_the_topic_resets_the_subscription(
     assert moved.subscription_status == SubscriptionStatus.PENDING
     assert moved.subscription_ref is None
     assert moved.config == {"topic_arn": f"{TOPIC}-2"}
+    # The new feed gets a new URL: the old one may still be live for the old
+    # feed, and a pending source shows its URL.
+    assert moved.endpoint_token != old_token
+    assert moved.previous_endpoint_token is None
+
+
+# ----- Endpoint URL rotation -----
+
+
+async def _confirmed_source(service: TriggersService) -> EventSource:
+    source = await service.create_event_source(
+        EventSourceCreate(name="bucket", config=_sns(f"{TOPIC}-{uuid.uuid4().hex}"))
+    )
+    source.subscription_status = SubscriptionStatus.CONFIRMED.value
+    source.subscription_ref = f"{TOPIC}:sub"
+    await service.session.commit()
+    return source
+
+
+async def test_the_url_is_hidden_once_the_subscription_is_confirmed(
+    service: TriggersService,
+) -> None:
+    source = await service.create_event_source(
+        EventSourceCreate(name="bucket", config=_sns())
+    )
+    assert read_event_source(source, service.role).endpoint_url is not None
+
+    source.subscription_status = SubscriptionStatus.CONFIRMED.value
+    await service.session.commit()
+    await service.session.refresh(source)
+    # Live now: not even trigger:update reads it back.
+    assert read_event_source(source, service.role).endpoint_url is None
+    updater = service.role.model_copy(
+        update={"scopes": frozenset({"trigger:read", "trigger:update"})}
+    )
+    assert read_event_source(source, updater).endpoint_url is None
+
+
+async def test_rotating_a_confirmed_source_keeps_the_old_url_for_a_bounded_overlap(
+    monkeypatch: pytest.MonkeyPatch, service: TriggersService
+) -> None:
+    create_event = AsyncMock()
+    monkeypatch.setattr(AuditService, "create_event", create_event)
+    source = await _confirmed_source(service)
+    old_token = source.endpoint_token
+    before = datetime.now(UTC)
+
+    rotated = await service.rotate_event_source_endpoint(source.id)
+
+    assert rotated.endpoint_token != old_token
+    assert len(rotated.endpoint_token) >= 43
+    assert rotated.subscription_status == SubscriptionStatus.PENDING
+    assert rotated.subscription_ref is None
+    assert rotated.previous_endpoint_token == old_token
+    expires = rotated.previous_endpoint_token_expires_at
+    assert expires is not None
+    assert (
+        before + trigger_service.ENDPOINT_ROTATION_OVERLAP
+        <= expires
+        <= datetime.now(UTC) + trigger_service.ENDPOINT_ROTATION_OVERLAP
+    )
+    read = read_event_source(rotated, service.role)
+    assert read.endpoint_url is not None
+    assert read.endpoint_url.endswith(f"/ingest/sns/{rotated.endpoint_token}")
+    assert read.previous_url_expires_at == expires
+
+    # The rotation is in the audit log, without either token.
+    rotations = [
+        call.kwargs
+        for call in create_event.await_args_list
+        if call.kwargs["resource_type"] == "event_source"
+        and call.kwargs["action"] == "rotate"
+    ]
+    assert [r["status"] for r in rotations] == [
+        AuditEventStatus.ATTEMPT,
+        AuditEventStatus.SUCCESS,
+    ]
+    assert all(r["resource_id"] == source.id for r in rotations)
+    logged = repr(create_event.await_args_list)
+    assert old_token not in logged
+    assert rotated.endpoint_token not in logged
+
+
+async def test_rotating_an_unconfirmed_url_drops_it_at_once(
+    service: TriggersService,
+) -> None:
+    source = await service.create_event_source(
+        EventSourceCreate(name="bucket", config=_sns())
+    )
+    old_token = source.endpoint_token
+
+    rotated = await service.rotate_event_source_endpoint(source.id)
+
+    assert rotated.endpoint_token != old_token
+    assert rotated.previous_endpoint_token is None
+    assert read_event_source(rotated, service.role).previous_url_expires_at is None
+
+
+async def test_rotating_again_during_the_overlap_keeps_the_live_url_unextended(
+    service: TriggersService,
+) -> None:
+    source = await _confirmed_source(service)
+    live_token = source.endpoint_token
+    first = await service.rotate_event_source_endpoint(source.id)
+    expires = first.previous_endpoint_token_expires_at
+
+    # The first new URL was never confirmed, so the URL with the live
+    # subscription stays the one kept, with the same deadline.
+    second = await service.rotate_event_source_endpoint(source.id)
+
+    assert second.previous_endpoint_token == live_token
+    assert second.previous_endpoint_token_expires_at == expires
+
+
+async def test_an_expired_overlap_is_not_reported(service: TriggersService) -> None:
+    source = await _confirmed_source(service)
+    rotated = await service.rotate_event_source_endpoint(source.id)
+    rotated.previous_endpoint_token_expires_at = datetime.now(UTC) - timedelta(
+        seconds=1
+    )
+    await service.session.commit()
+    await service.session.refresh(rotated)
+
+    assert read_event_source(rotated, service.role).previous_url_expires_at is None
+
+
+async def test_rotating_needs_a_source_in_the_workspace(
+    service: TriggersService, other_service: TriggersService
+) -> None:
+    source = await _confirmed_source(service)
+    with pytest.raises(TriggerError) as exc:
+        await other_service.rotate_event_source_endpoint(source.id)
+    assert exc.value.code is TriggerErrorCode.NOT_FOUND
+    with pytest.raises(TriggerError):
+        await service.rotate_event_source_endpoint(uuid.uuid4())
 
 
 async def test_list_event_sources_pages_newest_first(service: TriggersService) -> None:

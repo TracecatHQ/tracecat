@@ -57,6 +57,9 @@ class IngestSource:
     ``pin_value`` is the source config value at ``pin_key`` that a provider
     checks every message against (for SNS, the topic ARN). Events are queued
     only while the source still holds that value.
+
+    ``previous_url`` is true when the token is the one a rotation replaced,
+    during its overlap. That URL accepts notifications only.
     """
 
     id: uuid.UUID
@@ -65,6 +68,7 @@ class IngestSource:
     status: TriggerStatus
     pin_key: str
     pin_value: str
+    previous_url: bool
 
 
 @dataclass(frozen=True, slots=True)

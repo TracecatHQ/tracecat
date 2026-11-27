@@ -38,6 +38,7 @@ def test_the_api_serves_the_trigger_routes() -> None:
         ("POST", sources),
         ("GET", f"{sources}/{{source_id}}"),
         ("PATCH", f"{sources}/{{source_id}}"),
+        ("POST", f"{sources}/{{source_id}}/rotate-endpoint"),
         ("GET", triggers),
         ("POST", triggers),
         ("GET", f"{triggers}/{{trigger_id}}"),

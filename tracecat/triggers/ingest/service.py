@@ -12,7 +12,7 @@ rechecks the source in a transaction of its own.
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
@@ -36,6 +36,9 @@ async def load_source(
 ) -> IngestSource:
     """Find the source behind an ingest URL and require the entitlement.
 
+    The token matches a source's current token, or the token its last rotation
+    replaced while that one's overlap is open (``previous_url``).
+
     Args:
         kind: The source kind the route serves.
         endpoint_token: The token from the URL.
@@ -44,6 +47,7 @@ async def load_source(
     Raises:
         IngestError: ``SOURCE_NOT_FOUND`` or ``NOT_ENTITLED``.
     """
+    is_previous = EventSource.endpoint_token != endpoint_token
     stmt = (
         select(
             EventSource.id,
@@ -51,10 +55,17 @@ async def load_source(
             Workspace.organization_id,
             EventSource.config[pin_key].astext,
             EventSource.status,
+            is_previous,
         )
         .join(Workspace, Workspace.id == EventSource.workspace_id)
         .where(
-            EventSource.endpoint_token == endpoint_token,
+            or_(
+                EventSource.endpoint_token == endpoint_token,
+                and_(
+                    EventSource.previous_endpoint_token == endpoint_token,
+                    EventSource.previous_endpoint_token_expires_at > func.now(),
+                ),
+            ),
             EventSource.kind == kind.value,
         )
     )
@@ -64,7 +75,7 @@ async def load_source(
         row = (await session.execute(stmt)).tuples().one_or_none()
         if row is None:
             raise IngestError(IngestErrorCode.SOURCE_NOT_FOUND, "Not found")
-        source_id, workspace_id, organization_id, pin_value, status = row
+        source_id, workspace_id, organization_id, pin_value, status, previous = row
         if not await is_org_entitled(session, organization_id, TRIGGERS_ENTITLEMENT):
             raise IngestError(
                 IngestErrorCode.NOT_ENTITLED,
@@ -77,6 +88,7 @@ async def load_source(
         status=TriggerStatus(status),
         pin_key=pin_key,
         pin_value=pin_value,
+        previous_url=previous,
     )
 
 

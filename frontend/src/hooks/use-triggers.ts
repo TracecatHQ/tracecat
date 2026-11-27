@@ -19,6 +19,7 @@ import {
   triggersGetTrigger,
   triggersListEventSources,
   triggersListTriggers,
+  triggersRotateEventSourceEndpoint,
   triggersUpdateEventSource,
   triggersUpdateTrigger,
   triggersUpdateTriggerBinding,
@@ -281,6 +282,17 @@ export function useTriggerMutations(workspaceId: string) {
     meta,
   })
 
+  const rotateEventSourceEndpoint = useMutation<
+    EventSourceRead,
+    TracecatApiError,
+    string
+  >({
+    mutationFn: async (sourceId) =>
+      await triggersRotateEventSourceEndpoint({ workspaceId, sourceId }),
+    onSuccess: invalidateSources,
+    meta,
+  })
+
   return {
     createTrigger,
     updateTrigger,
@@ -290,5 +302,6 @@ export function useTriggerMutations(workspaceId: string) {
     deleteBinding,
     createEventSource,
     updateEventSource,
+    rotateEventSourceEndpoint,
   }
 }

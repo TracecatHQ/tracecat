@@ -25,6 +25,7 @@ import secrets
 import uuid
 from collections import defaultdict
 from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import ColumnElement, Select, delete, exists, func, select
@@ -109,6 +110,13 @@ from tracecat.workflow.schedules.schemas import ScheduleCreate, ScheduleUpdate
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
 _UQ_ENDPOINT_TOKEN = "uq_event_source_endpoint_token"
+_UQ_PREVIOUS_ENDPOINT_TOKEN = "uq_event_source_previous_endpoint_token"
+
+# How long, at most, the URL a rotation replaced keeps accepting notifications
+# while the customer subscribes and confirms the new one. The same as the SNS
+# message age bound: a message captured before the rotation is too old to
+# replay by the time the overlap ends.
+ENDPOINT_ROTATION_OVERLAP = timedelta(hours=24)
 _UQ_SNS_TOPIC = "uq_event_source_aws_sns_topic"
 _UQ_BINDING_WORKFLOW = "uq_trigger_binding_trigger_id_workflow_id"
 _UQ_BINDING_AGENT = "uq_trigger_binding_trigger_id_agent_preset_id"
@@ -181,12 +189,25 @@ def read_event_source(source: EventSource, role: Role) -> EventSourceRead:
     """Build the API view of a source.
 
     The endpoint URL and the subscription ref go only to callers who may
-    change the source: anyone holding the URL can reach the ingest endpoint
-    (it is never rotated), and an SNS subscription ARN is enough to
-    unsubscribe a subscription confirmed without authentication.
+    change the source: anyone holding the URL can reach the ingest endpoint,
+    and an SNS subscription ARN is enough to unsubscribe a subscription
+    confirmed without authentication. The URL is shown only while the
+    subscription is pending, for setup: once it is confirmed the URL is live,
+    and reading it again takes a rotation, which the audit log records and
+    which breaks the live subscription.
     """
     kind = EventSourceKind(source.kind)
     can_manage = has_scope(role.scopes or frozenset(), "trigger:update")
+    show_url = (
+        can_manage and source.subscription_status == SubscriptionStatus.PENDING.value
+    )
+    previous_expires = source.previous_endpoint_token_expires_at
+    if (
+        source.previous_endpoint_token is None
+        or previous_expires is None
+        or previous_expires <= datetime.now(UTC)
+    ):
+        previous_expires = None
     return EventSourceRead(
         id=source.id,
         kind=kind,
@@ -196,10 +217,9 @@ def read_event_source(source: EventSource, role: Role) -> EventSourceRead:
         subscription_status=SubscriptionStatus(source.subscription_status),
         subscription_ref=source.subscription_ref if can_manage else None,
         endpoint_url=(
-            event_source_endpoint_url(kind, source.endpoint_token)
-            if can_manage
-            else None
+            event_source_endpoint_url(kind, source.endpoint_token) if show_url else None
         ),
+        previous_url_expires_at=previous_expires,
         created_at=source.created_at,
         updated_at=source.updated_at,
     )
@@ -264,8 +284,8 @@ class TriggersService(BaseWorkspaceService):
             config=params.config.model_dump(mode="json", exclude={"kind"}),
             status=params.status.value,
             subscription_status=SubscriptionStatus.PENDING.value,
-            # 256 random bits. The token routes ingest and is never rotated,
-            # since the customer's subscription is bound to the URL.
+            # 256 random bits. The token routes ingest; only a rotation
+            # replaces it, since the customer's subscription is bound to it.
             endpoint_token=secrets.token_urlsafe(32),
         )
         self.session.add(source)
@@ -281,8 +301,9 @@ class TriggersService(BaseWorkspaceService):
     ) -> EventSource:
         """Rename a source, change its feed, or take it online or offline.
 
-        Changing where events come from resets the subscription: the new feed
-        has to confirm again. Turning an online source's feed on or pointing it
+        Changing where events come from resets the subscription and gives
+        the source a new endpoint URL: the new feed subscribes and confirms
+        again. Turning an online source's feed on or pointing it
         elsewhere changes what the online triggers on it run, so it needs the
         right to run their online bindings' targets.
 
@@ -323,7 +344,53 @@ class TriggersService(BaseWorkspaceService):
             if moves_feed:
                 source.subscription_status = SubscriptionStatus.PENDING.value
                 source.subscription_ref = None
+                # A new feed needs a new subscription, so it gets a new URL
+                # too: a pending source shows its URL, and the old one may
+                # still be live for the old feed.
+                source.endpoint_token = secrets.token_urlsafe(32)
+                source.previous_endpoint_token = None
+                source.previous_endpoint_token_expires_at = None
             source.config = params.config.model_dump(mode="json", exclude={"kind"})
+        await self._commit_source()
+        await self.session.refresh(source)
+        return source
+
+    @audit_log(
+        resource_type="event_source", action="rotate", resource_id_attr="source_id"
+    )
+    async def rotate_event_source_endpoint(self, source_id: uuid.UUID) -> EventSource:
+        """Give a source a new endpoint URL and retire the current one.
+
+        The subscription resets to pending: the customer subscribes the new
+        URL and confirms it. If the current URL's subscription is confirmed,
+        that URL keeps accepting notifications until the new subscription is
+        confirmed or ``ENDPOINT_ROTATION_OVERLAP`` passes, so no event is
+        refused in between. A URL never confirmed carries nothing and stops at
+        once; a URL already in its overlap keeps it, unextended.
+
+        Raises:
+            TriggerError: ``not_found``, or ``conflict`` on a token collision.
+        """
+        # Locked, so a confirmation arriving now waits and then finds its URL
+        # replaced, instead of confirming the URL being retired.
+        source = await self.session.scalar(
+            select(EventSource)
+            .where(
+                EventSource.workspace_id == self.workspace_id,
+                EventSource.id == source_id,
+            )
+            .with_for_update()
+        )
+        if source is None:
+            raise _not_found("Event source")
+        if source.subscription_status == SubscriptionStatus.CONFIRMED.value:
+            source.previous_endpoint_token = source.endpoint_token
+            source.previous_endpoint_token_expires_at = (
+                datetime.now(UTC) + ENDPOINT_ROTATION_OVERLAP
+            )
+        source.endpoint_token = secrets.token_urlsafe(32)
+        source.subscription_status = SubscriptionStatus.PENDING.value
+        source.subscription_ref = None
         await self._commit_source()
         await self.session.refresh(source)
         return source
@@ -338,7 +405,9 @@ class TriggersService(BaseWorkspaceService):
                     TriggerErrorCode.CONFLICT,
                     "This workspace already has a source for that topic",
                 ) from e
-            if is_unique_violation(e, _UQ_ENDPOINT_TOKEN):
+            if is_unique_violation(e, _UQ_ENDPOINT_TOKEN) or is_unique_violation(
+                e, _UQ_PREVIOUS_ENDPOINT_TOKEN
+            ):
                 # 256 random bits: not reachable in practice.
                 raise TriggerError(
                     TriggerErrorCode.CONFLICT, "Endpoint token collision, retry"

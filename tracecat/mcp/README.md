@@ -161,12 +161,18 @@ instruction, or changing what an online trigger or source matches. Switching
 things off and renaming need only `trigger:update`, except for kinds written
 through their own resource (`schedule`, `webhook`, `case_trigger`), which also
 need that resource's update scope. `endpoint_url` is null
-for callers without `trigger:update`.
+for callers without `trigger:update`, and for everyone once the subscription is
+confirmed. `rotate_event_source_endpoint` (`trigger:update`, `confirm=true`)
+issues a new URL and resets the subscription to pending; it breaks the live
+subscription. A confirmed old URL keeps accepting notifications until the new
+subscription is confirmed or 24 hours pass (`previous_url_expires_at`).
+Changing a source's topic also issues a new URL.
 
 - `list_event_sources(workspace_id, limit=..., cursor=None)`
 - `get_event_source(workspace_id, source_id)`
 - `create_event_source(workspace_id, name, config, status="offline")`
 - `update_event_source(workspace_id, source_id, name=None, config=None, status=None)`
+- `rotate_event_source_endpoint(workspace_id, source_id, confirm=False)`
 - `list_triggers(workspace_id, kind=None, source_id=None, workflow_id=None, agent_preset_id=None, limit=..., cursor=None)`
 - `get_trigger(workspace_id, trigger_id)`
 - `create_trigger(workspace_id, name, config, status=None)`

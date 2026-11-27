@@ -101,7 +101,8 @@ class EventSourceUpdate(Schema):
     config: EventSourceConfig | None = Field(
         default=None,
         description="Replaces the whole config. The kind cannot change. Changing"
-        " where events come from resets the subscription to pending.",
+        " where events come from resets the subscription to pending and gives the"
+        " source a new endpoint URL.",
     )
     status: TriggerStatus | None = None
 
@@ -119,7 +120,14 @@ class EventSourceRead(Schema):
     )
     endpoint_url: str | None = Field(
         description="Point the feed (e.g. the SNS subscription) at this HTTPS URL."
-        " It does not change. Null for callers without trigger:update."
+        " It changes only when rotated. Shown only to callers with trigger:update,"
+        " and only while the subscription is pending: once it is confirmed, the"
+        " URL is null for everyone; rotate to get a new one."
+    )
+    previous_url_expires_at: datetime | None = Field(
+        description="After a rotation, the replaced URL still accepts"
+        " notifications until the new URL's subscription is confirmed, or until"
+        " this time at the latest. Null when no replaced URL is accepted."
     )
     created_at: datetime
     updated_at: datetime

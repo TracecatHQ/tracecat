@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.api.app import app as tracecat_app
+from tracecat.auth.types import Role
 from tracecat.db.models import (
     EventOutbox,
     EventSource,
@@ -36,6 +37,7 @@ from tracecat.db.models import (
     Workflow,
     Workspace,
 )
+from tracecat.logger import logger
 from tracecat.tiers.exceptions import DefaultTierNotConfiguredError
 from tracecat.triggers.dispatch import _matching_targets
 from tracecat.triggers.dispatch_types import WorkflowTarget
@@ -56,6 +58,7 @@ from tracecat.triggers.ingest.aws_sns.router import MAX_BODY_BYTES
 from tracecat.triggers.ingest.aws_sns.router import router as ingest_router
 from tracecat.triggers.ingest.aws_sns.types import SnsTopic
 from tracecat.triggers.ingest.types import IngestError, IngestErrorCode
+from tracecat.triggers.service import TriggersService
 from tracecat.triggers.types import build_occurrence_key, event_source_endpoint_url
 
 pytestmark = [pytest.mark.usefixtures("db"), pytest.mark.anyio]
@@ -288,6 +291,8 @@ async def _post(
     source: EventSource,
     envelope: dict[str, str] | bytes,
     headers: dict[str, str] | None = None,
+    *,
+    token: str | None = None,
 ) -> httpx.Response:
     body = envelope if isinstance(envelope, bytes) else orjson.dumps(envelope)
     sent_headers = {"content-type": "text/plain; charset=UTF-8"}
@@ -295,7 +300,9 @@ async def _post(
         sent_headers["x-amz-sns-message-type"] = envelope["Type"]
     sent_headers.update(headers or {})
     return await client.post(
-        f"/ingest/sns/{source.endpoint_token}", content=body, headers=sent_headers
+        f"/ingest/sns/{token or source.endpoint_token}",
+        content=body,
+        headers=sent_headers,
     )
 
 
@@ -1232,6 +1239,161 @@ async def test_unsubscribe_confirmation_resets_the_subscription(
     await session.refresh(source)
     assert source.subscription_status == SubscriptionStatus.PENDING.value
     assert source.subscription_ref is None
+
+
+# ----- Endpoint URL rotation -----
+
+
+async def _rotate_confirmed(
+    session: AsyncSession, source: EventSource, role: Role
+) -> str:
+    """Confirm the source's URL, rotate it, and return the replaced token."""
+    source.subscription_status = SubscriptionStatus.CONFIRMED.value
+    source.subscription_ref = SUBSCRIPTION_ARN
+    await session.commit()
+    old_token = source.endpoint_token
+    await TriggersService(session, role).rotate_event_source_endpoint(source.id)
+    await session.refresh(source)
+    assert source.endpoint_token != old_token
+    return old_token
+
+
+async def test_the_replaced_url_takes_notifications_until_the_new_one_confirms(
+    client: httpx.AsyncClient,
+    session: AsyncSession,
+    source: EventSource,
+    sign: SignFn,
+    aws: respx.MockRouter,
+    confirm_calls: list[tuple[str, str]],
+    svc_role: Role,
+) -> None:
+    old_token = await _rotate_confirmed(session, source, svc_role)
+
+    # During the overlap the old subscription still delivers, and is accepted.
+    first = sign("Notification", _s3_message(_s3_record(sequencer="01")))
+    response = await _post(client, source, first, token=old_token)
+    assert response.status_code == 200, response.text
+    assert response.json()["queued"] == 1
+
+    # It can no longer change the subscription state.
+    for message_type, text in (
+        ("SubscriptionConfirmation", "confirm"),
+        ("UnsubscribeConfirmation", _unsubscribe_text(SUBSCRIPTION_ARN)),
+    ):
+        response = await _post(
+            client, source, sign(message_type, text), token=old_token
+        )
+        assert response.status_code == 404
+        assert _code(response) == "source_not_found"
+    assert confirm_calls == []
+
+    # The new URL confirms: the old one stops for good.
+    response = await _post(client, source, sign("SubscriptionConfirmation", "c"))
+    assert response.status_code == 200, response.text
+    assert response.json()["confirmed"] is True
+    await session.refresh(source)
+    assert source.subscription_status == SubscriptionStatus.CONFIRMED.value
+    assert source.previous_endpoint_token is None
+    assert source.previous_endpoint_token_expires_at is None
+
+    second = sign("Notification", _s3_message(_s3_record(sequencer="02")))
+    response = await _post(client, source, second, token=old_token)
+    assert response.status_code == 404
+    response = await _post(client, source, second)
+    assert response.status_code == 200, response.text
+    assert response.json()["queued"] == 1
+    assert len(await _outbox(session, source)) == 2
+
+
+async def test_the_replaced_url_stops_at_its_deadline(
+    client: httpx.AsyncClient,
+    session: AsyncSession,
+    source: EventSource,
+    sign: SignFn,
+    aws: respx.MockRouter,
+    svc_role: Role,
+) -> None:
+    old_token = await _rotate_confirmed(session, source, svc_role)
+    source.previous_endpoint_token_expires_at = datetime.now(UTC) - timedelta(seconds=1)
+    await session.commit()
+
+    envelope = sign("Notification", _s3_message(_s3_record()))
+    response = await _post(client, source, envelope, token=old_token)
+
+    assert response.status_code == 404
+    assert await _outbox(session, source) == []
+
+
+async def test_an_unconfirmed_url_stops_at_rotation(
+    client: httpx.AsyncClient,
+    session: AsyncSession,
+    source: EventSource,
+    sign: SignFn,
+    aws: respx.MockRouter,
+    svc_role: Role,
+) -> None:
+    old_token = source.endpoint_token
+    await TriggersService(session, svc_role).rotate_event_source_endpoint(source.id)
+
+    envelope = sign("Notification", _s3_message(_s3_record()))
+    response = await _post(client, source, envelope, token=old_token)
+
+    assert response.status_code == 404
+    assert await _outbox(session, source) == []
+
+
+async def test_a_confirmation_racing_a_rotation_leaves_the_new_url_pending(
+    client: httpx.AsyncClient,
+    session: AsyncSession,
+    source: EventSource,
+    sign: SignFn,
+    aws: respx.MockRouter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _confirm_then_rotate(*, topic: SnsTopic, token: str) -> str:
+        # The source is rotated while SNS is confirming the old URL.
+        source.endpoint_token = secrets.token_urlsafe(32)
+        await session.commit()
+        return SUBSCRIPTION_ARN
+
+    monkeypatch.setattr(sns_service, "confirm_subscription", _confirm_then_rotate)
+    token = source.endpoint_token
+
+    response = await _post(
+        client, source, sign("SubscriptionConfirmation", "c"), token=token
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["confirmed"] is False
+    await session.refresh(source)
+    assert source.subscription_status == SubscriptionStatus.PENDING.value
+    assert source.subscription_ref is None
+
+
+async def test_rotation_and_overlap_ingest_never_log_a_token(
+    client: httpx.AsyncClient,
+    session: AsyncSession,
+    source: EventSource,
+    sign: SignFn,
+    aws: respx.MockRouter,
+    confirm_calls: list[tuple[str, str]],
+    svc_role: Role,
+) -> None:
+    records: list[str] = []
+    sink = logger.add(records.append, level="DEBUG", serialize=True)
+    try:
+        old_token = await _rotate_confirmed(session, source, svc_role)
+        envelope = sign("Notification", _s3_message(_s3_record()))
+        await _post(client, source, envelope, token=old_token)
+        await _post(client, source, sign("SubscriptionConfirmation", "c"))
+        await _post(client, source, envelope, token=old_token)
+    finally:
+        logger.remove(sink)
+
+    logged = "".join(records)
+    assert "SNS message ingested" in logged
+    assert old_token not in logged
+    assert source.endpoint_token not in logged
 
 
 def _unsubscribe_text(subscription_arn: str) -> str:

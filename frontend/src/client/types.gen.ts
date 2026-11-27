@@ -6547,9 +6547,13 @@ export type EventSourceRead = {
    */
   subscription_ref: string | null
   /**
-   * Point the feed (e.g. the SNS subscription) at this HTTPS URL. It does not change. Null for callers without trigger:update.
+   * Point the feed (e.g. the SNS subscription) at this HTTPS URL. It changes only when rotated. Shown only to callers with trigger:update, and only while the subscription is pending: once it is confirmed, the URL is null for everyone; rotate to get a new one.
    */
   endpoint_url: string | null
+  /**
+   * After a rotation, the replaced URL still accepts notifications until the new URL's subscription is confirmed, or until this time at the latest. Null when no replaced URL is accepted.
+   */
+  previous_url_expires_at: string | null
   created_at: string
   updated_at: string
 }
@@ -6557,7 +6561,7 @@ export type EventSourceRead = {
 export type EventSourceUpdate = {
   name?: string | null
   /**
-   * Replaces the whole config. The kind cannot change. Changing where events come from resets the subscription to pending.
+   * Replaces the whole config. The kind cannot change. Changing where events come from resets the subscription to pending and gives the source a new endpoint URL.
    */
   config?: AwsSnsSourceConfig | null
   status?: TriggerStatus | null
@@ -20676,6 +20680,13 @@ export type TriggersUpdateEventSourceData = {
 
 export type TriggersUpdateEventSourceResponse = EventSourceRead
 
+export type TriggersRotateEventSourceEndpointData = {
+  sourceId: string
+  workspaceId: string
+}
+
+export type TriggersRotateEventSourceEndpointResponse = EventSourceRead
+
 export type TriggersListTriggersData = {
   agentPresetId?: string | null
   cursor?: string | null
@@ -30146,6 +30157,29 @@ export type $OpenApiTs = {
          * See detail.code
          */
         400: unknown
+        /**
+         * See detail.code
+         */
+        404: unknown
+        /**
+         * See detail.code
+         */
+        409: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/event-sources/{source_id}/rotate-endpoint": {
+    post: {
+      req: TriggersRotateEventSourceEndpointData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: EventSourceRead
         /**
          * See detail.code
          */

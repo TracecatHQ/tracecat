@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ReactNode } from "react"
 import {
@@ -12,6 +12,7 @@ import {
   triggersGetWebhook,
   triggersListEventSources,
   triggersListTriggers,
+  triggersRotateEventSourceEndpoint,
   triggersUpdateTriggerBinding,
   type WebhookRead,
 } from "@/client"
@@ -43,6 +44,7 @@ jest.mock("@/client", () => ({
   triggersGetWebhook: jest.fn(),
   triggersListEventSources: jest.fn(),
   triggersListTriggers: jest.fn(),
+  triggersRotateEventSourceEndpoint: jest.fn(),
   triggersUpdateTriggerBinding: jest.fn(),
   // The detail page's Recent runs and Stopped events (trigger-runs.test.tsx).
   triggersListTriggerRuns: jest.fn(async () => ({
@@ -103,6 +105,7 @@ const SOURCE: EventSourceRead = {
   subscription_status: "pending",
   subscription_ref: null,
   endpoint_url: "https://tracecat.example.com/api/ingest/sns/token",
+  previous_url_expires_at: null,
   created_at: "2026-11-27T00:00:00Z",
   updated_at: "2026-11-27T00:00:00Z",
 }
@@ -596,6 +599,81 @@ describe("TriggerDetail", () => {
     expect(
       await screen.findByText(/Only members who can change triggers/)
     ).toBeInTheDocument()
+  })
+
+  it("hides a confirmed source's URL and offers a rotation", async () => {
+    jest.mocked(triggersGetEventSource).mockResolvedValue({
+      ...SOURCE,
+      subscription_status: "confirmed",
+      endpoint_url: null,
+    })
+
+    renderWithClient(<TriggerDetail triggerId="trigger-1" />)
+
+    expect(
+      await screen.findByText(/Hidden while the subscription is confirmed/)
+    ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Rotate URL" })).toBeEnabled()
+  })
+
+  it("rotates the URL after a confirmation that says what to do next", async () => {
+    const user = userEvent.setup()
+    const confirmed: EventSourceRead = {
+      ...SOURCE,
+      subscription_status: "confirmed",
+      endpoint_url: null,
+    }
+    const rotated: EventSourceRead = {
+      ...SOURCE,
+      endpoint_url: "https://tracecat.example.com/api/ingest/sns/new-token",
+      previous_url_expires_at: "2026-11-28T00:00:00Z",
+    }
+    jest
+      .mocked(triggersGetEventSource)
+      .mockResolvedValueOnce(confirmed)
+      .mockResolvedValue(rotated)
+    jest.mocked(triggersRotateEventSourceEndpoint).mockResolvedValue(rotated)
+
+    renderWithClient(<TriggerDetail triggerId="trigger-1" />)
+
+    await user.click(await screen.findByRole("button", { name: "Rotate URL" }))
+    const dialog = await screen.findByRole("alertdialog")
+    expect(dialog).toHaveTextContent(/keeps accepting events until/)
+    expect(dialog).toHaveTextContent(/for 24 hours at most/)
+    expect(dialog).toHaveTextContent(/Delete the old subscription in SNS/)
+    expect(triggersRotateEventSourceEndpoint).not.toHaveBeenCalled()
+
+    await user.click(within(dialog).getByRole("button", { name: "Rotate URL" }))
+
+    await waitFor(() =>
+      expect(triggersRotateEventSourceEndpoint).toHaveBeenCalledWith({
+        workspaceId: "workspace-1",
+        sourceId: SOURCE.id,
+      })
+    )
+    expect(
+      await screen.findByText(rotated.endpoint_url ?? "")
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/The old URL still accepts events/)
+    ).toBeInTheDocument()
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Endpoint URL rotated" })
+    )
+  })
+
+  it("offers no rotation without trigger:update", async () => {
+    scopes = { "trigger:read": true }
+    jest
+      .mocked(triggersGetEventSource)
+      .mockResolvedValue({ ...SOURCE, endpoint_url: null })
+
+    renderWithClient(<TriggerDetail triggerId="trigger-1" />)
+
+    expect(
+      await screen.findByText(/Only members who can change triggers/)
+    ).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Rotate URL" })).toBeNull()
   })
 
   it("names the missing execute scope when the API refuses a target", async () => {

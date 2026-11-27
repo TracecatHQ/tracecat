@@ -21362,7 +21362,21 @@ export const $EventSourceRead = {
       ],
       title: "Endpoint Url",
       description:
-        "Point the feed (e.g. the SNS subscription) at this HTTPS URL. It does not change. Null for callers without trigger:update.",
+        "Point the feed (e.g. the SNS subscription) at this HTTPS URL. It changes only when rotated. Shown only to callers with trigger:update, and only while the subscription is pending: once it is confirmed, the URL is null for everyone; rotate to get a new one.",
+    },
+    previous_url_expires_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Previous Url Expires At",
+      description:
+        "After a rotation, the replaced URL still accepts notifications until the new URL's subscription is confirmed, or until this time at the latest. Null when no replaced URL is accepted.",
     },
     created_at: {
       type: "string",
@@ -21385,6 +21399,7 @@ export const $EventSourceRead = {
     "subscription_status",
     "subscription_ref",
     "endpoint_url",
+    "previous_url_expires_at",
     "created_at",
     "updated_at",
   ],
@@ -21427,7 +21442,7 @@ export const $EventSourceUpdate = {
       ],
       title: "Config",
       description:
-        "Replaces the whole config. The kind cannot change. Changing where events come from resets the subscription to pending.",
+        "Replaces the whole config. The kind cannot change. Changing where events come from resets the subscription to pending and gives the source a new endpoint URL.",
     },
     status: {
       anyOf: [
