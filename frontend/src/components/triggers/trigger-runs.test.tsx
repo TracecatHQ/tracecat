@@ -143,6 +143,20 @@ describe("TriggerRunsSections", () => {
   })
 })
 
+it("keeps Load more on an empty page that has more after it", async () => {
+  // Child runs are filtered out of a page, so one can come back empty.
+  jest
+    .mocked(triggersListTriggerRuns)
+    .mockResolvedValue({ items: [], has_more: true, next_cursor: "next" })
+
+  renderWithClient(
+    <TriggerRunsSections workspaceId="workspace-1" trigger={TRIGGER} />
+  )
+
+  expect(await screen.findByRole("button", { name: "Load more" })).toBeEnabled()
+  expect(screen.queryByText(/No runs yet/)).not.toBeInTheDocument()
+})
+
 describe("StartedByTrigger", () => {
   it("links back to the trigger that started the run", async () => {
     jest.mocked(triggersGetTriggerRunOrigin).mockResolvedValue({

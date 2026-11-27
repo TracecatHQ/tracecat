@@ -14,9 +14,10 @@ exactly as before.
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 
@@ -36,6 +37,9 @@ _PROBE_QUERY = f"{TemporalSearchAttr.TRIGGER_ID.value} = '{uuid.UUID(int=0)}'"
 class _ProbeState:
     ready: bool = False
     next_probe_at: float = 0.0
+    # Concurrent first starts wait for the one probe instead of starting
+    # without the attribute while it runs.
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 _probe = _ProbeState()
@@ -45,21 +49,24 @@ async def trigger_id_registered(client: Client) -> bool:
     """Whether the namespace has ``TracecatTriggerId``; cached once true."""
     if _probe.ready:
         return True
-    now = time.monotonic()
-    if now < _probe.next_probe_at:
-        return False
-    _probe.next_probe_at = now + PROBE_RETRY_SECONDS
-    try:
-        await client.count_workflows(_PROBE_QUERY, rpc_timeout=_PROBE_RPC_TIMEOUT)
-    except Exception as e:
-        logger.warning(
-            "TracecatTriggerId is not usable yet; trigger runs start without it",
-            error_type=type(e).__name__,
-            retry_in_seconds=PROBE_RETRY_SECONDS,
-        )
-        return False
-    _probe.ready = True
-    return True
+    async with _probe.lock:
+        if _probe.ready:
+            return True
+        now = time.monotonic()
+        if now < _probe.next_probe_at:
+            return False
+        try:
+            await client.count_workflows(_PROBE_QUERY, rpc_timeout=_PROBE_RPC_TIMEOUT)
+        except Exception as e:
+            _probe.next_probe_at = time.monotonic() + PROBE_RETRY_SECONDS
+            logger.warning(
+                "TracecatTriggerId is not usable yet; trigger runs start without it",
+                error_type=type(e).__name__,
+                retry_in_seconds=PROBE_RETRY_SECONDS,
+            )
+            return False
+        _probe.ready = True
+        return True
 
 
 async def trigger_id_pairs(

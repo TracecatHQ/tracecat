@@ -13,6 +13,7 @@ import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import { useInfiniteQuery, useQuery } from "@/lib/query"
 
 const RUNS_PAGE_SIZE = 20
+const NO_ORIGIN_STALE_MS = 30_000
 
 /** A paged list the trigger page shows, with its load-more controls. */
 export interface TriggerPagedList<T> {
@@ -122,8 +123,10 @@ export function useTriggerRunOrigin(
       enabled &&
       Boolean(workspaceId) &&
       Boolean(target.wfExecId || target.sessionId),
-    // A run's trigger never changes; a missing scope (403) is not retried.
-    staleTime: Number.POSITIVE_INFINITY,
+    // A found trigger never changes. None found may be visibility lag (a
+    // session's first turn not indexed yet), so that answer goes stale.
+    staleTime: (query) =>
+      query.state.data ? Number.POSITIVE_INFINITY : NO_ORIGIN_STALE_MS,
     retry: retryHandler,
     meta: { suppressErrorToast: true },
   })

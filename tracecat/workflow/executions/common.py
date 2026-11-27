@@ -456,6 +456,8 @@ def build_query(
         query.append(f"{TemporalSearchAttr.TRIGGER_ID.value} = '{trigger_id}'")
 
     if workflow_types:
+        if any("'" in t or "\\" in t for t in workflow_types):
+            raise ValueError("Invalid workflow type")
         include_type_query = " OR ".join(
             f"WorkflowType = '{workflow_type}'"
             for workflow_type in sorted(workflow_types)

@@ -7191,7 +7191,7 @@ async def list_trigger_stopped_events(
 
     An `object_storage` trigger's event is retried with backoff when a target
     fails to start, and stops after 8 attempts. Other kinds list none. The
-    event itself is not returned.
+    event itself is not returned. Needs `workflow:read` or `agent:read`.
 
     Args:
         workspace_id: The workspace ID.

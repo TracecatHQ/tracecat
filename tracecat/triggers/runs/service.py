@@ -233,10 +233,14 @@ class TriggerRunsService(BaseWorkspaceService):
         matches. The event body is never returned, and the error is redacted.
 
         Raises:
-            ScopeDeniedError: Without the trigger's read scopes.
+            ScopeDeniedError: Without the trigger's read scopes, or without
+                ``workflow:read`` or ``agent:read``.
             TriggerError: ``not_found`` if the workspace has no such trigger.
             PaginationError: If the cursor is not one this list returned.
         """
+        # The errors describe failed workflow and agent starts, so they need
+        # a run read scope, as the runs do.
+        check_scopes(self.role, "workflow:read", "agent:read", require_all=False)
         trigger = await TriggersService(self.session, self.role).get_trigger(trigger_id)
         config = trigger.config
         if trigger.kind != TriggerKind.OBJECT_STORAGE or not isinstance(
@@ -299,8 +303,9 @@ class TriggerRunsService(BaseWorkspaceService):
     ) -> TriggerRunOrigin | None:
         """The trigger that started a workflow run or an agent session, if any.
 
-        A workflow run's child runs answer with their root's trigger. A
-        session answers with the trigger of any of its turns.
+        A workflow run's child runs answer with their root's trigger; any
+        other workflow type (an agent turn) answers null. A session answers
+        with the trigger of any of its turns.
 
         Raises:
             ScopeDeniedError: Without ``workflow:read`` (a run) or
@@ -318,7 +323,10 @@ class TriggerRunsService(BaseWorkspaceService):
             executions = await WorkflowExecutionsService.connect(
                 role=self.role, session=self.session
             )
-            if execution := await executions.get_execution(wf_exec_id):
+            execution = await executions.get_execution(wf_exec_id)
+            # Workflow runs only: an agent turn's ID would otherwise answer
+            # for a session without agent:read.
+            if execution is not None and execution.workflow_type == DSL_WORKFLOW_TYPE:
                 raw = execution.typed_search_attributes.get(
                     TemporalSearchAttr.TRIGGER_ID.key
                 )

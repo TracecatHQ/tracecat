@@ -148,7 +148,7 @@ function TriggerStoppedEvents({
       <PagedList
         list={events}
         empty="No stopped events."
-        forbidden="You don't have permission to view this trigger's events."
+        forbidden="You need permission to view workflow runs or agents to see this trigger's stopped events."
         renderItem={(event) => (
           <div key={event.id} className="space-y-1 px-4 py-2.5">
             <div className="flex items-center justify-between gap-3 text-xs">
@@ -196,7 +196,7 @@ function PagedList<T>({
       </p>
     )
   }
-  if (list.items.length === 0) {
+  if (list.items.length === 0 && !list.hasNextPage) {
     return (
       <p className="rounded-md border border-dashed px-4 py-6 text-center text-xs text-muted-foreground">
         {empty}
@@ -205,9 +205,12 @@ function PagedList<T>({
   }
   return (
     <div className="space-y-2">
-      <div className="divide-y rounded-md border">
-        {list.items.map(renderItem)}
-      </div>
+      {/* A page can come back empty (child runs are filtered out) with more after it. */}
+      {list.items.length > 0 ? (
+        <div className="divide-y rounded-md border">
+          {list.items.map(renderItem)}
+        </div>
+      ) : null}
       {list.hasNextPage ? (
         <Button
           variant="outline"

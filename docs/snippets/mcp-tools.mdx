@@ -286,7 +286,7 @@
 <ResponseField name="list_trigger_stopped_events" type="tool">
   List a trigger's events that stopped retrying, newest first.
 
-  An `object_storage` trigger's event is retried with backoff when a target fails to start, and stops after 8 attempts. Other kinds list none. The event itself is not returned.
+  An `object_storage` trigger's event is retried with backoff when a target fails to start, and stops after 8 attempts. Other kinds list none. The event itself is not returned. Needs `workflow:read` or `agent:read`.
 </ResponseField>
 
 <ResponseField name="get_trigger_run_origin" type="tool">

@@ -7,6 +7,7 @@ the trigger behind a run. Temporal is mocked; PostgreSQL is real.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -123,6 +124,30 @@ async def test_an_unregistered_attribute_sets_nothing_and_reprobes_later() -> No
 
 
 @pytest.mark.usefixtures("fresh_probe")
+async def test_concurrent_first_starts_share_one_probe() -> None:
+    client = Mock(spec=Client)
+    release = asyncio.Event()
+
+    async def _slow_count(*_: Any, **__: Any) -> None:
+        await release.wait()
+
+    client.count_workflows = AsyncMock(side_effect=_slow_count)
+    trigger_ids = [uuid.uuid4() for _ in range(3)]
+    calls = [
+        asyncio.create_task(trigger_link.trigger_id_pairs(client, t))
+        for t in trigger_ids
+    ]
+    await asyncio.sleep(0)
+    release.set()
+
+    results = await asyncio.gather(*calls)
+
+    # Every start waited for the one probe and carries its trigger ID.
+    assert [[p.value for p in r] for r in results] == [[str(t)] for t in trigger_ids]
+    assert client.count_workflows.await_count == 1
+
+
+@pytest.mark.usefixtures("fresh_probe")
 async def test_no_trigger_means_no_probe() -> None:
     client = Mock(spec=Client)
     client.count_workflows = AsyncMock()
@@ -216,6 +241,11 @@ def test_agent_turn_attributes_append_the_trigger_link() -> None:
     assert [p for p in linked.search_attributes if p not in link] == list(
         plain.search_attributes
     )
+
+
+def test_build_query_rejects_a_quoted_workflow_type() -> None:
+    with pytest.raises(ValueError, match="Invalid workflow type"):
+        build_query(workspace_id=uuid.uuid4(), workflow_types={"x' OR '1'='1"})
 
 
 def test_build_query_filters_by_trigger_and_workflow_type() -> None:
@@ -577,6 +607,23 @@ async def test_stopped_events_page_newest_first(
     assert second.has_more is False
 
 
+async def test_stopped_events_need_a_run_read_scope(
+    session: AsyncSession, svc_role: Role, svc_workspace: Workspace
+) -> None:
+    trigger_id = await _object_trigger(TriggersService(session, svc_role))
+    role = _role(svc_workspace, frozenset({"trigger:read"}))
+
+    with pytest.raises(ScopeDeniedError):
+        await TriggerRunsService(session, role).list_stopped_events(
+            trigger_id, CursorPaginationParams(limit=10)
+        )
+    # Either run read scope is enough.
+    page = await TriggerRunsService(
+        session, _role(svc_workspace, frozenset({"trigger:read", "agent:read"}))
+    ).list_stopped_events(trigger_id, CursorPaginationParams(limit=10))
+    assert page.items == []
+
+
 # ----- Origin -----
 
 
@@ -639,6 +686,25 @@ async def test_a_run_without_the_attribute_or_a_deleted_trigger(
     origin = await service.run_origin(wf_exec_id="wf/exec")
     assert origin is not None
     assert (origin.trigger_id, origin.name) == (gone, None)
+
+
+async def test_origin_by_run_id_answers_only_for_workflow_runs(
+    session: AsyncSession, svc_workspace: Workspace, executions: FakeExecutions
+) -> None:
+    """An agent turn's ID must not answer for a caller without agent:read."""
+    role = _role(svc_workspace, frozenset({"trigger:read", "workflow:read"}))
+    trigger_id = uuid.uuid4()
+    executions.execution = _execution(
+        f"agent/{uuid.uuid4()}",
+        "DurableAgentWorkflow",
+        attrs=[TemporalSearchAttr.TRIGGER_ID.create_pair(str(trigger_id))],
+    )
+
+    origin = await TriggerRunsService(session, role).run_origin(
+        wf_exec_id=executions.execution.id
+    )
+
+    assert origin is None
 
 
 async def test_origin_needs_the_run_kind_read_scope(
