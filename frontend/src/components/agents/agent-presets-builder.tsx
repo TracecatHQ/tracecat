@@ -209,6 +209,8 @@ const RESERVED_SUBAGENT_ALIASES = new Set([
 ])
 const AGENT_PRESET_TAB_QUERY_PARAM = "tab"
 const AGENT_PRESET_SESSION_QUERY_PARAM = "session"
+const SESSION_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function AgentPresetLoadError({
   title,
@@ -696,7 +698,10 @@ function AgentPresetChatPane({
   const latestChatId =
     chats?.find((candidate) => !candidate.is_readonly)?.id ?? chats?.[0]?.id
   // ?session= opens one session, such as a trigger's run (Recent runs links).
-  const linkedChatId = useSearchParams().get(AGENT_PRESET_SESSION_QUERY_PARAM)
+  // Only a UUID: it becomes an API path segment.
+  const sessionParam = useSearchParams().get(AGENT_PRESET_SESSION_QUERY_PARAM)
+  const linkedChatId =
+    sessionParam && SESSION_ID_PATTERN.test(sessionParam) ? sessionParam : null
   const activeChatId = selectedChatId ?? linkedChatId ?? latestChatId
 
   const handleHistoryScopeChange = (nextScope: ChatHistoryScope) => {

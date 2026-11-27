@@ -281,9 +281,12 @@ class FakeExecutions:
     items: list[Any] = field(default_factory=list)
     calls: list[dict[str, Any]] = field(default_factory=list)
     execution: Any = None
+    error: Exception | None = None
 
     async def list_executions_paginated(self, **kwargs: Any) -> WorkflowExecutionsPage:
         self.calls.append(kwargs)
+        if self.error is not None:
+            raise self.error
         return WorkflowExecutionsPage(
             items=self.items,
             next_cursor="next",
@@ -412,7 +415,9 @@ async def test_recent_runs_read_the_trigger_root_runs_with_names(
     assert call["trigger_id"] == trigger_id
     assert call["relation"] is WorkflowExecutionRelationFilter.ROOT
     assert call["pagination"].cursor == "c"
-    assert (call["workflow_types"], call["exclude_workflow_types"]) == (None, None)
+    # An allowlist: workflow runs and agent turns, nothing else.
+    assert call["workflow_types"] == {DSL_WORKFLOW_TYPE, "DurableAgentWorkflow"}
+    assert "exclude_workflow_types" not in call
     workflow_run, agent_run = page.items
     assert workflow_run.target_type is TriggerTargetType.WORKFLOW
     assert workflow_run.target_name == "On upload"
@@ -424,10 +429,10 @@ async def test_recent_runs_read_the_trigger_root_runs_with_names(
 
 
 @pytest.mark.parametrize(
-    ("run_scope", "workflow_types", "exclude"),
+    ("run_scope", "workflow_types"),
     [
-        ("workflow:read", {DSL_WORKFLOW_TYPE}, None),
-        ("agent:read", None, {DSL_WORKFLOW_TYPE}),
+        ("workflow:read", {DSL_WORKFLOW_TYPE}),
+        ("agent:read", {"DurableAgentWorkflow"}),
     ],
 )
 async def test_recent_runs_list_only_the_kinds_the_caller_may_read(
@@ -436,8 +441,7 @@ async def test_recent_runs_list_only_the_kinds_the_caller_may_read(
     svc_workspace: Workspace,
     executions: FakeExecutions,
     run_scope: str,
-    workflow_types: set[str] | None,
-    exclude: set[str] | None,
+    workflow_types: set[str],
 ) -> None:
     trigger_id = await _object_trigger(TriggersService(session, svc_role))
     role = _role(svc_workspace, frozenset({"trigger:read", run_scope}))
@@ -448,7 +452,6 @@ async def test_recent_runs_list_only_the_kinds_the_caller_may_read(
 
     (call,) = executions.calls
     assert call["workflow_types"] == workflow_types
-    assert call["exclude_workflow_types"] == exclude
 
 
 async def test_recent_runs_need_a_run_read_scope(
@@ -486,28 +489,21 @@ async def test_a_trigger_in_another_workspace_is_not_found(
     assert executions.calls == []
 
 
-async def test_recent_runs_are_empty_until_the_attribute_is_registered(
-    session: AsyncSession, svc_role: Role, fresh_probe: None
+async def test_recent_runs_are_empty_only_while_the_attribute_is_unknown(
+    session: AsyncSession, svc_role: Role, executions: FakeExecutions
 ) -> None:
+    """Temporal rejects a query on an unknown attribute: no run carries it yet.
+    Any other failure is an error, never an empty history."""
     trigger_id = await _object_trigger(TriggersService(session, svc_role))
-    client = Mock(spec=Client)
-    client.count_workflows = AsyncMock(
-        side_effect=RPCError("unknown", RPCStatusCode.INVALID_ARGUMENT, b"")
-    )
-    connect = AsyncMock()
+    service = TriggerRunsService(session, svc_role)
+    executions.error = RPCError("unknown", RPCStatusCode.INVALID_ARGUMENT, b"")
 
-    with (
-        patch.object(
-            runs_service, "get_temporal_client", AsyncMock(return_value=client)
-        ),
-        patch.object(runs_service.WorkflowExecutionsService, "connect", connect),
-    ):
-        page = await TriggerRunsService(session, svc_role).list_runs(
-            trigger_id, CursorPaginationParams(limit=10)
-        )
-
+    page = await service.list_runs(trigger_id, CursorPaginationParams(limit=10))
     assert page.items == []
-    connect.assert_not_awaited()
+
+    executions.error = RPCError("down", RPCStatusCode.UNAVAILABLE, b"")
+    with pytest.raises(RPCError):
+        await service.list_runs(trigger_id, CursorPaginationParams(limit=10))
 
 
 # ----- Stopped events -----
@@ -682,7 +678,8 @@ async def test_a_run_and_a_session_lead_back_to_their_trigger(
     (query,) = queries
     assert build_agent_session_correlation_id(session_id) in query
     assert "TracecatTriggerId IS NOT NULL" in query
-    assert "WorkflowType != 'DSLWorkflow'" in query
+    assert "WorkflowType = 'DurableAgentWorkflow'" in query
+    assert "DSLWorkflow" not in query
     assert f"TracecatWorkspaceId = '{svc_role.workspace_id}'" in query
 
 

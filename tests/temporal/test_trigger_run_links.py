@@ -94,6 +94,11 @@ async def test_the_gate_holds_until_registration_then_runs_are_found(
             await _start(client, workspace_id, trigger_id)
         assert e.value.status == RPCStatusCode.INVALID_ARGUMENT
         assert await trigger_link.trigger_id_pairs(client, trigger_id) == []
+        # The read side treats this as "no runs yet".
+        unregistered = build_query(workspace_id=workspace_id, trigger_id=trigger_id)
+        with pytest.raises(RPCError) as e:
+            _ = [run async for run in client.list_workflows(unregistered)]
+        assert e.value.status == RPCStatusCode.INVALID_ARGUMENT
 
         await _register_trigger_id(client)
         # The next probe after the retry window passes.

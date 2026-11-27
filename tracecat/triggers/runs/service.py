@@ -17,7 +17,9 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import and_, func, literal, select, tuple_
+from temporalio.service import RPCError, RPCStatusCode
 
+from tracecat.agent.backends.registry import get_agent_backends, get_workflow_type
 from tracecat.authz.controls import check_scopes, has_scope
 from tracecat.db.models import AgentPreset, AgentSession, EventOutbox, Workflow
 from tracecat.dsl.client import get_temporal_client
@@ -48,7 +50,6 @@ from tracecat.workflow.executions.correlation import (
 from tracecat.workflow.executions.enums import TemporalSearchAttr
 from tracecat.workflow.executions.schemas import WorkflowExecutionRelationFilter
 from tracecat.workflow.executions.service import WorkflowExecutionsService
-from tracecat.workflow.executions.trigger_link import trigger_id_registered
 
 DSL_WORKFLOW_TYPE = "DSLWorkflow"
 """Workflow runs; every other type a trigger starts is an agent turn."""
@@ -66,6 +67,11 @@ def _stopped_error(last_error: str | None, event: dict[str, Any]) -> str | None:
     event_values = [value for value in event.values() if isinstance(value, str)]
     redacted = redact_sensitive_text(last_error, sensitive_values=event_values)
     return redacted[:STOPPED_ERROR_MAX_LENGTH]
+
+
+def agent_turn_workflow_types() -> set[str]:
+    """The workflow types of agent turns: every installed backend's turn workflow."""
+    return {get_workflow_type(backend) for backend in get_agent_backends().values()}
 
 
 def _encode_stopped_cursor(received: datetime, occurrence_key: str) -> str:
@@ -128,18 +134,28 @@ class TriggerRunsService(BaseWorkspaceService):
         agents = has_scope(self.role.scopes or frozenset(), "agent:read")
         if not (workflows and agents):
             check_scopes(self.role, "workflow:read", "agent:read", require_all=False)
-        if not await trigger_id_registered(await get_temporal_client()):
-            return TriggerRunsPage(items=[])
+        agent_types = agent_turn_workflow_types()
+        # An allowlist per readable kind: other types a trigger run can lead
+        # to (such as registry tool runs) are never listed.
+        workflow_types = ({DSL_WORKFLOW_TYPE} if workflows else set()) | (
+            agent_types if agents else set()
+        )
         executions = await WorkflowExecutionsService.connect(
             role=self.role, session=self.session
         )
-        page = await executions.list_executions_paginated(
-            pagination=params,
-            trigger_id=trigger.id,
-            workflow_types={DSL_WORKFLOW_TYPE} if not agents else None,
-            exclude_workflow_types={DSL_WORKFLOW_TYPE} if not workflows else None,
-            relation=WorkflowExecutionRelationFilter.ROOT,
-        )
+        try:
+            page = await executions.list_executions_paginated(
+                pagination=params,
+                trigger_id=trigger.id,
+                workflow_types=workflow_types,
+                relation=WorkflowExecutionRelationFilter.ROOT,
+            )
+        except RPCError as e:
+            # The namespace doesn't have TracecatTriggerId yet, so no run
+            # carries it. Any other failure is an error, not "no runs".
+            if e.status != RPCStatusCode.INVALID_ARGUMENT:
+                raise
+            return TriggerRunsPage(items=[])
         items: list[TriggerRunRead] = []
         for execution in page.items:
             status = execution.status.name if execution.status else "RUNNING"
@@ -158,6 +174,8 @@ class TriggerRunsService(BaseWorkspaceService):
                         close_time=execution.close_time,
                     )
                 )
+                continue
+            if execution.workflow_type not in agent_types:
                 continue
             session_id = _session_id_of(
                 execution.typed_search_attributes.get(
@@ -349,9 +367,6 @@ class TriggerRunsService(BaseWorkspaceService):
         check_scopes(
             self.role, "workflow:read" if wf_exec_id is not None else "agent:read"
         )
-        client = await get_temporal_client()
-        if not await trigger_id_registered(client):
-            return None
         raw: str | None = None
         if wf_exec_id is not None:
             executions = await WorkflowExecutionsService.connect(
@@ -370,16 +385,23 @@ class TriggerRunsService(BaseWorkspaceService):
                     build_query(
                         workspace_id=self.workspace_id,
                         correlation_id=build_agent_session_correlation_id(session_id),
+                        # Agent turns only, as the run branch takes workflow
+                        # runs only.
+                        workflow_types=agent_turn_workflow_types(),
                     ),
                     f"{TemporalSearchAttr.TRIGGER_ID.value} IS NOT NULL",
-                    # Agent turns only, as the run branch takes workflow runs only.
-                    f"WorkflowType != '{DSL_WORKFLOW_TYPE}'",
                 )
             )
-            async for execution in client.list_workflows(query, limit=1):
-                raw = execution.typed_search_attributes.get(
-                    TemporalSearchAttr.TRIGGER_ID.key
-                )
+            client = await get_temporal_client()
+            try:
+                async for execution in client.list_workflows(query, limit=1):
+                    raw = execution.typed_search_attributes.get(
+                        TemporalSearchAttr.TRIGGER_ID.key
+                    )
+            except RPCError as e:
+                # Not registered yet: no session carries it.
+                if e.status != RPCStatusCode.INVALID_ARGUMENT:
+                    raise
         if raw is None:
             return None
         try:
