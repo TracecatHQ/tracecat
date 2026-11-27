@@ -41,6 +41,7 @@ export function useHasScopes(): (
     "schedule:update": useScopeCheck("schedule:update"),
     "schedule:delete": useScopeCheck("schedule:delete"),
     "workflow:execute": useScopeCheck("workflow:execute"),
+    "workflow:read": useScopeCheck("workflow:read"),
   }
   return (scopes) => {
     let all: boolean | undefined = true

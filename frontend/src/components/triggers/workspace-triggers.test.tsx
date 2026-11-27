@@ -296,7 +296,7 @@ describe("WorkspaceTriggers", () => {
 describe("CreateTriggerDialog kind picker", () => {
   it("marks the kinds the plan lacks and keeps the others open", () => {
     entitled = false
-    scopes = { ...scopes, "workflow:execute": true }
+    scopes = { ...scopes, "workflow:execute": true, "workflow:read": true }
 
     renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
 
@@ -308,7 +308,7 @@ describe("CreateTriggerDialog kind picker", () => {
 
   it("says the plan is unknown rather than locked when the check fails", () => {
     entitlementsFailed = true
-    scopes = { ...scopes, "workflow:execute": true }
+    scopes = { ...scopes, "workflow:execute": true, "workflow:read": true }
 
     renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
 
@@ -528,7 +528,7 @@ describe("TriggerDetail", () => {
   it("names the missing execute scope when the API refuses a target", async () => {
     const user = userEvent.setup()
     // The UI allows it; the server still refuses (a stale scope set).
-    scopes = { ...scopes, "workflow:execute": true }
+    scopes = { ...scopes, "workflow:execute": true, "workflow:read": true }
     jest.mocked(triggersUpdateTriggerBinding).mockRejectedValue(
       Object.assign(new Error("Forbidden"), {
         status: 403,
@@ -575,7 +575,7 @@ describe("TriggerDetail", () => {
   })
 
   it("keeps the trigger offline without the execute scope of an online target", async () => {
-    scopes = { ...scopes, "workflow:execute": true }
+    scopes = { ...scopes, "workflow:execute": true, "workflow:read": true }
 
     renderWithClient(<TriggerDetail triggerId="trigger-1" />)
 

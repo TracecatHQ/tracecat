@@ -416,8 +416,12 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         params: ScheduleUpdate,
         *,
         trigger_name: str | None = None,
+        temporal_inputs: bool = True,
     ) -> None:
         """Apply ``params`` to a schedule whose workflow the caller locked.
+
+        ``temporal_inputs=False`` keeps ``inputs`` out of the Temporal update:
+        scheduled runs read their inputs from this row when they start.
 
         Writes the schedule's trigger row in the same transaction: its status
         and timestamp, or a new row for a schedule the previous release made
@@ -465,7 +469,7 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         # After-commit callback to update Temporal schedule
         async def _update_schedule():
             try:
-                await bridge.update_schedule(schedule_id, params)
+                await bridge.update_schedule(schedule_id, temporal_params)
                 logger.info(
                     "Updated schedule",
                     schedule_id=schedule_id,
@@ -477,7 +481,12 @@ class WorkflowSchedulesService(BaseWorkspaceService):
                     schedule_id=schedule_id,
                 )
 
-        if params.model_fields_set:
+        temporal_params = params
+        if not temporal_inputs and "inputs" in params.model_fields_set:
+            temporal_params = ScheduleUpdate.model_validate(
+                params.model_dump(exclude_unset=True, exclude={"inputs"})
+            )
+        if temporal_params.model_fields_set:
             AfterCommitQueue.of(self.session).add(_update_schedule)
 
     @require_scope("schedule:delete")
@@ -604,17 +613,14 @@ class WorkflowSchedulesService(BaseWorkspaceService):
             TracecatNotFoundError: If no schedule belongs to the trigger.
         """
         schedule = await self._get_trigger_schedule(trigger_id)
-        # Inputs go to Temporal only when they really change: the bridge's
-        # inputs update does not reach Temporal today, and a config replace
-        # always carries them. The spec fields always go together, so the
-        # Temporal schedule never ends up with neither cron nor interval.
-        if "inputs" in params.model_fields_set and (params.inputs or {}) == (
-            schedule.inputs or {}
-        ):
-            params = ScheduleUpdate.model_validate(
-                params.model_dump(exclude_unset=True, exclude={"inputs"})
-            )
-        await self._update_schedule_impl(schedule, params, trigger_name=trigger_name)
+        # Inputs are saved on the row and kept out of the Temporal update:
+        # runs read them from the row, and the bridge's inputs update fails,
+        # which would drop the spec change with it. The spec fields always go
+        # together, so the Temporal schedule never ends up with neither cron
+        # nor interval.
+        await self._update_schedule_impl(
+            schedule, params, trigger_name=trigger_name, temporal_inputs=False
+        )
         await self.session.commit()
         await self.session.refresh(schedule)
         return schedule

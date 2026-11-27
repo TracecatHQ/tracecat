@@ -366,6 +366,8 @@ async def test_a_config_replaces_every_schedule_setting(
     [(_, params)] = temporal.updated
     assert params.cron is None
     assert params.every == timedelta(hours=2)
+    # Cleared on the row, which runs read; not sent to the Temporal schedule.
+    assert "inputs" not in params.model_fields_set
 
 
 async def test_a_config_update_leaves_unchanged_inputs_out(

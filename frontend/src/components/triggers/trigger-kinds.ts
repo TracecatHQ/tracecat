@@ -22,9 +22,15 @@ export const TRIGGER_KINDS: Record<TriggerKind, TriggerKindDefinition> = {
     icon: CalendarClockIcon,
     entitlement: null,
     // As the API checks them: creating reads the schedule back and binds the
-    // workflow, so it also needs schedule:read and workflow:execute.
+    // workflow, so it also needs schedule:read and workflow:execute. The form
+    // lists workflows to pick from, which needs workflow:read.
     scopes: {
-      create: ["schedule:create", "schedule:read", "workflow:execute"],
+      create: [
+        "schedule:create",
+        "schedule:read",
+        "workflow:execute",
+        "workflow:read",
+      ],
       update: ["schedule:update"],
       delete: ["schedule:delete"],
     },
