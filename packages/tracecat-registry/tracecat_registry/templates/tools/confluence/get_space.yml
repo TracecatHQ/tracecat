@@ -1,0 +1,66 @@
+type: action
+definition:
+  title: Get space
+  description: >-
+    Returns a specific space by its ID.
+  display_group: Confluence
+  doc_url: https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-space/#api-spaces-id-get
+  namespace: tools.confluence
+  name: get_space
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+      optional: true
+    - name: confluence
+      keys: ["CONFLUENCE_USERNAME", "CONFLUENCE_API_TOKEN"]
+      optional: true
+  expects:
+    space_id:
+      type: str
+      description: >-
+        The ID of the space. Use list_spaces with `keys` to look up a space ID from its key.
+    description_format:
+      type: str | None
+      description: >-
+        The content format type to be returned in the `description` field of the response. One of: plain, view.
+      default: null
+    include_labels:
+      type: bool | None
+      description: >-
+        Includes labels associated with this space in the response. The number of results will be limited to 50.
+      default: null
+    include_properties:
+      type: bool | None
+      description: >-
+        Includes space properties associated with this space in the response. The number of results will be limited to 50.
+      default: null
+    include_permissions:
+      type: bool | None
+      description: >-
+        Includes space permissions associated with this space in the response. The number of results will be limited to 50.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Confluence base URL. With an API token, use your site URL (e.g.
+        https://example.atlassian.net/wiki). With Atlassian OAuth, use the
+        Atlassian API gateway URL for your site (e.g.
+        https://api.atlassian.com/ex/confluence/{cloudId}). See
+        https://developer.atlassian.com/cloud/confluence/oauth-2-3lo-apps/ for
+        how to find your cloudId and build OAuth request URLs.
+      default: null
+  steps:
+    - ref: get_space
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/api/v2/spaces/${{ FN.url_encode(inputs.space_id) }}
+        method: GET
+        headers:
+          Authorization: ${{ FN.format("Bearer {}", SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN) if SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN else FN.format("Basic {}", FN.to_base64(FN.format("{}:{}", SECRETS.confluence.CONFLUENCE_USERNAME, SECRETS.confluence.CONFLUENCE_API_TOKEN))) }}
+        params:
+          description-format: ${{ inputs.description_format }}
+          include-labels: ${{ inputs.include_labels }}
+          include-properties: ${{ inputs.include_properties }}
+          include-permissions: ${{ inputs.include_permissions }}
+  returns: ${{ steps.get_space.result }}

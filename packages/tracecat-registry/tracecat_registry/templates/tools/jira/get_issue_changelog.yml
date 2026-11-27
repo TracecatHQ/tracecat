@@ -1,0 +1,50 @@
+type: action
+definition:
+  title: Get issue changelog
+  description: Get the change history of a Jira issue, one page at a time.
+  display_group: Jira
+  doc_url: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-changelog-get
+  namespace: tools.jira
+  name: get_issue_changelog
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+      optional: true
+    - name: jira
+      keys: ["JIRA_USEREMAIL", "JIRA_API_TOKEN"]
+      optional: true
+  expects:
+    issueIdOrKey:
+      type: str
+      description: >-
+        The ID or key of the issue.
+    startAt:
+      type: int | None
+      description: >-
+        The index of the first item to return in a page of results (page
+        offset).
+      default: null
+    maxResults:
+      type: int | None
+      description: >-
+        The maximum number of items to return per page.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian
+        OAuth, use https://api.atlassian.com/ex/jira/{cloudId}.
+      default: null
+  steps:
+    - ref: get_issue_changelog
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/rest/api/3/issue/${{ FN.url_encode(inputs.issueIdOrKey) }}/changelog
+        method: GET
+        headers:
+          Authorization: ${{ FN.format("Bearer {}", SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN) if SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN else FN.format("Basic {}", FN.to_base64(FN.format("{}:{}", SECRETS.jira.JIRA_USEREMAIL, SECRETS.jira.JIRA_API_TOKEN))) }}
+        params:
+          startAt: ${{ inputs.startAt }}
+          maxResults: ${{ inputs.maxResults }}
+  returns: ${{ steps.get_issue_changelog.result }}

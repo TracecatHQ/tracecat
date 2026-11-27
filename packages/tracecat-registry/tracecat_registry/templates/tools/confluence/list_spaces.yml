@@ -1,0 +1,92 @@
+type: action
+definition:
+  title: List spaces
+  description: >-
+    Returns all spaces the caller can view. Filter by space key to resolve a space ID for other actions.
+  display_group: Confluence
+  doc_url: https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-space/#api-spaces-get
+  namespace: tools.confluence
+  name: list_spaces
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+      optional: true
+    - name: confluence
+      keys: ["CONFLUENCE_USERNAME", "CONFLUENCE_API_TOKEN"]
+      optional: true
+  expects:
+    ids:
+      type: str | None
+      description: >-
+        Filter the results to spaces based on their IDs. Multiple IDs can be specified as a comma-separated list.
+      default: null
+    keys:
+      type: str | None
+      description: >-
+        Filter the results to spaces based on their keys. Multiple keys can be specified as a comma-separated list.
+      default: null
+    type:
+      type: str | None
+      description: >-
+        Filter the results to spaces based on their type. One of: global, collaboration, knowledge_base, personal, system, onboarding, xflow_sample_space.
+      default: null
+    status:
+      type: str | None
+      description: >-
+        Filter the results to spaces based on their status. One of: current, archived, trashed.
+      default: null
+    labels:
+      type: str | None
+      description: >-
+        Filter the results to spaces based on their labels. Multiple labels can be specified as a comma-separated list.
+      default: null
+    sort:
+      type: str | None
+      description: >-
+        Used to sort the result by a particular field. One of: id, -id, key, -key, name, -name.
+      default: null
+    description_format:
+      type: str | None
+      description: >-
+        The content format type to be returned in the `description` field of the response. One of: plain, view.
+      default: null
+    cursor:
+      type: str | None
+      description: >-
+        Used for pagination, this opaque cursor will be returned in the `next` URL in the `Link` response header and in `_links.next`. Use the relevant `cursor` value from that URL to fetch the next page of spaces.
+      default: null
+    limit:
+      type: int | None
+      description: >-
+        Maximum number of spaces per result to return. If more results exist, use the `Link` header or `_links.next` to retrieve a relative URL that will return the next set of results. Maximum 250.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Confluence base URL. With an API token, use your site URL (e.g.
+        https://example.atlassian.net/wiki). With Atlassian OAuth, use the
+        Atlassian API gateway URL for your site (e.g.
+        https://api.atlassian.com/ex/confluence/{cloudId}). See
+        https://developer.atlassian.com/cloud/confluence/oauth-2-3lo-apps/ for
+        how to find your cloudId and build OAuth request URLs.
+      default: null
+  steps:
+    - ref: list_spaces
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/api/v2/spaces
+        method: GET
+        headers:
+          Authorization: ${{ FN.format("Bearer {}", SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN) if SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN else FN.format("Basic {}", FN.to_base64(FN.format("{}:{}", SECRETS.confluence.CONFLUENCE_USERNAME, SECRETS.confluence.CONFLUENCE_API_TOKEN))) }}
+        params:
+          ids: ${{ inputs.ids }}
+          keys: ${{ inputs.keys }}
+          type: ${{ inputs.type }}
+          status: ${{ inputs.status }}
+          labels: ${{ inputs.labels }}
+          sort: ${{ inputs.sort }}
+          description-format: ${{ inputs.description_format }}
+          cursor: ${{ inputs.cursor }}
+          limit: ${{ inputs.limit }}
+  returns: ${{ steps.list_spaces.result }}

@@ -1,9 +1,10 @@
 type: action
 definition:
   title: Get page by title
-  description: Find a Confluence page by title within a space.
+  description: >-
+    Find a Confluence page by exact title within a space. Returns the first matching page or null.
   display_group: Confluence
-  doc_url: https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content-getContent
+  doc_url: https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-page/#api-spaces-id-pages-get
   namespace: tools.confluence
   name: get_page_by_title
   secrets:
@@ -17,36 +18,60 @@ definition:
   expects:
     space_key:
       type: str
-      description: Space key containing the page (e.g., DEV, TEAM).
+      description: >-
+        Space key containing the page (e.g., DEV, TEAM).
     title:
       type: str
-      description: Exact page title to retrieve.
-    expand:
-      type: str
-      description: >
-        Comma-separated fields to expand (e.g., body.storage, body.view, version, space, ancestors,
-        children.attachment).
-      default: body.storage,version,space
+      description: >-
+        Exact page title to retrieve.
+    body_format:
+      type: str | None
+      description: >-
+        The content format types to be returned in the `body` field of the response. One of: storage, atlas_doc_format.
+      default: storage
     base_url:
       type: str | None
       description: >-
-        Confluence site base URL (e.g. https://example.atlassian.net/wiki). With
-        Atlassian OAuth, use https://api.atlassian.com/ex/confluence/{cloudId}.
-        Do not append /rest/api.
+        Confluence base URL. With an API token, use your site URL (e.g.
+        https://example.atlassian.net/wiki). With Atlassian OAuth, use the
+        Atlassian API gateway URL for your site (e.g.
+        https://api.atlassian.com/ex/confluence/{cloudId}). See
+        https://developer.atlassian.com/cloud/confluence/oauth-2-3lo-apps/ for
+        how to find your cloudId and build OAuth request URLs.
       default: null
   steps:
+    - ref: get_space
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/api/v2/spaces
+        method: GET
+        headers:
+          Authorization: ${{ FN.format("Bearer {}", SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN) if SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN else FN.format("Basic {}", FN.to_base64(FN.format("{}:{}", SECRETS.confluence.CONFLUENCE_USERNAME, SECRETS.confluence.CONFLUENCE_API_TOKEN))) }}
+        params:
+          keys: ${{ inputs.space_key }}
+          limit: 1
+    - ref: resolve_space_id
+      action: core.script.run_python
+      args:
+        inputs:
+          spaces: ${{ steps.get_space.result.data.results }}
+          space_key: ${{ inputs.space_key }}
+        script: |
+          def main(spaces, space_key):
+              if not spaces:
+                  raise ValueError(f"Confluence space not found: {space_key}")
+              return spaces[0]["id"]
     - ref: lookup_page
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.confluence.base_url }}/rest/api/content
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/api/v2/spaces/${{ FN.url_encode(steps.resolve_space_id.result) }}/pages
         method: GET
         headers:
           Authorization: ${{ FN.format("Bearer {}", SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN) if SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN else FN.format("Basic {}", FN.to_base64(FN.format("{}:{}", SECRETS.confluence.CONFLUENCE_USERNAME, SECRETS.confluence.CONFLUENCE_API_TOKEN))) }}
         params:
           title: ${{ inputs.title }}
-          spaceKey: ${{ inputs.space_key }}
-          type: page
-          expand: ${{ inputs.expand }}
+          body-format: ${{ inputs.body_format }}
+          depth: all
           limit: 1
     - ref: first_result
       action: core.script.run_python

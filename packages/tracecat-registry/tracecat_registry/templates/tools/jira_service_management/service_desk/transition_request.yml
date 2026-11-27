@@ -1,0 +1,60 @@
+type: action
+definition:
+  title: Transition request
+  description: Perform a customer transition on a service request.
+  display_group: Jira Service Management
+  doc_url: https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-request/#api-rest-servicedeskapi-request-issueidorkey-transition-post
+  namespace: tools.jira_service_management
+  name: transition_request
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+  expects:
+    issueIdOrKey:
+      type: str
+      description: >-
+        ID or key of the issue to transition
+    id:
+      type: str
+      description: >-
+        ID of the transition to be performed. Use get_request_transitions to
+        find it.
+    additionalComment:
+      type: str | dict[str, Any] | None
+      description: >-
+        Comment explaining the reason for the transition. A plain string is sent
+        as the comment body; an object (e.g. {"body": "..."}) is sent as is.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Atlassian API URL for the Jira site
+        (e.g. https://api.atlassian.com/ex/jira/{cloudId}).
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          id: ${{ inputs.id }}
+          additionalComment: ${{ inputs.additionalComment }}
+        script: |
+          def main(id, additionalComment):
+              payload = {"id": id}
+              if additionalComment is not None:
+                  payload["additionalComment"] = (
+                      additionalComment
+                      if isinstance(additionalComment, dict)
+                      else {"body": additionalComment}
+                  )
+              return payload
+    - ref: transition_request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/rest/servicedeskapi/request/${{ FN.url_encode(inputs.issueIdOrKey) }}/transition
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN }}
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.transition_request.result }}

@@ -29,12 +29,24 @@ ATLASSIAN_SCOPES = [
     "read:ops-config:jira-service-management",
     "write:ops-config:jira-service-management",
     "delete:ops-config:jira-service-management",
-    # Confluence
+    # Confluence v1 (classic scopes): CQL search, labels, attachment upload
     "read:confluence-content.all",
     "read:confluence-content.summary",
     "read:confluence-space.summary",
     "write:confluence-content",
+    "write:confluence-file",
     "search:confluence",
+    # Confluence v2 (granular scopes; v2 endpoints do not accept classic scopes)
+    "read:page:confluence",
+    "write:page:confluence",
+    "delete:page:confluence",
+    "read:space:confluence",
+    "read:comment:confluence",
+    "write:comment:confluence",
+    "read:attachment:confluence",
+    "read:hierarchical-content:confluence",
+    "read:content.metadata:confluence",
+    "read:folder:confluence",
     # Refresh tokens
     "offline_access",
 ]

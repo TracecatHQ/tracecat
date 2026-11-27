@@ -1,0 +1,64 @@
+type: action
+definition:
+  title: Add remote issue link
+  description: Add or update a remote link on a Jira issue, for example a link back to a Tracecat case.
+  display_group: Jira
+  doc_url: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-remote-links/#api-rest-api-3-issue-issueidorkey-remotelink-post
+  namespace: tools.jira
+  name: add_remote_issue_link
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+      optional: true
+    - name: jira
+      keys: ["JIRA_USEREMAIL", "JIRA_API_TOKEN"]
+      optional: true
+  expects:
+    issueIdOrKey:
+      type: str
+      description: >-
+        The ID or key of the issue.
+    object:
+      type: dict[str, Any]
+      description: >-
+        Details of the item linked to. Requires url and title (e.g. {"url":
+        "https://example.com/case/1", "title": "Case 1"}).
+    globalId:
+      type: str | None
+      description: >-
+        An identifier for the remote item in the remote system. If a link with
+        this globalId already exists on the issue, it is updated.
+      default: null
+    relationship:
+      type: str | None
+      description: >-
+        Description of the relationship between the issue and the linked item
+        (e.g. causes).
+      default: null
+    application:
+      type: dict[str, Any] | None
+      description: >-
+        Details of the remote application the linked item is in (e.g. {"name":
+        "Tracecat", "type": "com.tracecat"}).
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian
+        OAuth, use https://api.atlassian.com/ex/jira/{cloudId}.
+      default: null
+  steps:
+    - ref: add_remote_issue_link
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/rest/api/3/issue/${{ FN.url_encode(inputs.issueIdOrKey) }}/remotelink
+        method: POST
+        headers:
+          Authorization: ${{ FN.format("Bearer {}", SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN) if SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN else FN.format("Basic {}", FN.to_base64(FN.format("{}:{}", SECRETS.jira.JIRA_USEREMAIL, SECRETS.jira.JIRA_API_TOKEN))) }}
+        payload:
+          object: ${{ inputs.object }}
+          globalId: ${{ inputs.globalId }}
+          relationship: ${{ inputs.relationship }}
+          application: ${{ inputs.application }}
+  returns: ${{ steps.add_remote_issue_link.result }}

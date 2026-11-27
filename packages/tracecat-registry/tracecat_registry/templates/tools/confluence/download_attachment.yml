@@ -1,0 +1,54 @@
+type: action
+definition:
+  title: Download attachment
+  description: >-
+    Downloads an attachment's binary content as base64 in `data`. Uses the v1 API because the v2 API has no attachment download endpoint.
+  display_group: Confluence
+  doc_url: https://developer.atlassian.com/cloud/confluence/rest/v1/api-group-content---attachments/#api-wiki-rest-api-content-id-child-attachment-attachmentid-download-get
+  namespace: tools.confluence
+  name: download_attachment
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+      optional: true
+    - name: confluence
+      keys: ["CONFLUENCE_USERNAME", "CONFLUENCE_API_TOKEN"]
+      optional: true
+  expects:
+    page_id:
+      type: str
+      description: >-
+        The ID of the content that the attachment is attached to.
+    attachment_id:
+      type: str
+      description: >-
+        The ID of the attachment to download (e.g. att123456).
+    version:
+      type: int | None
+      description: >-
+        The version of the attachment. If this parameter is absent, the redirect URI will download the latest version of the attachment.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Confluence base URL. With an API token, use your site URL (e.g.
+        https://example.atlassian.net/wiki). With Atlassian OAuth, use the
+        Atlassian API gateway URL for your site (e.g.
+        https://api.atlassian.com/ex/confluence/{cloudId}). See
+        https://developer.atlassian.com/cloud/confluence/oauth-2-3lo-apps/ for
+        how to find your cloudId and build OAuth request URLs.
+      default: null
+  steps:
+    - ref: download_attachment
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/rest/api/content/${{ FN.url_encode(inputs.page_id) }}/child/attachment/${{ FN.url_encode(inputs.attachment_id) }}/download
+        method: GET
+        headers:
+          Authorization: ${{ FN.format("Bearer {}", SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN) if SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN else FN.format("Basic {}", FN.to_base64(FN.format("{}:{}", SECRETS.confluence.CONFLUENCE_USERNAME, SECRETS.confluence.CONFLUENCE_API_TOKEN))) }}
+        params:
+          version: ${{ inputs.version }}
+        follow_redirects: true
+        base64_encode_data: true
+  returns: ${{ steps.download_attachment.result }}

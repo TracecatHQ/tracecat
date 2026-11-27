@@ -1,0 +1,59 @@
+type: action
+definition:
+  title: Add issue labels
+  description: Add labels to a Jira issue without replacing its existing labels.
+  display_group: Jira
+  doc_url: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-put
+  namespace: tools.jira
+  name: add_issue_labels
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+      optional: true
+    - name: jira
+      keys: ["JIRA_USEREMAIL", "JIRA_API_TOKEN"]
+      optional: true
+  expects:
+    issueIdOrKey:
+      type: str
+      description: >-
+        The ID or key of the issue.
+    notifyUsers:
+      type: bool | None
+      description: >-
+        Whether a notification email about the issue update is sent to all
+        watchers. To disable the notification, administer Jira or administer
+        project permissions are required. If the user doesn't have the necessary
+        permission the request is ignored.
+      default: null
+    labels:
+      type: list[str]
+      description: >-
+        Labels to add to the issue.
+    base_url:
+      type: str | None
+      description: >-
+        Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian
+        OAuth, use https://api.atlassian.com/ex/jira/{cloudId}.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          labels: ${{ inputs.labels }}
+        script: |
+          def main(labels):
+              return {"update": {"labels": [{"add": label} for label in labels]}}
+    - ref: add_issue_labels
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/rest/api/3/issue/${{ FN.url_encode(inputs.issueIdOrKey) }}
+        method: PUT
+        headers:
+          Authorization: ${{ FN.format("Bearer {}", SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN) if SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN else FN.format("Basic {}", FN.to_base64(FN.format("{}:{}", SECRETS.jira.JIRA_USEREMAIL, SECRETS.jira.JIRA_API_TOKEN))) }}
+        params:
+          notifyUsers: ${{ inputs.notifyUsers }}
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.add_issue_labels.result }}

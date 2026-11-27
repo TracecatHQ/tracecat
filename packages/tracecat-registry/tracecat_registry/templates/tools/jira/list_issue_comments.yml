@@ -1,0 +1,65 @@
+type: action
+definition:
+  title: List issue comments
+  description: Get the comments on a Jira issue, one page at a time.
+  display_group: Jira
+  doc_url: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-comments/#api-rest-api-3-issue-issueidorkey-comment-get
+  namespace: tools.jira
+  name: list_issue_comments
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+      optional: true
+    - name: jira
+      keys: ["JIRA_USEREMAIL", "JIRA_API_TOKEN"]
+      optional: true
+  expects:
+    issueIdOrKey:
+      type: str
+      description: >-
+        The ID or key of the issue.
+    startAt:
+      type: int | None
+      description: >-
+        The index of the first item to return in a page of results (page
+        offset).
+      default: null
+    maxResults:
+      type: int | None
+      description: >-
+        The maximum number of items to return per page.
+      default: null
+    orderBy:
+      type: str | None
+      description: >-
+        Order the results by a field. Accepts created to sort comments by their
+        created date.
+      default: null
+    expand:
+      type: str | None
+      description: >-
+        Use expand to include additional information about comments in the
+        response. This parameter accepts `renderedBody`, which returns the
+        comment body rendered in HTML.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian
+        OAuth, use https://api.atlassian.com/ex/jira/{cloudId}.
+      default: null
+  steps:
+    - ref: list_issue_comments
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/rest/api/3/issue/${{ FN.url_encode(inputs.issueIdOrKey) }}/comment
+        method: GET
+        headers:
+          Authorization: ${{ FN.format("Bearer {}", SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN) if SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN else FN.format("Basic {}", FN.to_base64(FN.format("{}:{}", SECRETS.jira.JIRA_USEREMAIL, SECRETS.jira.JIRA_API_TOKEN))) }}
+        params:
+          startAt: ${{ inputs.startAt }}
+          maxResults: ${{ inputs.maxResults }}
+          orderBy: ${{ inputs.orderBy }}
+          expand: ${{ inputs.expand }}
+  returns: ${{ steps.list_issue_comments.result }}

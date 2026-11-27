@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: Answer approval
+  description: Approve or decline an approval on a service request.
+  display_group: Jira Service Management
+  doc_url: https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-request/#api-rest-servicedeskapi-request-issueidorkey-approval-approvalid-post
+  namespace: tools.jira_service_management
+  name: answer_approval
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+  expects:
+    issueIdOrKey:
+      type: str
+      description: >-
+        The ID or key of the customer request to be updated.
+    approvalId:
+      type: int
+      description: >-
+        The ID of the approval to be updated.
+    decision:
+      type: str
+      description: >-
+        Response to the approval request: "approve" or "decline".
+    base_url:
+      type: str | None
+      description: >-
+        Atlassian API URL for the Jira site
+        (e.g. https://api.atlassian.com/ex/jira/{cloudId}).
+      default: null
+  steps:
+    - ref: answer_approval
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/rest/servicedeskapi/request/${{ FN.url_encode(inputs.issueIdOrKey) }}/approval/${{ FN.url_encode(inputs.approvalId) }}
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN }}
+        payload:
+          decision: ${{ inputs.decision }}
+  returns: ${{ steps.answer_approval.result }}

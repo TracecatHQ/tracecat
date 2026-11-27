@@ -1,0 +1,70 @@
+type: action
+definition:
+  title: List request comments
+  description: Get the comments on a service request, including internal comments.
+  display_group: Jira Service Management
+  doc_url: https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-request/#api-rest-servicedeskapi-request-issueidorkey-comment-get
+  namespace: tools.jira_service_management
+  name: list_request_comments
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+  expects:
+    issueIdOrKey:
+      type: str
+      description: >-
+        The ID or key of the customer request whose comments will be retrieved.
+    public:
+      type: bool | None
+      description: >-
+        Specifies whether to return public comments or not. Default: true.
+      default: null
+    internal:
+      type: bool | None
+      description: >-
+        Specifies whether to return internal comments or not. Default: true.
+      default: null
+    expand:
+      type: list[str] | None
+      description: >-
+        A multi-value parameter indicating which properties of the comment to
+        expand: `attachment` returns the attachment details, if any, for each
+        comment. (If you want to get all attachments for a request, use
+        servicedeskapi/request/\{issueIdOrKey\}/attachment.) `renderedBody`
+        (Experimental) returns the rendered body in HTML format (in addition to
+        the raw body) for each comment.
+      default: null
+    start:
+      type: int | None
+      description: >-
+        The starting index of the returned comments. Base index: 0. See the
+        Pagination section for more details.
+      default: null
+    limit:
+      type: int | None
+      description: >-
+        The maximum number of comments to return per page. Default: 50. See the
+        Pagination section for more details.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Atlassian API URL for the Jira site
+        (e.g. https://api.atlassian.com/ex/jira/{cloudId}).
+      default: null
+  steps:
+    - ref: list_request_comments
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/rest/servicedeskapi/request/${{ FN.url_encode(inputs.issueIdOrKey) }}/comment
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN }}
+        params:
+          public: ${{ inputs.public }}
+          internal: ${{ inputs.internal }}
+          expand: ${{ inputs.expand }}
+          start: ${{ inputs.start }}
+          limit: ${{ inputs.limit }}
+  returns: ${{ steps.list_request_comments.result }}
