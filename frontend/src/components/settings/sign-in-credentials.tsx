@@ -7,6 +7,9 @@ import { Label } from "@/components/ui/label"
 import { useAuth } from "@/hooks/use-auth"
 import { useSignInCredentials } from "@/hooks/use-sign-in-credentials"
 
+// The sign-in form rejects shorter passwords, so don't let users save one.
+const MIN_PASSWORD_LENGTH = 12
+
 /** Email and password change forms for users who sign in with a password. */
 export function SignInCredentials() {
   const { canChangeCredentials, isLoading } = useSignInCredentials()
@@ -91,10 +94,12 @@ function ChangePasswordForm() {
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const mismatch = confirmPassword.length > 0 && newPassword !== confirmPassword
+  const tooShort =
+    newPassword.length > 0 && newPassword.length < MIN_PASSWORD_LENGTH
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (newPassword !== confirmPassword) {
+    if (newPassword !== confirmPassword || tooShort) {
       return
     }
     try {
@@ -154,6 +159,11 @@ function ChangePasswordForm() {
           />
         </div>
       </div>
+      {tooShort && (
+        <p className="text-sm text-destructive">
+          Use at least {MIN_PASSWORD_LENGTH} characters.
+        </p>
+      )}
       {mismatch && (
         <p className="text-sm text-destructive">Passwords don&apos;t match.</p>
       )}
@@ -164,6 +174,7 @@ function ChangePasswordForm() {
           changePasswordPending ||
           !currentPassword ||
           !newPassword ||
+          tooShort ||
           newPassword !== confirmPassword
         }
       >
