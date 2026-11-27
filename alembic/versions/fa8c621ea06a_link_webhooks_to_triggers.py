@@ -151,6 +151,13 @@ WHERE h.id = p.webhook_id
 
 # Online webhooks still without a trigger row, such as ones a pass skipped.
 PENDING_SQL = """
+SELECT EXISTS (
+    SELECT 1 FROM webhook
+    WHERE trigger_id IS NULL AND status = 'online' AND workflow_id IS NOT NULL
+)
+"""
+# The same rows counted, once, for the log line after the last pass.
+PENDING_COUNT_SQL = """
 SELECT count(*) FROM webhook
 WHERE trigger_id IS NULL AND status = 'online' AND workflow_id IS NOT NULL
 """
@@ -212,10 +219,12 @@ def upgrade() -> None:
             op.execute("BEGIN")
             backfill(conn)
             op.execute("COMMIT")
-            pending = conn.execute(sa.text(PENDING_SQL)).scalar() or 0
-            if not pending or time.monotonic() >= deadline:
+            if not conn.execute(sa.text(PENDING_SQL)).scalar():
+                break
+            if time.monotonic() >= deadline:
                 break
             time.sleep(_BACKFILL_RETRY_SECONDS)
+        pending = conn.execute(sa.text(PENDING_COUNT_SQL)).scalar() or 0
         # Accepted gap: these keep running but are not listed in the Triggers
         # tab until they are next turned on or ``backfill`` is rerun. Count
         # only, so no webhook IDs or URLs reach the logs.

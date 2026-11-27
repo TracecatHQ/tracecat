@@ -74,6 +74,8 @@ export function WebhookTriggerForm({
     const read = readRef.current
     setLoadedFor("")
     setFormError(null)
+    // A rejection belongs to the previous pick's allowlist.
+    setCidrError(null)
     setLoadingWebhook(true)
     try {
       const webhook = await triggersGetWebhook({ workspaceId, workflowId: id })
@@ -110,6 +112,7 @@ export function WebhookTriggerForm({
       return
     }
     setCidrError(null)
+    setFormError(null)
     setCidrs(result.tags)
   }
 
@@ -202,9 +205,19 @@ export function WebhookTriggerForm({
             tags={cidrs}
             onTagsChange={handleCidrsChange}
             disabled={locked}
+            aria-invalid={cidrError ? true : undefined}
+            aria-describedby={
+              cidrError ? `${formId}-allowlist-error` : undefined
+            }
           />
           {cidrError ? (
-            <p className="text-xs text-destructive">{cidrError}</p>
+            <p
+              id={`${formId}-allowlist-error`}
+              role="alert"
+              className="text-xs text-destructive"
+            >
+              {cidrError}
+            </p>
           ) : null}
           <p className="text-xs text-muted-foreground">
             <WebhookAllowlistHint />

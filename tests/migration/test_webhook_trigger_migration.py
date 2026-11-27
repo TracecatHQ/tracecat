@@ -169,8 +169,13 @@ def test_backfill_links_online_webhooks_only(db_url: str, engine: Engine) -> Non
 
     output = _alembic(db_url, "upgrade", MIGRATION_REVISION)
 
-    # The accepted gap is counted in the log, never silent (and no IDs).
+    # The accepted gap is counted in the log, never silent, and the log
+    # carries no webhook or workflow IDs.
     assert "0 online webhooks still unlinked" in output
+    ids = _run(engine, "SELECT id, workflow_id FROM webhook")
+    for webhook_id, workflow_id in ids:
+        assert str(webhook_id) not in output
+        assert str(workflow_id) not in output
 
     expected = {
         report: (

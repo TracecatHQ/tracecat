@@ -1029,6 +1029,48 @@ describe("Webhook triggers", () => {
     await waitFor(() => expect(triggersCreateTrigger).toHaveBeenCalledTimes(1))
   })
 
+  it("forgets a rejected allowlist entry when another workflow is picked", async () => {
+    const user = userEvent.setup()
+    workflows = [
+      { id: "wf_alert", title: "Alert intake", version: null },
+      { id: "wf_other", title: "Other", version: null },
+    ]
+    jest.mocked(triggersGetWebhook).mockResolvedValue({
+      id: "webhook-1",
+      secret: "synthetic-secret",
+      status: "offline",
+      methods: ["POST"],
+      allowlisted_cidrs: [],
+      include_headers: false,
+      workflow_id: "wf_alert",
+      url: WEBHOOK_URL,
+    })
+    jest.mocked(triggersCreateTrigger).mockResolvedValue(WEBHOOK_TRIGGER)
+
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
+
+    await user.click(screen.getByRole("button", { name: /Webhook/ }))
+    await user.type(screen.getByLabelText("Name"), "Intake")
+    await user.click(screen.getByRole("combobox", { name: "Workflow" }))
+    await user.click(
+      await screen.findByRole("option", { name: "Alert intake" })
+    )
+    const allowlist = await screen.findByRole("textbox", {
+      name: "IP allowlist",
+    })
+    await user.type(allowlist, "10.0.0.0/33{Enter}")
+    expect(await screen.findByRole("alert")).toBeInTheDocument()
+    expect(allowlist).toHaveAttribute("aria-invalid", "true")
+
+    await user.click(screen.getByRole("combobox", { name: "Workflow" }))
+    await user.click(await screen.findByRole("option", { name: "Other" }))
+    await waitFor(() =>
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    )
+    await user.click(screen.getByRole("button", { name: "Create trigger" }))
+    await waitFor(() => expect(triggersCreateTrigger).toHaveBeenCalledTimes(1))
+  })
+
   it("ignores a late read of a workflow picked again", async () => {
     const user = userEvent.setup()
     workflows = [
