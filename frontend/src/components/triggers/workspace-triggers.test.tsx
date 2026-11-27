@@ -941,14 +941,24 @@ describe("Webhook triggers", () => {
     expect(webhook).toHaveTextContent("No permission")
   })
 
-  it("won't create until the workflow's saved settings load", async () => {
+  it("won't create until the workflow's saved settings load, and retries", async () => {
     const user = userEvent.setup()
     workflows = [{ id: "wf_alert", title: "Alert intake", version: null }]
     jest
       .mocked(triggersGetWebhook)
-      .mockRejectedValue(
+      .mockRejectedValueOnce(
         Object.assign(new Error("Unavailable"), { status: 503 })
       )
+      .mockResolvedValue({
+        id: "webhook-1",
+        secret: "synthetic-secret",
+        status: "offline",
+        methods: ["GET"],
+        allowlisted_cidrs: [],
+        include_headers: false,
+        workflow_id: "wf_alert",
+        url: WEBHOOK_URL,
+      })
 
     renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
 
@@ -958,12 +968,26 @@ describe("Webhook triggers", () => {
     await user.click(
       await screen.findByRole("option", { name: "Alert intake" })
     )
-    await user.click(screen.getByRole("button", { name: "Create trigger" }))
-
     expect(
       await screen.findByText(/Couldn't load this workflow's webhook settings/)
     ).toBeInTheDocument()
+
+    // The failed pick is cleared, so Create has nothing to submit.
+    await user.click(screen.getByRole("button", { name: "Create trigger" }))
+    expect(await screen.findByText("Pick a workflow.")).toBeInTheDocument()
     expect(triggersCreateTrigger).not.toHaveBeenCalled()
+
+    // Picking the same workflow again reads its settings again.
+    await user.click(screen.getByRole("combobox", { name: "Workflow" }))
+    await user.click(
+      await screen.findByRole("option", { name: "Alert intake" })
+    )
+    await waitFor(() => expect(triggersGetWebhook).toHaveBeenCalledTimes(2))
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Allowed HTTP methods" })
+      ).toHaveTextContent("GET")
+    )
   })
 
   it("starts from the workflow's saved webhook settings", async () => {

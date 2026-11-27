@@ -140,8 +140,11 @@ async def add_webhook_trigger(
     """Give a webhook its ``webhook`` trigger row and its workflow binding.
 
     The binding is the webhook's workflow, the only target a webhook runs
-    until webhooks start their targets through bindings. The caller holds the
-    workflow and webhook locks (``lock_webhook``) and commits.
+    until webhooks start their targets through bindings. It is online even
+    for an offline webhook, as for schedules: the trigger's status is what
+    counts until bindings drive the runtime (step 2 must revisit this). The
+    caller holds the workflow and webhook locks (``lock_webhook``) and
+    commits.
     """
     trigger = Trigger(
         id=uuid.uuid4(),

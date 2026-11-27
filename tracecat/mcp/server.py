@@ -7154,10 +7154,10 @@ async def create_trigger(
     needs `schedule:create`, `schedule:read` and `workflow:execute`. A
     schedule's target is fixed: `create_trigger_binding` refuses one.
 
-    For `{"kind": "webhook", "workflow_id": ..., "methods": ["POST"],
-    "allowlisted_cidrs": [], "include_headers": false}`, this makes the
-    workflow's existing webhook a trigger with those settings and `status`,
-    bound to that workflow. The webhook URL does not change. It needs
+    For `{"kind": "webhook", "workflow_id": ...}` (plus optional `methods`,
+    `allowlisted_cidrs` and `include_headers`), this makes the workflow's
+    existing webhook a trigger with `status`, bound to that workflow.
+    Settings you leave out keep the webhook's saved values. The webhook URL does not change. It needs
     `workflow:update` and `workflow:execute`, and fails if the webhook already
     is a trigger. Its target is fixed too. Manage its API key with the
     workflow's webhook.
@@ -7196,8 +7196,9 @@ async def update_trigger(
     `schedule:read`); a config replaces every schedule setting, and its
     `workflow_id` must stay the same. A `webhook` trigger's are written
     through its webhook (as `update_webhook` does), so any change needs
-    `workflow:update`; a config replaces methods, allowlisted_cidrs and
-    include_headers, and its `workflow_id` must stay the same.
+    `workflow:update`; a config sets the methods, allowlisted_cidrs and
+    include_headers it names (the rest keep their values), and its
+    `workflow_id` must stay the same.
 
     Args:
         workspace_id: The workspace ID.

@@ -83,7 +83,12 @@ export function WebhookTriggerForm({
       setLoadedFor(id)
     } catch (error) {
       if (pickedRef.current === id) {
-        setFormError(describeTriggerError(error))
+        // Clear the pick: choosing the same workflow again is the retry,
+        // and a select reports no change for its current value.
+        setWorkflowId("")
+        setFormError(
+          `Couldn't load this workflow's webhook settings. Pick it again to retry. ${describeTriggerError(error)}`
+        )
       }
     } finally {
       if (pickedRef.current === id) {

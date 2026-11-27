@@ -49078,7 +49078,8 @@ The settings of the workflow's webhook (\`\`/workflows/{id}/webhook\`\`),
 which the trigger shows and edits. Every workflow has one webhook; it
 becomes a trigger when it is turned on. Until webhooks start their targets
 through bindings, the trigger's one target is this workflow and cannot
-change. The API key is managed on the workflow's webhook only.`,
+change. The API key is managed on the workflow's webhook only. Settings
+left out of a create or update keep the webhook's saved values.`,
 } as const
 
 export const $WebhookTriggerConfigRead = {

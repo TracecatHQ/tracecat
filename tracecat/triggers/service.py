@@ -1169,9 +1169,15 @@ def _schedule_config(schedule: Schedule) -> ScheduleTriggerConfigRead:
 def _webhook_update(
     config: WebhookTriggerConfig, status: TriggerStatus | None
 ) -> WebhookUpdate:
-    """A webhook trigger config as a webhook update: every setting, and the
-    status when one is given."""
-    values: dict[str, Any] = config.model_dump(exclude={"kind", "workflow_id"})
+    """A webhook trigger config as a webhook update: the settings the caller
+    gave, and the status when one is given.
+
+    Settings left out keep the webhook's saved values. Their defaults must not
+    be written: an empty ``allowlisted_cidrs`` allows every address.
+    """
+    values: dict[str, Any] = config.model_dump(
+        exclude={"kind", "workflow_id"}, exclude_unset=True
+    )
     if status is not None:
         values["status"] = status.value
     return WebhookUpdate.model_validate(values)

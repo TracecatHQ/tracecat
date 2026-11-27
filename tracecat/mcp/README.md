@@ -190,11 +190,12 @@ A `webhook` trigger is the webhook `get_webhook` and `update_webhook` show and
 change, so a change made either way shows in both. Every workflow has one
 webhook; it is listed as a trigger once it has been turned on (or made a
 trigger with `create_trigger`), and stays listed when it goes offline.
-Creating one makes the workflow's existing webhook a trigger with the given
-methods, allowlist and header setting; its URL does not change. That needs
-`workflow:update` and `workflow:execute`. Renaming it or updating its config
-or status needs `workflow:update` on top of `trigger:update`, and a config
-replaces methods, `allowlisted_cidrs` and `include_headers`. The API key stays
+Creating one makes the workflow's existing webhook a trigger with the
+methods, allowlist and header setting given (settings left out keep their
+saved values); its URL does not change. That needs `workflow:update` and
+`workflow:execute`. Renaming it or updating its config or status needs
+`workflow:update` on top of `trigger:update`, and a config sets only the
+settings it names. The API key stays
 on the workflow's webhook. Its one binding is fixed, as for schedules.
 
 ## Workflow tag tools

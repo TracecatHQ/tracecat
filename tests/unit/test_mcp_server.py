@@ -5163,7 +5163,6 @@ async def test_a_tool_refusal_reads_as_itself_not_an_internal_error() -> None:
         await mw.on_message(ctx, _refuse)
     assert refused.value is refusal
     assert str(refused.value) == "A schedule trigger runs its schedule's workflow only"
-    assert mw.get_error_stats() == {}
 
     with pytest.raises(McpError, match="Internal error: boom"):
         await mw.on_message(ctx, _fail)

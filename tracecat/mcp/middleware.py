@@ -46,18 +46,14 @@ class MCPErrorHandlingMiddleware(ErrorHandlingMiddleware):
     """Turn unexpected errors into MCP errors; pass tool refusals through.
 
     A ``ToolError`` is a tool's own answer to the caller, such as a refused
-    request, and its message is written for them. The base class would log it
-    as an error and wrap it as "Internal error: ...". Passed through, the MCP
-    server returns it as a tool error with the message as is.
+    request, and its message is written for them. The base class would wrap
+    it as "Internal error: ...". Passed through, the MCP server returns it as
+    a tool error with the message as is. Logging and error counts stay the
+    base class's.
     """
 
-    # Overrides the base class's hooks, which ``on_message`` calls for every
+    # Overrides the base class's hook, which ``on_message`` calls for every
     # error it catches.
-    def _log_error(self, error: Exception, context: MiddlewareContext) -> None:
-        if isinstance(error, ToolError):
-            return
-        super()._log_error(error, context)
-
     def _transform_error(
         self, error: Exception, context: MiddlewareContext
     ) -> Exception:

@@ -386,7 +386,7 @@ async def test_status_moves_together_from_either_side(
     assert trigger.status == "online"
 
 
-async def test_a_config_replaces_every_webhook_setting(
+async def test_a_config_sets_only_the_settings_it_names(
     session: AsyncSession, triggers: TriggersService, workflow: SimpleNamespace
 ) -> None:
     created = await triggers.create_trigger(
@@ -405,12 +405,40 @@ async def test_a_config_replaces_every_webhook_setting(
 
     webhook = await _webhook(session, workflow)
     assert (webhook.methods, webhook.allowlisted_cidrs, webhook.include_headers) == (
-        ["POST"],
+        ["GET", "POST"],
         ["10.1.0.0/16"],
-        False,
+        True,
     )
     trigger, _ = await _rows(session, created.id)
     assert (trigger.name, trigger.status) == ("renamed", "offline")
+
+
+async def test_a_config_without_an_allowlist_keeps_the_saved_one(
+    session: AsyncSession,
+    svc_role: Role,
+    triggers: TriggersService,
+    workflow: SimpleNamespace,
+) -> None:
+    """Security r2: an empty allowlist allows every address, so a config that
+    leaves it out must not write the default."""
+    await webhook_service.update_webhook(
+        role=svc_role,
+        session=session,
+        workflow_id=WorkflowUUID.new(workflow.id),
+        params=WebhookUpdate(allowlisted_cidrs=["10.0.0.0/8"]),
+    )
+
+    created = await triggers.create_trigger(
+        TriggerCreate(name="a", config=_config(workflow))
+    )
+    assert (await _webhook(session, workflow)).allowlisted_cidrs == ["10.0.0.0/8"]
+
+    await triggers.update_trigger(
+        created.id,
+        TriggerUpdate(status=TriggerStatus.ONLINE, config=_config(workflow)),
+    )
+    webhook = await _webhook(session, workflow)
+    assert (webhook.status, webhook.allowlisted_cidrs) == ("online", ["10.0.0.0/8"])
 
 
 async def test_a_webhook_cannot_move_to_another_workflow(
@@ -551,10 +579,13 @@ async def test_a_rollout_landing_mid_request_still_hits_the_managed_check(
 
     monkeypatch.setattr(webhook_service, "hold_for_customer_write", _rollout_then_hold)
 
+    # The request carries the methods it saw before the rollout.
     with pytest.raises(ManagedResourceLockedError):
         await triggers.update_trigger(
             created_id,
-            TriggerUpdate(status=TriggerStatus.ONLINE, config=_config(workflow)),
+            TriggerUpdate(
+                status=TriggerStatus.ONLINE, config=_config(workflow, methods=["POST"])
+            ),
         )
 
 
