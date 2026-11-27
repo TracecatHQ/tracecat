@@ -16,7 +16,10 @@ from temporalio.client import WorkflowExecutionStatus
 
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.backends.registry import DEFAULT_AGENT_BACKEND, find_agent_backend
-from tracecat.agent.channel_bots.channel_threads import channel_threads_by_session
+from tracecat.agent.channel_bots.channel_threads import (
+    channel_thread_starters,
+    channel_threads_by_session,
+)
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.chat.enums import MessageKind
@@ -852,8 +855,18 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             workflows = workflow_result.scalars().all()
             workflows_by_id = {w.id: w for w in workflows}
 
-        # Fetch creators for user-initiated sessions
+        # Fetch creators for user-initiated sessions, else who started the thread
+        starters = await channel_thread_starters(
+            self.session,
+            self.role,
+            [
+                s.id
+                for s in sessions
+                if s.created_by is None and s.id in channel_threads
+            ],
+        )
         creator_ids = {s.created_by for s in sessions if s.created_by}
+        creator_ids.update(starters.values())
         users_by_id: dict[uuid.UUID, User] = {}
         if creator_ids:
             user_stmt = select(User).where(
@@ -912,8 +925,10 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
 
             # Get creator info
             created_by: UserSummary | None = None
-            if session.created_by and session.created_by in users_by_id:
-                user = users_by_id[session.created_by]
+            # Display only: a starter never owns the session.
+            creator_id = session.created_by or starters.get(session.id)
+            if creator_id and creator_id in users_by_id:
+                user = users_by_id[creator_id]
                 created_by = UserSummary(
                     id=user.id,
                     email=user.email,

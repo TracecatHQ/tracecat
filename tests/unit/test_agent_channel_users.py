@@ -13,11 +13,13 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 from fastapi import FastAPI, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.support.membership import grant_workspace_membership
 from tracecat import config
+from tracecat.agent.channel_bots.messages import ChannelMessage, ChannelMessageSender
+from tracecat.agent.channel_bots.schemas import ChannelBotProvider
 from tracecat.agent.channel_users import router as channel_users_router
 from tracecat.agent.channel_users import service as channel_users_service
 from tracecat.agent.channel_users import tokens
@@ -40,6 +42,8 @@ from tracecat.agent.channel_users.tokens import (
     read_sign_in_state,
 )
 from tracecat.agent.channel_users.types import ChannelIdentity, ProviderSignIn
+from tracecat.agent.session.enums import UserMessageOrigin
+from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.api.app import (
     entitlement_exception_handler,
     scope_denied_exception_handler,
@@ -53,10 +57,19 @@ from tracecat.db.models import (
     AgentChannelBot,
     AgentChannelUser,
     AgentPreset,
+    AgentSession,
+    AgentSessionHistory,
+    AgentSessionThread,
     Organization,
     OrganizationTier,
     Tier,
     User,
+    Workspace,
+)
+from tracecat.db.rls import set_rls_context
+from tracecat.db.tenant_rls import (
+    enable_workspace_special_rls,
+    enable_workspace_table_rls,
 )
 from tracecat.exceptions import EntitlementRequired, ScopeDeniedError
 from tracecat.redis.client import RedisClient
@@ -420,6 +433,227 @@ async def test_a_failed_link_write_leaves_the_link_usable(
         session, organization_id=org.organization_id, identity=_identity("U12")
     )
     assert actor.user_id == user.id
+
+
+async def _thread_session(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    *,
+    created_by: uuid.UUID | None = None,
+) -> uuid.UUID:
+    """A session linked to a Slack thread of a bot in the workspace."""
+    preset = AgentPreset(
+        workspace_id=workspace_id,
+        name="p",
+        slug=f"p-{uuid.uuid4().hex}",
+        model_name="m",
+        model_provider="p",
+    )
+    session.add(preset)
+    await session.flush()
+    bot = AgentChannelBot(
+        workspace_id=workspace_id,
+        agent_preset_id=preset.id,
+        provider=PROVIDER,
+        manifest_version=1,
+        encrypted_credentials=b"",
+    )
+    agent_session = AgentSession(
+        workspace_id=workspace_id,
+        title="thread",
+        entity_type=AgentSessionEntity.EXTERNAL_CHANNEL.value,
+        entity_id=uuid.uuid4(),
+        created_by=created_by,
+    )
+    session.add_all([bot, agent_session])
+    await session.flush()
+    session.add(
+        AgentSessionThread(
+            session_id=agent_session.id,
+            workspace_id=workspace_id,
+            bot_id=bot.id,
+            provider_thread_id={"thread": uuid.uuid4().hex},
+        )
+    )
+    await session.flush()
+    return agent_session.id
+
+
+async def _channel_prompt(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    session_id: uuid.UUID,
+    sender: ChannelIdentity,
+    author_id: uuid.UUID | None = None,
+) -> uuid.UUID:
+    text = ChannelMessage(
+        provider=ChannelBotProvider.SLACK,
+        text="hello",
+        sender=ChannelMessageSender(
+            provider_user_id=sender.provider_user_id,
+            provider_team_id=sender.provider_tenant_id,
+        ),
+    ).render()
+    row = AgentSessionHistory(
+        workspace_id=workspace_id,
+        session_id=session_id,
+        content={"type": "user", "message": {"role": "user", "content": text}},
+        kind="chat-message",
+        origin=UserMessageOrigin.CHANNEL,
+        author_id=author_id,
+    )
+    session.add(row)
+    await session.flush()
+    return row.id
+
+
+async def _unthreaded_session(
+    session: AsyncSession, workspace_id: uuid.UUID
+) -> uuid.UUID:
+    agent_session = AgentSession(
+        workspace_id=workspace_id,
+        title="unthreaded",
+        entity_type=AgentSessionEntity.EXTERNAL_CHANNEL.value,
+        entity_id=uuid.uuid4(),
+    )
+    session.add(agent_session)
+    await session.flush()
+    return agent_session.id
+
+
+async def _authors(session: AsyncSession) -> dict[uuid.UUID, uuid.UUID | None]:
+    result = await session.execute(
+        select(AgentSessionHistory.id, AgentSessionHistory.author_id)
+    )
+    return dict(result.tuples().all())
+
+
+async def _workspace(session: AsyncSession, organization_id: uuid.UUID) -> uuid.UUID:
+    workspace = Workspace(name="Sibling", organization_id=organization_id)
+    session.add(workspace)
+    await session.flush()
+    return workspace.id
+
+
+async def test_linking_authors_only_the_senders_earlier_messages_in_the_org(
+    session: AsyncSession, org: _Org, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _entitle(session, org.organization_id, monkeypatch)
+    user = await _user(session, org)
+    earlier = await _user(session, org)
+    other_org = Organization(
+        name="Other", slug=f"other-{uuid.uuid4().hex[:8]}", is_active=True
+    )
+    session.add(other_org)
+    await session.flush()
+    other_workspace = await _workspace(session, other_org.id)
+    sibling_workspace = await _workspace(session, org.organization_id)
+    here = await _thread_session(session, org.workspace_id)
+    sibling = await _thread_session(session, sibling_workspace)
+    there = await _thread_session(session, other_workspace)
+    unthreaded = await _unthreaded_session(session, org.workspace_id)
+    owned = await _thread_session(session, org.workspace_id, created_by=earlier.id)
+    sender = _identity("U13")
+    sent = [
+        await _channel_prompt(session, org.workspace_id, here, sender),
+        await _channel_prompt(session, sibling_workspace, sibling, sender),
+    ]
+    untouched = [
+        await _channel_prompt(session, org.workspace_id, here, _identity("U130")),
+        await _channel_prompt(
+            session, org.workspace_id, here, ChannelIdentity(PROVIDER, "T-other", "U13")
+        ),
+        await _channel_prompt(session, other_workspace, there, sender),
+        await _channel_prompt(session, org.workspace_id, unthreaded, sender),
+        # Authorship would make the linker a participant in someone else's session.
+        await _channel_prompt(session, org.workspace_id, owned, sender),
+    ]
+    authored = await _channel_prompt(
+        session, org.workspace_id, here, sender, author_id=earlier.id
+    )
+    await session.commit()
+    admin = _SignedInAs(sender)
+    monkeypatch.setattr(
+        channel_users_service, "require_channel_bot_admin", lambda: admin
+    )
+    sign_in = read_sign_in_state(_sign_in(org, "U13", user))
+
+    await complete_channel_link(session, sign_in=sign_in, code="c", user_id=user.id)
+
+    authors = await _authors(session)
+    assert [authors[row_id] for row_id in sent] == [user.id, user.id]
+    assert authors[authored] == earlier.id
+    assert [authors[row_id] for row_id in untouched] == [None] * len(untouched)
+
+
+async def test_linking_under_enforced_rls_authors_every_org_workspace(
+    session: AsyncSession, org: _Org, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user = await _user(session, org)
+    sibling_workspace = await _workspace(session, org.organization_id)
+    sender = _identity("U14")
+    sent = [
+        await _channel_prompt(
+            session,
+            org.workspace_id,
+            await _thread_session(session, org.workspace_id),
+            sender,
+        ),
+        await _channel_prompt(
+            session,
+            sibling_workspace,
+            await _thread_session(session, sibling_workspace),
+            sender,
+        ),
+    ]
+    # The test DB has no policies; install production ones, rolled back with the test.
+    await session.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
+    scripts = [
+        enable_workspace_special_rls(),
+        *(
+            enable_workspace_table_rls(table)
+            for table in (
+                "agent_session",
+                "agent_session_history",
+                "agent_session_thread",
+                "agent_channel_bot",
+            )
+        ),
+    ]
+    for script in scripts:
+        # asyncpg runs one statement per call; policy SQL has no inner semicolons.
+        for statement in filter(str.strip, script.split(";")):
+            await session.execute(text(statement))
+    db_role = f"rls_link_{uuid.uuid4().hex[:12]}"
+    await session.execute(text(f'CREATE ROLE "{db_role}" NOSUPERUSER NOBYPASSRLS'))
+    await session.execute(text(f'GRANT USAGE ON SCHEMA public TO "{db_role}"'))
+    await session.execute(
+        text(
+            "GRANT SELECT ON workspace, agent_session, agent_session_thread,"
+            f' agent_channel_bot TO "{db_role}"'
+        )
+    )
+    await session.execute(
+        text(f'GRANT SELECT, UPDATE ON agent_session_history TO "{db_role}"')
+    )
+    monkeypatch.setattr(config, "TRACECAT__RLS_MODE", config.RLSMode.ENFORCE)
+    await set_rls_context(session, org.organization_id, org.workspace_id)
+    await session.execute(text(f'SET ROLE "{db_role}"'))
+    try:
+        assert set((await _authors(session)).keys()) == {sent[0]}
+        await channel_users_service._author_earlier_messages(  # pyright: ignore[reportPrivateUsage]
+            session,
+            organization_id=org.organization_id,
+            restore_workspace_id=org.workspace_id,
+            identity=sender,
+            user_id=user.id,
+        )
+        assert set((await _authors(session)).keys()) == {sent[0]}
+    finally:
+        await session.execute(text("RESET ROLE"))
+
+    authors = await _authors(session)
+    assert [authors[row_id] for row_id in sent] == [user.id, user.id]
 
 
 async def test_challenge_needs_the_channels_preview(

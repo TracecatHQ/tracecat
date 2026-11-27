@@ -16,7 +16,12 @@ from tracecat.agent.channel_bots.schemas import (
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope
-from tracecat.db.models import AgentChannelBot, AgentSession, AgentSessionThread
+from tracecat.db.models import (
+    AgentChannelBot,
+    AgentSession,
+    AgentSessionHistory,
+    AgentSessionThread,
+)
 from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
 
@@ -78,3 +83,32 @@ async def channel_threads(
                 provider_bot_user_id=bot_user,
             )
     return threads
+
+
+async def channel_thread_starters(
+    session: AsyncSession,
+    role: Role,
+    session_ids: Sequence[uuid.UUID],
+) -> dict[uuid.UUID, uuid.UUID]:
+    """The author of each session's earliest authored message, by session ID.
+
+    Display only: Inbox shows it as Created by; it never owns the session.
+    """
+    if not session_ids or role.workspace_id is None:
+        return {}
+    stmt = (
+        select(AgentSessionHistory.session_id, AgentSessionHistory.author_id)
+        .where(
+            AgentSessionHistory.workspace_id == role.workspace_id,
+            AgentSessionHistory.session_id.in_(session_ids),
+            AgentSessionHistory.author_id.is_not(None),
+        )
+        .distinct(AgentSessionHistory.session_id)
+        .order_by(AgentSessionHistory.session_id, AgentSessionHistory.surrogate_id)
+    )
+    result = await session.execute(stmt)
+    return {
+        session_id: author_id
+        for session_id, author_id in result.tuples()
+        if author_id is not None
+    }

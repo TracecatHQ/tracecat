@@ -9,10 +9,22 @@ import uuid
 from collections.abc import Collection
 from datetime import UTC, datetime
 
-from sqlalchemy import ColumnElement, and_, delete, exists, func, select, tuple_
+from sqlalchemy import (
+    ColumnElement,
+    Text,
+    and_,
+    cast,
+    delete,
+    exists,
+    func,
+    select,
+    tuple_,
+    update,
+)
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.agent.channel_bots.messages import ChannelMessage
 from tracecat.agent.channel_bots.provider import require_channel_bot_admin
 from tracecat.agent.channel_users.enums import (
     ChannelAccessPolicy,
@@ -33,16 +45,23 @@ from tracecat.agent.channel_users.tokens import (
     read_link_token,
 )
 from tracecat.agent.channel_users.types import ChannelActor, ChannelIdentity
+from tracecat.agent.session.enums import UserMessageOrigin
+from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.authz.service import query_effective_scopes
 from tracecat.db.models import (
+    AgentChannelBot,
     AgentChannelUser,
+    AgentSession,
+    AgentSessionHistory,
+    AgentSessionThread,
     OrganizationMembership,
     User,
     Workspace,
 )
+from tracecat.db.rls import is_rls_mode_enforce, set_rls_context
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.pagination import CursorPaginatedResponse, PageParams, paginate
@@ -108,6 +127,98 @@ async def _upsert_link(
             },
         )
     )
+
+
+def _channel_message_in(value: object) -> ChannelMessage | None:
+    """The channel message a stored prompt row holds, wherever its harness keeps it."""
+    match value:
+        case str():
+            return ChannelMessage.parse(value)
+        case dict():
+            items = list(value.values())
+        case list():
+            items = value
+        case _:
+            return None
+    return next((m for item in items if (m := _channel_message_in(item))), None)
+
+
+async def _author_in_workspace(
+    session: AsyncSession,
+    *,
+    workspace_id: WorkspaceID,
+    identity: ChannelIdentity,
+    user_id: uuid.UUID,
+) -> None:
+    """Credit `user_id` with the sender's unauthored channel prompts in one workspace."""
+    # Reached through thread links so the scan uses the session_id index.
+    candidates = await session.execute(
+        select(AgentSessionHistory.id, AgentSessionHistory.content)
+        .join(
+            AgentSessionThread,
+            AgentSessionThread.session_id == AgentSessionHistory.session_id,
+        )
+        .join(AgentChannelBot, AgentChannelBot.id == AgentSessionThread.bot_id)
+        .join(AgentSession, AgentSession.id == AgentSessionHistory.session_id)
+        .where(
+            AgentSessionThread.workspace_id == workspace_id,
+            # Authorship grants participation; ownerless channel sessions grant nothing new.
+            AgentSession.entity_type == AgentSessionEntity.EXTERNAL_CHANNEL.value,
+            AgentSession.created_by.is_(None),
+            AgentSessionHistory.workspace_id == workspace_id,
+            AgentChannelBot.provider == identity.provider,
+            AgentSessionHistory.origin == UserMessageOrigin.CHANNEL,
+            AgentSessionHistory.author_id.is_(None),
+            # Coarse prefilter; the parsed sender below decides.
+            cast(AgentSessionHistory.content, Text).contains(
+                identity.provider_user_id, autoescape=True
+            ),
+        )
+    )
+    row_ids = [
+        row_id
+        for row_id, content in candidates.tuples()
+        if (message := _channel_message_in(content)) is not None
+        and message.sender_identity() == identity
+    ]
+    if row_ids:
+        await session.execute(
+            update(AgentSessionHistory)
+            .where(
+                AgentSessionHistory.id.in_(row_ids),
+                AgentSessionHistory.author_id.is_(None),
+            )
+            .values(author_id=user_id)
+        )
+
+
+async def _author_earlier_messages(
+    session: AsyncSession,
+    *,
+    organization_id: OrganizationID,
+    restore_workspace_id: WorkspaceID,
+    identity: ChannelIdentity,
+    user_id: uuid.UUID,
+) -> None:
+    """Credit `user_id` with the sender's unauthored channel prompts in every org workspace."""
+    workspace_ids = (
+        await session.scalars(
+            select(Workspace.id).where(Workspace.organization_id == organization_id)
+        )
+    ).all()
+    # Workspace RLS hides sibling workspaces, so each is read under its own context.
+    enforce = is_rls_mode_enforce()
+    for each_workspace_id in workspace_ids:
+        if enforce:
+            await set_rls_context(session, organization_id, each_workspace_id)
+        await _author_in_workspace(
+            session,
+            workspace_id=each_workspace_id,
+            identity=identity,
+            user_id=user_id,
+        )
+    if enforce:
+        await set_rls_context(session, organization_id, restore_workspace_id)
 
 
 def _actor(user: User) -> ChannelActor:
@@ -365,6 +476,13 @@ async def complete_channel_link(
             identity=signed_in.identity,
             user_id=user_id,
             provider_email=signed_in.email,
+        )
+        await _author_earlier_messages(
+            session,
+            organization_id=claims.organization_id,
+            restore_workspace_id=claims.workspace_id,
+            identity=signed_in.identity,
+            user_id=user_id,
         )
         await session.commit()
     except BaseException:

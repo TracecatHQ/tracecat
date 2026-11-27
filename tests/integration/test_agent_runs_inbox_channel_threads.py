@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import JsonValue
-from sqlalchemy import event
+from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.channel_bots import channel_threads
@@ -21,7 +21,9 @@ from tracecat.db.models import (
     AgentChannelBot,
     AgentPreset,
     AgentSession,
+    AgentSessionHistory,
     AgentSessionThread,
+    User,
 )
 from tracecat.inbox.providers.agent_runs import AgentRunsInboxProvider
 from tracecat.inbox.schemas import InboxItemRead
@@ -232,3 +234,83 @@ async def test_without_agent_read_no_session_names_a_channel(
 
     assert items[linked.id].channel_thread is None
     assert thread_queries == []
+
+
+async def _user(session: AsyncSession) -> User:
+    user = User(
+        id=uuid.uuid4(),
+        email=f"user-{uuid.uuid4().hex[:8]}@example.com",
+        hashed_password="unused",
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+        last_login_at=None,
+    )
+    session.add(user)
+    await session.flush()
+    return user
+
+
+async def test_created_by_falls_back_to_the_thread_starter(
+    session: AsyncSession,
+    svc_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+    entitled: AsyncMock,
+) -> None:
+    assert svc_role.workspace_id is not None
+    workspace_id = svc_role.workspace_id
+    monkeypatch.setattr(
+        channel_threads, "get_channel_bot_admin", lambda: FakeChannelBotAdmin()
+    )
+    starter, replier, creator = [await _user(session) for _ in range(3)]
+    _, started, unthreaded, unstarted = await _linked_sessions(session, workspace_id)
+    created = AgentSession(
+        workspace_id=workspace_id,
+        title="created",
+        entity_type=AgentSessionEntity.EXTERNAL_CHANNEL.value,
+        entity_id=uuid.uuid4(),
+        harness_type=HarnessType.CLAUDE_CODE,
+        created_by=creator.id,
+        created_at=BASE_TIME,
+        updated_at=BASE_TIME,
+    )
+    session.add(created)
+    await session.flush()
+    # Earliest by insertion: an unauthored row, then the starter, then a reply.
+    for session_id, author_id in (
+        (started.id, None),
+        (started.id, starter.id),
+        (started.id, replier.id),
+        (created.id, starter.id),
+        (unthreaded.id, replier.id),
+    ):
+        session.add(
+            AgentSessionHistory(
+                workspace_id=workspace_id,
+                session_id=session_id,
+                content={"type": "user"},
+                kind="chat-message",
+                author_id=author_id,
+            )
+        )
+        await session.flush()
+    await session.commit()
+
+    items = _by_id(
+        (await AgentRunsInboxProvider(session, svc_role).list_items(limit=20)).items
+    )
+
+    assert (created_by := items[started.id].created_by) is not None
+    assert created_by.id == starter.id
+    assert (created_by := items[created.id].created_by) is not None
+    assert created_by.id == creator.id
+    assert items[unstarted.id].created_by is None
+    # Only a session linked to a thread falls back.
+    assert items[unthreaded.id].created_by is None
+    # Display only: the session stays ownerless.
+    assert (
+        await session.scalar(
+            select(AgentSession.created_by).where(AgentSession.id == started.id)
+        )
+        is None
+    )
