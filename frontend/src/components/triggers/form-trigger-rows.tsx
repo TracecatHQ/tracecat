@@ -84,8 +84,8 @@ export function FormTriggerRows({
   return (
     <>
       <div className="px-4 py-2 text-xs text-muted-foreground">
-        Forms start their workflow on each submission. They are managed on the
-        Forms page.
+        An online form starts its workflow on each submission. Forms are managed
+        on the Forms page.
       </div>
       {forms.map((form) => (
         <FormTriggerRow key={form.id} workspaceId={workspaceId} form={form} />
