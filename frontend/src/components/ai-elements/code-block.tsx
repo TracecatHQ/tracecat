@@ -23,7 +23,7 @@ import type {
   HighlighterGeneric,
   ThemedToken,
 } from "shiki"
-import { createHighlighter } from "shiki"
+import { createHighlighter, createJavaScriptRegexEngine } from "shiki"
 import { Button } from "@/components/ui/button"
 import {
   Select,
@@ -165,6 +165,8 @@ const getHighlighter = (
   const highlighterPromise = createHighlighter({
     langs: [language],
     themes: ["github-light", "github-dark"],
+    // The default Oniguruma engine compiles WebAssembly, which the CSP blocks.
+    engine: createJavaScriptRegexEngine({ forgiving: true }),
   })
 
   highlighterCache.set(language, highlighterPromise)

@@ -13,6 +13,14 @@
  *
  * Anchor and navigation downloads, and plain `<img src>` loads, are not
  * governed by `connect-src`, so their origins do not belong in this variable.
+ *
+ * Inline scripts are allowed only with the per-request nonce from the
+ * middleware. Next.js reads it from the request's CSP header and applies it to
+ * its own inline scripts; the root layout passes the `x-nonce` request header
+ * to the remaining inline scripts (runtime env and theme). There is no
+ * `'strict-dynamic'`, so scripts loaded at runtime must still match a host
+ * source. Styles keep `'unsafe-inline'`: React `style` props, CodeMirror,
+ * Mermaid, KaTeX and Shiki all emit inline styles.
  */
 
 const POSTHOG_ORIGIN = "https://*.posthog.com"
@@ -83,20 +91,39 @@ export function parseOrigins(
   return origins
 }
 
+/** Request header the middleware uses to pass the CSP nonce to the layout. */
+export const NONCE_HEADER = "x-nonce"
+
+/** Options for `buildContentSecurityPolicy`, other than the nonce. */
+export interface ContentSecurityPolicyOptions {
+  posthogEnabled?: boolean
+  extraConnectSrc?: readonly string[]
+}
+
+/**
+ * Generate a CSP nonce: 128 random bits, base64 encoded.
+ *
+ * @returns The nonce.
+ */
+export function generateNonce(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16))
+  return btoa(String.fromCharCode(...bytes))
+}
+
 /**
  * Build the `Content-Security-Policy` header value for the UI.
  *
+ * @param options.nonce Per-request nonce that inline scripts must carry.
  * @param options.posthogEnabled Allow PostHog script and ingest origins.
  * @param options.extraConnectSrc Extra origins appended to `connect-src`, for
  *   example presigned blob storage buckets the browser uploads to directly.
  * @returns The header value.
  */
-export function buildContentSecurityPolicy(options?: {
-  posthogEnabled?: boolean
-  extraConnectSrc?: readonly string[]
-}): string {
-  const posthogEnabled = options?.posthogEnabled ?? false
-  const extraConnectSrc = options?.extraConnectSrc ?? []
+export function buildContentSecurityPolicy(
+  options: ContentSecurityPolicyOptions & { nonce: string }
+): string {
+  const posthogEnabled = options.posthogEnabled ?? false
+  const extraConnectSrc = options.extraConnectSrc ?? []
 
   const connectSrc = ["'self'"]
   if (posthogEnabled) {
@@ -104,7 +131,7 @@ export function buildContentSecurityPolicy(options?: {
   }
   connectSrc.push(...extraConnectSrc)
 
-  const scriptSrc = ["'self'", "'unsafe-inline'"]
+  const scriptSrc = ["'self'", `'nonce-${options.nonce}'`]
   if (posthogEnabled) {
     scriptSrc.push(POSTHOG_ORIGIN)
   }
@@ -124,7 +151,7 @@ export function buildContentSecurityPolicy(options?: {
 }
 
 /**
- * Build the `Content-Security-Policy` header value from an environment.
+ * Read `buildContentSecurityPolicy` options from an environment.
  *
  * Reads `NEXT_PUBLIC_POSTHOG_KEY` to decide whether PostHog origins are needed,
  * and `TRACECAT__CSP_CONNECT_SRC_ORIGINS` for extra `connect-src` origins.
@@ -132,11 +159,11 @@ export function buildContentSecurityPolicy(options?: {
  * Only the rejected count is logged because tokens may contain tenant URLs.
  *
  * @param env Environment to read, normally `process.env`.
- * @returns The header value.
+ * @returns The policy options.
  */
-export function buildContentSecurityPolicyFromEnv(
+export function contentSecurityPolicyOptionsFromEnv(
   env: Readonly<Record<string, string | undefined>>
-): string {
+): ContentSecurityPolicyOptions {
   let rejectedCount = 0
   const extraConnectSrc = parseOrigins(env.TRACECAT__CSP_CONNECT_SRC_ORIGINS, {
     onReject: () => {
@@ -148,8 +175,8 @@ export function buildContentSecurityPolicyFromEnv(
       `TRACECAT__CSP_CONNECT_SRC_ORIGINS: ignoring ${rejectedCount} invalid origin token(s)`
     )
   }
-  return buildContentSecurityPolicy({
+  return {
     posthogEnabled: Boolean(env.NEXT_PUBLIC_POSTHOG_KEY),
     extraConnectSrc,
-  })
+  }
 }

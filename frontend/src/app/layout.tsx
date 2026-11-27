@@ -2,6 +2,7 @@ import "@/styles/globals.scss"
 
 import type { Metadata } from "next"
 import dynamic from "next/dynamic"
+import { headers } from "next/headers"
 import { PublicEnvScript } from "next-runtime-env"
 import React, { Suspense } from "react"
 import { StepUpProvider } from "@/components/auth/step-up-provider"
@@ -10,6 +11,7 @@ import { SettingsModalHost } from "@/components/settings/settings-modal-host"
 import { Toaster } from "@/components/ui/toaster"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { siteConfig } from "@/config/site"
+import { NONCE_HEADER } from "@/lib/csp"
 import { fontSans } from "@/lib/fonts"
 import { cn } from "@/lib/utils"
 import type { PHProviderType } from "@/providers/posthog"
@@ -44,11 +46,12 @@ interface RootLayoutProps {
 
 export default async function RootLayout({ children }: RootLayoutProps) {
   const MaybeAnalytics = PHProvider ? PHProvider : React.Fragment
+  const nonce = (await headers()).get(NONCE_HEADER) ?? undefined
 
   return (
     <html lang="en" className="h-full min-h-screen" suppressHydrationWarning>
       <head>
-        <PublicEnvScript />
+        <PublicEnvScript nonce={nonce} />
       </head>
       <MaybeAnalytics>
         <body
@@ -62,6 +65,7 @@ export default async function RootLayout({ children }: RootLayoutProps) {
             defaultTheme="system"
             enableSystem
             disableTransitionOnChange
+            nonce={nonce}
           >
             <DefaultQueryClientProvider>
               <StepUpProvider>
