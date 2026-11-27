@@ -12,7 +12,11 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from tracecat.contexts import ctx_role
 from tracecat.logger import logger
-from tracecat.logger.redaction import SECRET_QUERY_KEYS, redact_url_secrets
+from tracecat.logger.redaction import (
+    SECRET_PATH_PARAMS,
+    SECRET_QUERY_KEYS,
+    redact_url_secrets,
+)
 from tracecat.observability.sentry import capture_api_exception
 
 
@@ -72,19 +76,19 @@ class URLSecretErrorMiddleware:
 
 
 def _carries_url_secret(scope: Scope) -> bool:
-    """Whether the request's route puts a secret in its URL.
+    """Whether the matched route puts a secret in its URL.
 
-    Decided from the path, which the route fixes, and from the query
-    parameters the matched route declares, not from the raw query, which any
-    client can fill with a credential-shaped name.
+    Decided from the parameters the route declares (a secret path parameter,
+    or a credential query parameter), never from the request text, which any
+    client can shape.
     """
-    path: str = scope["path"]
-    if redact_url_secrets(path) != path:
-        return True
     route = scope.get("route")
     if not isinstance(route, APIRoute):
         return False
-    declared = {
-        param.alias for param in get_flat_dependant(route.dependant).query_params
-    }
-    return not declared.isdisjoint(SECRET_QUERY_KEYS)
+    flat = get_flat_dependant(route.dependant)
+    path_params = {param.alias for param in flat.path_params}
+    query_params = {param.alias for param in flat.query_params}
+    return not (
+        path_params.isdisjoint(SECRET_PATH_PARAMS)
+        and query_params.isdisjoint(SECRET_QUERY_KEYS)
+    )

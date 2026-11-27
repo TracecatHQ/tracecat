@@ -25,6 +25,7 @@ from loguru import logger
 from tracecat.api.app import create_app
 from tracecat.logger.redaction import (
     REDACTED_URL_SECRET,
+    SECRET_PATH_PARAMS,
     UVICORN_LOGGER_NAMES,
     URLSecretRedactionFilter,
     install_uvicorn_url_secret_redaction,
@@ -51,9 +52,8 @@ WEBHOOK_PATH = f"/webhooks/{WORKFLOW_ID}/{WEBHOOK_SECRET}?state={STATE_VALUE}"
 # its middleware stack, and later tests that add middleware to it would fail.
 app = create_app()
 
-# Path parameters that hold a credential. A new route using one of these names
-# fails test_every_secret_route_is_redacted until it has a pattern.
-SECRET_PATH_PARAMS = frozenset({"secret", "endpoint_token", "token"})
+# A new route using one of the SECRET_PATH_PARAMS names fails
+# test_every_secret_route_is_redacted until it has a pattern.
 _PATH_PARAM = re.compile(r"\{(\w+)(?::\w+)?\}")
 
 
@@ -403,6 +403,18 @@ app.add_api_route("/synthetic/callback", _synthetic_callback)
 app.add_api_route("/synthetic/plain", _synthetic_plain_route)
 
 
+async def _synthetic_item_route(item_id: str) -> None:
+    raise RuntimeError("item failure")
+
+
+async def _synthetic_file_route(file_path: str) -> None:
+    raise RuntimeError("file failure")
+
+
+app.add_api_route("/synthetic/items/{item_id}", _synthetic_item_route)
+app.add_api_route("/synthetic/files/{file_path:path}", _synthetic_file_route)
+
+
 def test_errors_on_routes_with_credential_query_params_do_not_escape() -> None:
     with _captured_loguru() as lines:
         response = TestClient(app).get(
@@ -417,6 +429,20 @@ def test_other_errors_still_reach_the_server_error_layer() -> None:
     # change how its error is handled.
     with pytest.raises(RuntimeError, match="plain failure"):
         TestClient(app).get(f"/synthetic/plain?token={STATE_VALUE}")
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        pytest.param("/synthetic/items/x%00y", id="control-character"),
+        pytest.param("/synthetic/files/ingest/sns/x", id="secret-shaped-text"),
+    ],
+)
+def test_request_text_does_not_select_secret_error_handling(path: str) -> None:
+    # Only the matched route decides; text that looks like a secret URL on a
+    # route without secret parameters keeps the normal error path.
+    with pytest.raises(RuntimeError, match="failure"):
+        TestClient(app).get(path)
 
 
 def test_filter_redacts_mapping_args() -> None:
@@ -444,6 +470,7 @@ def test_filter_redacts_traceback_text() -> None:
     formatted = logging.Formatter().format(record)
     assert INGEST_TOKEN not in formatted
     assert f"/ingest/sns/{REDACTED_URL_SECRET}" in formatted
+    assert "\n" in formatted, "tracebacks keep their line breaks"
 
 
 def test_uvicorn_filter_installed_once() -> None:

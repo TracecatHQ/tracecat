@@ -36,6 +36,10 @@ _URL_SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(rf"(/agent/channel-links/){_SEGMENT}(?=/sign-in\b)"),
 )
 
+# Path parameter names that hold a credential in the routes above. The error
+# middleware and the route guard test key off these names.
+SECRET_PATH_PARAMS = frozenset({"secret", "endpoint_token", "token"})
+
 # Query parameters that carry a credential: OAuth codes and state (the
 # channel-link state embeds the link token), and bearer tokens. Names are
 # compared after URL-decoding, as the app binds them.
@@ -61,12 +65,20 @@ def redact_url_secrets(text: str) -> str:
     Returns:
         The text with each secret segment replaced; other text is unchanged.
     """
-    for pattern in _URL_SECRET_PATTERNS:
-        text = pattern.sub(rf"\g<1>{REDACTED_URL_SECRET}", text)
-    text = _QUERY.sub(lambda match: f"?{redact_query_string(match[1])}", text)
     # A decoded path can hold newlines; escape control characters so a
     # request cannot write extra lines into a plain-text log.
-    return _CONTROL.sub(lambda match: f"\\x{ord(match[0]):02x}", text)
+    return _CONTROL.sub(lambda match: f"\\x{ord(match[0]):02x}", _redact(text))
+
+
+def _redact(text: str) -> str:
+    """Redact URL secrets without escaping control characters.
+
+    The uvicorn filter uses this form: tracebacks keep their newlines, and
+    uvicorn already percent-encodes the path in its access line.
+    """
+    for pattern in _URL_SECRET_PATTERNS:
+        text = pattern.sub(rf"\g<1>{REDACTED_URL_SECRET}", text)
+    return _QUERY.sub(lambda match: f"?{redact_query_string(match[1])}", text)
 
 
 def redact_query_string(query: str) -> str:
@@ -98,24 +110,23 @@ class URLSecretRedactionFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         if isinstance(record.msg, str):
-            record.msg = redact_url_secrets(record.msg)
+            record.msg = _redact(record.msg)
         if isinstance(record.args, tuple):
             record.args = tuple(
-                redact_url_secrets(arg) if isinstance(arg, str) else arg
-                for arg in record.args
+                _redact(arg) if isinstance(arg, str) else arg for arg in record.args
             )
         elif isinstance(record.args, Mapping):
             # A single mapping argument is kept as the mapping itself.
             record.args = {
-                key: redact_url_secrets(value) if isinstance(value, str) else value
+                key: _redact(value) if isinstance(value, str) else value
                 for key, value in record.args.items()
             }
         if record.exc_info and not record.exc_text:
             record.exc_text = logging.Formatter().formatException(record.exc_info)
         if record.exc_text:
-            record.exc_text = redact_url_secrets(record.exc_text)
+            record.exc_text = _redact(record.exc_text)
         if record.stack_info:
-            record.stack_info = redact_url_secrets(record.stack_info)
+            record.stack_info = _redact(record.stack_info)
         return True
 
 
