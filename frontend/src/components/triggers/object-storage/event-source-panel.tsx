@@ -173,9 +173,11 @@ export function EventSourcePanel({
             <AlertDialogDescription asChild>
               <div className="space-y-3 text-sm text-muted-foreground">
                 <p>
-                  {source.subscription_status === "confirmed"
+                  {/* The API hides a URL once a subscription to it was
+                      confirmed; only those keep an overlap. */}
+                  {source.endpoint_url === null
                     ? `The current URL keeps accepting events until a subscription to the new URL is confirmed, or for 24 hours at most. Then it refuses them for good: ${sender} sends them to the old subscription's dead-letter queue, or drops them if it has none.`
-                    : "The current URL stops working now. It has no confirmed subscription, so no events are lost."}
+                    : "The current URL stops working now. No subscription to it was ever confirmed, so nothing is delivered to it."}
                 </p>
                 {provider ? (
                   <div className="space-y-1">
@@ -227,7 +229,7 @@ export function EventSourcePanel({
 
 /**
  * The URL the provider delivers to. The API returns it only to members who
- * can change triggers, and only until the subscription is confirmed.
+ * can change triggers, and only until a subscription to it is confirmed.
  */
 function EndpointUrl({
   source,
@@ -247,23 +249,23 @@ function EndpointUrl({
         />
         <p className="text-xs text-muted-foreground">
           Treat it like a secret: the URL is how events reach this source. It is
-          hidden once the subscription is confirmed.
+          hidden once a subscription to it is confirmed.
         </p>
       </>
     )
   }
-  if (canUpdate && source.subscription_status === "confirmed") {
+  if (canUpdate) {
     return (
       <p className="text-xs text-muted-foreground">
-        Hidden while the subscription is confirmed. To point a new subscription
-        here, rotate the URL.
+        Hidden: a subscription to this URL was confirmed. To point a new
+        subscription here, rotate the URL.
       </p>
     )
   }
   return (
     <p className="text-xs text-muted-foreground">
       Hidden. Only members who can change triggers (trigger:update) can see the
-      URL {sender} delivers to, until its subscription is confirmed.
+      URL {sender} delivers to, until a subscription to it is confirmed.
     </p>
   )
 }

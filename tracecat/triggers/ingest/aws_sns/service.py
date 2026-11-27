@@ -122,6 +122,10 @@ async def _handle_subscription_confirmation(
         .values(
             subscription_status=SubscriptionStatus.CONFIRMED.value,
             subscription_ref=subscription_arn,
+            # The URL is live from now on: reads stop showing it.
+            endpoint_token_confirmed_at=func.coalesce(
+                EventSource.endpoint_token_confirmed_at, func.now()
+            ),
             # The new URL is live: the URL a rotation replaced stops now.
             previous_endpoint_token=None,
             previous_endpoint_token_expires_at=None,

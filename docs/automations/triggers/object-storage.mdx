@@ -19,7 +19,7 @@ Tracecat never reads your bucket on ingest. The triggered workflow or agent fetc
 ## Set up the event source
 
 1. Create an SNS event source in Tracecat with your topic ARN, such as `arn:aws:sns:us-east-1:123456789012:bucket-events`. Tracecat accepts messages from that topic only.
-2. Copy the source's endpoint URL from the source panel. It is your Tracecat public API URL followed by `/ingest/sns/<token>`. On Tracecat Cloud and on the default Docker Compose, Fargate and Kubernetes deployments, the public API URL ends in `/api`, so the endpoint is `https://<your-tracecat-domain>/api/ingest/sns/<token>`. Only members with the `trigger:update` scope see it, and only until the subscription is confirmed; after that the field is empty for everyone, and [rotating the URL](#rotate-the-endpoint-url) is the way to get a new one. Treat the URL as a secret: anyone who holds it can send events to the source.
+2. Copy the source's endpoint URL from the source panel. It is your Tracecat public API URL followed by `/ingest/sns/<token>`. On Tracecat Cloud and on the default Docker Compose, Fargate and Kubernetes deployments, the public API URL ends in `/api`, so the endpoint is `https://<your-tracecat-domain>/api/ingest/sns/<token>`. Only members with the `trigger:update` scope see it, and only until a subscription to it is confirmed; after that the field is empty for everyone, even if the subscription is later removed, and [rotating the URL](#rotate-the-endpoint-url) is the way to get a new one. Treat the URL as a secret: anyone who holds it can send events to the source.
 3. Allow only your bucket to publish to the topic. Add this statement to the topic's access policy, with your topic ARN, bucket name and account ID:
 
    ```json
@@ -101,21 +101,23 @@ Rotating gives the source a new endpoint URL and retires the current one. Rotate
 
 - The URL may have leaked, for example in a log, a ticket or a screenshot.
 - Someone who could read the URL no longer should.
-- You need the URL again after its subscription was confirmed, for example to recreate a deleted subscription. Tracecat hides the URL once the subscription is confirmed.
+- You need the URL again after a subscription to it was confirmed, for example to recreate a deleted subscription. Tracecat hides the URL once a subscription to it is confirmed, and keeps it hidden after an unsubscribe, because SNS can restore an unsubscribed subscription.
 
 Rotate from the source panel of an object storage trigger (**Rotate URL**), with the `rotate_event_source_endpoint` MCP tool, or with `POST /workspaces/<workspace-id>/event-sources/<source-id>/rotate-endpoint`. Rotating needs the `trigger:update` scope and is recorded in the audit log.
 
 What happens to the old URL:
 
-- If its subscription was confirmed, the old URL keeps accepting notifications until a subscription to the new URL is confirmed, or for 24 hours at most. Then it refuses them for good with `404`, and SNS sends them to the old subscription's dead-letter queue, or drops them if it has none.
+- If a subscription to it was confirmed, the old URL keeps accepting notifications until a subscription to the new URL is confirmed, or for 24 hours at most. Then it refuses them for good with `404`, and SNS sends them to the old subscription's dead-letter queue, or drops them if it has none.
 - If its subscription was never confirmed, the old URL stops at once. Nothing was being delivered to it.
 - During the overlap the old URL takes notifications only. It refuses subscription confirmations.
 
 Then, in AWS:
 
 1. Subscribe the new endpoint URL to the topic with the `HTTPS` protocol and raw message delivery off. Give it the same delivery retry policy and dead-letter queue as the old subscription.
-2. Wait until the source shows the subscription as `confirmed`. From that moment Tracecat refuses the old URL and accepts events on the new one, so no event is missed in between. Until you delete the old subscription, SNS also sends each event to the old URL, which refuses it into the old subscription's dead-letter queue; the same event arrives through the new subscription.
+2. Wait until the source shows the subscription as `confirmed`. From that moment Tracecat refuses the old URL and accepts events on the new one. Until you delete the old subscription, SNS also sends each new event to the old URL, which refuses it into the old subscription's dead-letter queue; the same event arrives through the new subscription.
 3. Delete the old subscription, so SNS stops sending events to a URL that refuses them.
+
+An event published before the new subscription existed reaches Tracecat only through the old subscription. If SNS is still retrying it there when the new subscription confirms (Tracecat was briefly unavailable, or delivery is throttled), the retry is refused and the event goes to the old subscription's dead-letter queue, or is lost without one. Keep the dead-letter queue on the old subscription until you delete it, and redrive anything it holds.
 
 Do steps 1 and 2 within 24 hours of rotating. Past that, the old URL is refused even if the new subscription is not confirmed yet, and events in between go to the old subscription's dead-letter queue.
 

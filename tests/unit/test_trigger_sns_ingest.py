@@ -58,7 +58,7 @@ from tracecat.triggers.ingest.aws_sns.router import MAX_BODY_BYTES
 from tracecat.triggers.ingest.aws_sns.router import router as ingest_router
 from tracecat.triggers.ingest.aws_sns.types import SnsTopic
 from tracecat.triggers.ingest.types import IngestError, IngestErrorCode
-from tracecat.triggers.service import TriggersService
+from tracecat.triggers.service import TriggersService, read_event_source
 from tracecat.triggers.types import build_occurrence_key, event_source_endpoint_url
 
 pytestmark = [pytest.mark.usefixtures("db"), pytest.mark.anyio]
@@ -1293,6 +1293,7 @@ async def test_the_replaced_url_takes_notifications_until_the_new_one_confirms(
     assert response.json()["confirmed"] is True
     await session.refresh(source)
     assert source.subscription_status == SubscriptionStatus.CONFIRMED.value
+    assert source.endpoint_token_confirmed_at is not None
     assert source.previous_endpoint_token is None
     assert source.previous_endpoint_token_expires_at is None
 
@@ -1322,6 +1323,43 @@ async def test_the_replaced_url_stops_at_its_deadline(
 
     assert response.status_code == 404
     assert await _outbox(session, source) == []
+
+
+async def test_an_unsubscribed_url_stays_hidden(
+    client: httpx.AsyncClient,
+    session: AsyncSession,
+    source: EventSource,
+    sign: SignFn,
+    aws: respx.MockRouter,
+    confirm_calls: list[tuple[str, str]],
+    svc_role: Role,
+) -> None:
+    """SNS can restore an unsubscribed subscription, so pending is not proof
+    that the URL is dead: once confirmed, it stays hidden until rotated."""
+    response = await _post(client, source, sign("SubscriptionConfirmation", "c"))
+    assert response.status_code == 200, response.text
+    await session.refresh(source)
+    confirmed_at = source.endpoint_token_confirmed_at
+    assert confirmed_at is not None
+
+    response = await _post(
+        client,
+        source,
+        sign("UnsubscribeConfirmation", _unsubscribe_text(SUBSCRIPTION_ARN)),
+    )
+    assert response.status_code == 200, response.text
+    await session.refresh(source)
+    assert source.subscription_status == SubscriptionStatus.PENDING.value
+    assert source.endpoint_token_confirmed_at == confirmed_at
+    assert read_event_source(source, svc_role).endpoint_url is None
+
+    # Rotating gives a URL to show again, and keeps the old one for the
+    # overlap in case its subscription was restored.
+    old_token = source.endpoint_token
+    await TriggersService(session, svc_role).rotate_event_source_endpoint(source.id)
+    await session.refresh(source)
+    assert read_event_source(source, svc_role).endpoint_url is not None
+    assert source.previous_endpoint_token == old_token
 
 
 async def test_an_unconfirmed_url_stops_at_rotation(

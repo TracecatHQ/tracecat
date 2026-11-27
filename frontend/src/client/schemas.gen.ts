@@ -21362,7 +21362,7 @@ export const $EventSourceRead = {
       ],
       title: "Endpoint Url",
       description:
-        "Point the feed (e.g. the SNS subscription) at this HTTPS URL. It changes only when rotated. Shown only to callers with trigger:update, and only while the subscription is pending: once it is confirmed, the URL is null for everyone; rotate to get a new one.",
+        "Point the feed (e.g. the SNS subscription) at this HTTPS URL. It changes only when rotated. Shown only to callers with trigger:update, and only until a subscription to it is first confirmed: after that the URL is null for everyone; rotate to get a new one.",
     },
     previous_url_expires_at: {
       anyOf: [

@@ -185,22 +185,33 @@ def _source_identity(config: EventSourceConfig) -> tuple[str, ...]:
             return (topic_arn,)
 
 
+def _url_was_confirmed(source: EventSource) -> bool:
+    """Whether a subscription to the source's current URL was ever confirmed.
+
+    The status covers a confirmation the previous release wrote, which does
+    not set ``endpoint_token_confirmed_at``.
+    """
+    return (
+        source.endpoint_token_confirmed_at is not None
+        or source.subscription_status == SubscriptionStatus.CONFIRMED.value
+    )
+
+
 def read_event_source(source: EventSource, role: Role) -> EventSourceRead:
     """Build the API view of a source.
 
     The endpoint URL and the subscription ref go only to callers who may
     change the source: anyone holding the URL can reach the ingest endpoint,
     and an SNS subscription ARN is enough to unsubscribe a subscription
-    confirmed without authentication. The URL is shown only while the
-    subscription is pending, for setup: once it is confirmed the URL is live,
-    and reading it again takes a rotation, which the audit log records and
-    which breaks the live subscription.
+    confirmed without authentication. The URL is shown only until a
+    subscription to it is first confirmed, for setup. After that it may be
+    live even when the subscription shows pending again (SNS can restore an
+    unsubscribed subscription), so reading a URL again takes a rotation, which
+    the audit log records and which breaks the live subscription.
     """
     kind = EventSourceKind(source.kind)
     can_manage = has_scope(role.scopes or frozenset(), "trigger:update")
-    show_url = (
-        can_manage and source.subscription_status == SubscriptionStatus.PENDING.value
-    )
+    show_url = can_manage and not _url_was_confirmed(source)
     previous_expires = source.previous_endpoint_token_expires_at
     if (
         source.previous_endpoint_token is None
@@ -348,6 +359,7 @@ class TriggersService(BaseWorkspaceService):
                 # too: a pending source shows its URL, and the old one may
                 # still be live for the old feed.
                 source.endpoint_token = secrets.token_urlsafe(32)
+                source.endpoint_token_confirmed_at = None
                 source.previous_endpoint_token = None
                 source.previous_endpoint_token_expires_at = None
             source.config = params.config.model_dump(mode="json", exclude={"kind"})
@@ -362,11 +374,11 @@ class TriggersService(BaseWorkspaceService):
         """Give a source a new endpoint URL and retire the current one.
 
         The subscription resets to pending: the customer subscribes the new
-        URL and confirms it. If the current URL's subscription is confirmed,
-        that URL keeps accepting notifications until the new subscription is
-        confirmed or ``ENDPOINT_ROTATION_OVERLAP`` passes, so no event is
-        refused in between. A URL never confirmed carries nothing and stops at
-        once; a URL already in its overlap keeps it, unextended.
+        URL and confirms it. If a subscription to the current URL was ever
+        confirmed, that URL keeps accepting notifications until the new
+        subscription is confirmed or ``ENDPOINT_ROTATION_OVERLAP`` passes. A
+        URL never confirmed carries nothing and stops at once; a URL already
+        in its overlap keeps it, unextended.
 
         Raises:
             TriggerError: ``not_found``, or ``conflict`` on a token collision.
@@ -383,12 +395,13 @@ class TriggersService(BaseWorkspaceService):
         )
         if source is None:
             raise _not_found("Event source")
-        if source.subscription_status == SubscriptionStatus.CONFIRMED.value:
+        if _url_was_confirmed(source):
             source.previous_endpoint_token = source.endpoint_token
             source.previous_endpoint_token_expires_at = (
                 datetime.now(UTC) + ENDPOINT_ROTATION_OVERLAP
             )
         source.endpoint_token = secrets.token_urlsafe(32)
+        source.endpoint_token_confirmed_at = None
         source.subscription_status = SubscriptionStatus.PENDING.value
         source.subscription_ref = None
         await self._commit_source()

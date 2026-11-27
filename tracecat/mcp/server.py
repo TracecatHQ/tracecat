@@ -6981,9 +6981,9 @@ async def get_event_source(
 
     Returns the source as JSON. `endpoint_url` is the HTTPS URL the feed must
     deliver to (for `aws_sns`, the SNS subscription endpoint). It is shown only
-    with `trigger:update` and only while `subscription_status` is `pending`;
-    once confirmed it is null for everyone, and `rotate_event_source_endpoint`
-    issues a new one. `subscription_ref` is also null without `trigger:update`.
+    with `trigger:update` and only until a subscription to it is first
+    confirmed; after that it is null for everyone, even if the subscription
+    later shows `pending`, and `rotate_event_source_endpoint` issues a new one. `subscription_ref` is also null without `trigger:update`.
     `previous_url_expires_at` is set while a rotated-away URL still accepts
     notifications.
     """
@@ -7081,8 +7081,8 @@ async def rotate_event_source_endpoint(
     The subscription resets to pending. Then, on the provider side (for
     `aws_sns`): subscribe the topic to the returned `endpoint_url` over HTTPS
     with raw message delivery off, wait for it to show as confirmed, then
-    delete the old subscription. If the old URL's subscription was confirmed,
-    the old URL keeps accepting notifications until the new subscription is
+    delete the old subscription. If a subscription to the old URL was ever
+    confirmed, the old URL keeps accepting notifications until the new subscription is
     confirmed, or until `previous_url_expires_at` (24 hours) at the latest;
     after that, events sent to it are refused. A URL never confirmed stops at
     once. Needs `trigger:update`.

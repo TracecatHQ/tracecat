@@ -211,6 +211,7 @@ async def test_changing_the_topic_resets_the_subscription(
     # The new feed gets a new URL: the old one may still be live for the old
     # feed, and a pending source shows its URL.
     assert moved.endpoint_token != old_token
+    assert moved.endpoint_token_confirmed_at is None
     assert moved.previous_endpoint_token is None
 
 
@@ -245,6 +246,14 @@ async def test_the_url_is_hidden_once_the_subscription_is_confirmed(
     )
     assert read_event_source(source, updater).endpoint_url is None
 
+    # Unsubscribed: pending again, but SNS can restore that subscription, so
+    # the URL may still be live and stays hidden.
+    source.subscription_status = SubscriptionStatus.PENDING.value
+    source.endpoint_token_confirmed_at = datetime.now(UTC)
+    await service.session.commit()
+    await service.session.refresh(source)
+    assert read_event_source(source, service.role).endpoint_url is None
+
 
 async def test_rotating_a_confirmed_source_keeps_the_old_url_for_a_bounded_overlap(
     monkeypatch: pytest.MonkeyPatch, service: TriggersService
@@ -261,6 +270,7 @@ async def test_rotating_a_confirmed_source_keeps_the_old_url_for_a_bounded_overl
     assert len(rotated.endpoint_token) >= 43
     assert rotated.subscription_status == SubscriptionStatus.PENDING
     assert rotated.subscription_ref is None
+    assert rotated.endpoint_token_confirmed_at is None
     assert rotated.previous_endpoint_token == old_token
     expires = rotated.previous_endpoint_token_expires_at
     assert expires is not None

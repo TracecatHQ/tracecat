@@ -2236,6 +2236,16 @@ class EventSource(WorkspaceModel):
         nullable=True,
         doc="When the previous token stops at the latest; fixed at rotation",
     )
+    endpoint_token_confirmed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc=(
+            "When a subscription to the current token's URL was first "
+            "confirmed. Kept through an unsubscribe, since SNS can restore a "
+            "subscription; reset only with the token. The URL is shown only "
+            "while this is null."
+        ),
+    )
 
 
 class Trigger(WorkspaceModel):

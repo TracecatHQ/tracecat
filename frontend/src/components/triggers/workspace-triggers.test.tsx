@@ -590,6 +590,7 @@ describe("TriggerDetail", () => {
   })
 
   it("explains why the endpoint URL is hidden", async () => {
+    scopes = { "trigger:read": true }
     jest
       .mocked(triggersGetEventSource)
       .mockResolvedValue({ ...SOURCE, endpoint_url: null })
@@ -611,7 +612,7 @@ describe("TriggerDetail", () => {
     renderWithClient(<TriggerDetail triggerId="trigger-1" />)
 
     expect(
-      await screen.findByText(/Hidden while the subscription is confirmed/)
+      await screen.findByText(/a subscription to this URL was confirmed/)
     ).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Rotate URL" })).toBeEnabled()
   })

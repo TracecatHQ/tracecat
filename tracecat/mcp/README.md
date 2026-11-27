@@ -161,8 +161,8 @@ instruction, or changing what an online trigger or source matches. Switching
 things off and renaming need only `trigger:update`, except for kinds written
 through their own resource (`schedule`, `webhook`, `case_trigger`), which also
 need that resource's update scope. `endpoint_url` is null
-for callers without `trigger:update`, and for everyone once the subscription is
-confirmed. `rotate_event_source_endpoint` (`trigger:update`, `confirm=true`)
+for callers without `trigger:update`, and for everyone once a subscription to
+it was confirmed (also after an unsubscribe). `rotate_event_source_endpoint` (`trigger:update`, `confirm=true`)
 issues a new URL and resets the subscription to pending; it breaks the live
 subscription. A confirmed old URL keeps accepting notifications until the new
 subscription is confirmed or 24 hours pass (`previous_url_expires_at`).
