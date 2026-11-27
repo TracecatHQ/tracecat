@@ -27,8 +27,10 @@ Rolling deploy: case triggers the previous release turns on while this one
 rolls out get no ``trigger`` row until they are next turned on by this
 release, or until a later release reruns ``backfill`` (it is idempotent).
 
-The downgrade deletes the ``case_trigger`` trigger rows and drops what the
-upgrade added. Case triggers themselves are untouched either way.
+The downgrade deletes the ``case_trigger`` trigger rows of every workspace in
+the database (it is a whole-database rollback, like every downgrade here) and
+drops what the upgrade added. Case triggers themselves are untouched either
+way.
 """
 
 import logging
