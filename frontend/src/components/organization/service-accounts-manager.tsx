@@ -784,7 +784,7 @@ export function ServiceAccountsManager({
       toast({
         title: "Name required",
         description: "Service accounts must have a name.",
-        variant: "destructive",
+        variant: "warning",
       })
       return
     }

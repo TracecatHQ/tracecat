@@ -25,7 +25,6 @@ import {
 } from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
-import { ToastAction } from "@/components/ui/toast"
 import { toast } from "@/components/ui/use-toast"
 import {
   getWorkspaceSyncBaseBranch,
@@ -224,14 +223,13 @@ export function WorkspaceResourceSyncActions({
       toast({
         title: prUrl ? `${reviewRequestTitle} ready` : "Push complete",
         description: result.commit.message ?? result.commit.sha ?? undefined,
-        action: prUrl ? (
-          <ToastAction
-            altText={`Open ${reviewRequestLabel}`}
-            onClick={() => window.open(prUrl, "_blank", "noopener,noreferrer")}
-          >
-            View {getReviewRequestAbbreviation(provider)}
-          </ToastAction>
-        ) : undefined,
+        action: prUrl
+          ? {
+              children: `View ${getReviewRequestAbbreviation(provider)}`,
+              onClick: () =>
+                window.open(prUrl, "_blank", "noopener,noreferrer"),
+            }
+          : undefined,
       })
       setOpen(false)
     } catch (error) {

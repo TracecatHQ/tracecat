@@ -503,7 +503,7 @@ export function useSkillsStudio(params: {
         toast({
           title: "Invalid move",
           description: "Cannot move a folder into itself.",
-          variant: "destructive",
+          variant: "warning",
         })
         return
       }

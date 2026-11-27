@@ -364,7 +364,7 @@ export function useWorkflowRunMutations() {
           return
         }
         toast({
-          variant: "destructive",
+          variant: "warning",
           title: "Bulk cancel completed with errors",
           description: `${result.success} run(s) canceled, ${result.failed} failed.`,
         })
@@ -407,7 +407,7 @@ export function useWorkflowRunMutations() {
           return
         }
         toast({
-          variant: "destructive",
+          variant: "warning",
           title: "Bulk termination completed with errors",
           description: `${result.success} run(s) terminated, ${result.failed} failed.`,
         })
@@ -456,7 +456,7 @@ export function useWorkflowRunMutations() {
           })
         } else {
           toast({
-            variant: "destructive",
+            variant: "warning",
             title: "Bulk reset completed with errors",
             description: `${failures.length} run(s) failed to reset.`,
           })

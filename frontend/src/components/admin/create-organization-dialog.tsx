@@ -66,7 +66,7 @@ export function CreateOrganizationDialog() {
       toast({
         title: "Organization creation is disabled",
         description: "Enable multi-tenant mode to create new organizations.",
-        variant: "destructive",
+        variant: "warning",
       })
       return
     }

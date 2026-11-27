@@ -270,7 +270,7 @@ function GitHubConnectionDialog({
       toast({
         title: "Error",
         description: "No manifest available to submit",
-        variant: "destructive",
+        variant: "warning",
       })
       return
     }
@@ -284,7 +284,7 @@ function GitHubConnectionDialog({
       toast({
         title: "Invalid GitHub host",
         description: "Please use a valid HTTPS GitHub URL",
-        variant: "destructive",
+        variant: "warning",
       })
       return
     }

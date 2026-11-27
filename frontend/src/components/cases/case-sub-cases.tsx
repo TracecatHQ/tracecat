@@ -448,7 +448,7 @@ function AddSubCasesDialog({
     }
     if (result.failed > 0) {
       toast({
-        variant: "destructive",
+        variant: "warning",
         title: `${added} added, ${result.failed} failed`,
         description: result.errors[0],
       })

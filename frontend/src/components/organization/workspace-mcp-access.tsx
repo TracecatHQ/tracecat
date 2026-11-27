@@ -198,7 +198,7 @@ function CreateTokenDialog({
       toast({
         title: "Name required",
         description: "MCP tokens must have a name.",
-        variant: "destructive",
+        variant: "warning",
       })
       return
     }
@@ -209,7 +209,7 @@ function CreateTokenDialog({
         toast({
           title: "Expiration required",
           description: "Choose a custom expiration time or use another preset.",
-          variant: "destructive",
+          variant: "warning",
         })
         return
       }

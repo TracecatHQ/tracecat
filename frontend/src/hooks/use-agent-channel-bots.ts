@@ -678,7 +678,7 @@ function useChannelBotMutation<TData, TVariables>(
           (error.status === 409 ? conflict : undefined) ??
           getApiErrorDetail(error) ??
           "Please try again.",
-        variant: "destructive",
+        variant: error.status === 409 && conflict ? "warning" : "destructive",
       })
     },
   })

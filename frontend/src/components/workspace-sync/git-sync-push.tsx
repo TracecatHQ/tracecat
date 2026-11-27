@@ -28,7 +28,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
-import { ToastAction } from "@/components/ui/toast"
 import { toast } from "@/components/ui/use-toast"
 import {
   useWorkspaceSyncBranchTarget,
@@ -243,18 +242,20 @@ export function GitSyncPushTab({
         description: sourcePackage
           ? "No customer workspace changed. Merge it, then cut a release and deploy it from Admin, Managed Workspaces."
           : (result.commit.message ?? result.commit.sha ?? undefined),
-        action: prUrl ? (
-          <ToastAction
-            asChild
-            altText={`Open ${reviewRequest}`}
-            className="gap-1.5"
-          >
-            <a href={prUrl} target="_blank" rel="noopener noreferrer">
-              View {reviewRequestShort}
-              <ExternalLinkIcon className="size-3.5" />
-            </a>
-          </ToastAction>
-        ) : undefined,
+        action: prUrl
+          ? {
+              "aria-label": `Open ${reviewRequest}`,
+              className: "gap-1.5",
+              children: (
+                <>
+                  View {reviewRequestShort}
+                  <ExternalLinkIcon className="size-3.5" />
+                </>
+              ),
+              onClick: () =>
+                window.open(prUrl, "_blank", "noopener,noreferrer"),
+            }
+          : undefined,
       })
     } catch (error) {
       if (error instanceof SyncOperationWaitCancelled) return
