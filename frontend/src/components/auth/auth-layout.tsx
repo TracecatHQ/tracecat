@@ -5,10 +5,36 @@ import TracecatIcon from "public/icon.png"
 import type React from "react"
 import { AuthStatus } from "@/components/auth/auth-status"
 import { BrandingStyle } from "@/components/branding/branding-style"
+import {
+  BaseErrorBoundary,
+  type ErrorFallbackProps,
+} from "@/components/error-boundary"
 import PrivacyPolicy from "@/components/privacy-policy"
+import { Button } from "@/components/ui/button"
 import { usePublicBranding } from "@/hooks/use-branding"
 import { TRACECAT_TAGLINE } from "@/lib/branding"
 import { cn } from "@/lib/utils"
+
+function AuthFormError(_props: ErrorFallbackProps) {
+  return (
+    <div className="flex w-full max-w-md flex-col items-center gap-3 text-center">
+      <h2 className="text-lg font-semibold">
+        Couldn&apos;t load sign-in options
+      </h2>
+      <p className="text-sm text-muted-foreground">
+        The browser can&apos;t reach the Tracecat API. Check the status panel
+        and your network or proxy settings.
+      </p>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => window.location.reload()}
+      >
+        Try again
+      </Button>
+    </div>
+  )
+}
 
 function AuthLogo({
   logo,
@@ -68,7 +94,9 @@ export function AuthLayout({
       </aside>
       <main className="flex flex-col items-center justify-center gap-6 overflow-auto py-10">
         <AuthLogo logo={logo} className="h-12 w-auto max-w-40 lg:hidden" />
-        {children}
+        <BaseErrorBoundary fallback={AuthFormError}>
+          {children}
+        </BaseErrorBoundary>
         {showTerms && <PrivacyPolicy className="w-full max-w-md" />}
       </main>
     </div>
