@@ -309,6 +309,7 @@ async def test_auto_title_falls_back_to_prompt_for_chats(
             agent_session,
             "Why are logins failing?\nHere are the logs",
             expected_title=agent_session.title,
+            allow_prompt_fallback=True,
         )
 
     assert agent_session.title == "Why are logins failing?"
@@ -316,15 +317,20 @@ async def test_auto_title_falls_back_to_prompt_for_chats(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("entity_type", "allow_prompt_fallback"),
+    [("workflow", True), ("external_channel", False)],
+    ids=["workflow-session", "workflow-started-channel-session"],
+)
 async def test_auto_title_keeps_workflow_title_when_generation_fails(
-    role: Role,
+    role: Role, entity_type: str, allow_prompt_fallback: bool
 ) -> None:
     session = AsyncMock()
     service = AgentSessionService(session, role)
     agent_session = AgentSession(
         workspace_id=role.workspace_id,
         title="Workflow agent",
-        entity_type="workflow",
+        entity_type=entity_type,
         entity_id=uuid.uuid4(),
     )
     agent_session.id = uuid.uuid4()
@@ -337,6 +343,7 @@ async def test_auto_title_keeps_workflow_title_when_generation_fails(
             agent_session,
             "You are a triage agent. Alert: ${{ TRIGGER.alert }}",
             expected_title=agent_session.title,
+            allow_prompt_fallback=allow_prompt_fallback,
         )
 
     assert agent_session.title == "Workflow agent"

@@ -228,8 +228,8 @@ _MESSAGE_ADMISSION_TRIES = 5
 _SHARED_WHEN_OWNERLESS = frozenset(
     {AgentSessionEntity.EXTERNAL_CHANNEL, AgentSessionEntity.AGENT_PRESET}
 )
-# Session kinds whose first prompt a person typed, so its first line reads as a
-# title when generation fails. Workflow prompts are templates and keep theirs.
+# Session kinds whose first prompt a person may have typed, so its first line
+# can stand in as a title when generation fails.
 _PROMPT_FALLBACK_TITLE_ENTITIES = frozenset(
     {
         AgentSessionEntity.WORKSPACE_CHAT,
@@ -265,6 +265,7 @@ async def _auto_title_session(
     user_prompt: str,
     expected_title: str,
     role: Role,
+    allow_prompt_fallback: bool,
 ) -> None:
     """Best-effort auto-title using a fresh database session.
 
@@ -286,6 +287,7 @@ async def _auto_title_session(
             agent_session,
             user_prompt,
             expected_title=expected_title,
+            allow_prompt_fallback=allow_prompt_fallback,
         )
 
 
@@ -310,11 +312,20 @@ def schedule_auto_title(
     user_prompt: str,
     expected_title: str,
     role: Role,
+    allow_prompt_fallback: bool = False,
 ) -> None:
     """Title a committed session in the background, off the caller's hot path.
 
     Runs on the current event loop with its own database session. Best-effort:
     a process exit before it finishes leaves the placeholder title.
+
+    Args:
+        session_id: The session to title.
+        user_prompt: The session's first prompt.
+        expected_title: The title to replace; a rename since then wins.
+        role: The role to title the session as.
+        allow_prompt_fallback: Use the prompt's first line when generation
+            fails. Only for prompts a person typed, not workflow templates.
     """
     task = asyncio.create_task(
         _auto_title_session(
@@ -322,6 +333,7 @@ def schedule_auto_title(
             user_prompt=user_prompt,
             expected_title=expected_title,
             role=role,
+            allow_prompt_fallback=allow_prompt_fallback,
         )
     )
     _background_tasks.add(task)
@@ -1778,6 +1790,7 @@ class AgentSessionService(BaseWorkspaceService):
         user_prompt: str,
         *,
         expected_title: str,
+        allow_prompt_fallback: bool = False,
     ) -> None:
         """Best-effort auto-title on the first prompt, as people read it."""
         entity_type = agent_session.entity_type
@@ -1851,7 +1864,11 @@ class AgentSessionService(BaseWorkspaceService):
             )
             new_title = None
 
-        if not new_title and entity_type in _PROMPT_FALLBACK_TITLE_ENTITIES:
+        if (
+            not new_title
+            and allow_prompt_fallback
+            and entity_type in _PROMPT_FALLBACK_TITLE_ENTITIES
+        ):
             new_title = fallback_session_title(prompt)
             title_source = "prompt_fallback"
 
@@ -2295,6 +2312,7 @@ class AgentSessionService(BaseWorkspaceService):
                     user_prompt=_display_text(user_prompt, origin=origin),
                     expected_title=expected_title,
                     role=self.role,
+                    allow_prompt_fallback=True,
                 )
 
     async def _prompt_origin_run_id(
