@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 import uuid
 from collections.abc import Mapping
@@ -12,6 +13,7 @@ import mcp.types as mt
 from fastmcp.exceptions import ToolError
 from fastmcp.server.dependencies import get_access_token, get_http_request
 from fastmcp.server.middleware.error_handling import ErrorHandlingMiddleware
+from fastmcp.server.middleware.logging import LoggingMiddleware
 from fastmcp.server.middleware.middleware import CallNext, Middleware, MiddlewareContext
 from fastmcp.tools import ToolResult
 
@@ -78,6 +80,52 @@ class MCPErrorHandlingMiddleware(ErrorHandlingMiddleware):
         if isinstance(error, ToolError):
             return error
         return super()._transform_error(error, context)
+
+
+class MCPLoggingMiddleware(LoggingMiddleware):
+    """Log tool calls as the base class does, but a refusal at WARNING.
+
+    The base class logs every failed call's ``request_error`` at ERROR. A
+    ``ToolError`` is an expected answer to the caller, so it is logged at
+    WARNING; any other error stays at ERROR.
+    """
+
+    async def on_message(
+        self, context: MiddlewareContext[Any], call_next: CallNext[Any, Any]
+    ) -> Any:
+        if self.methods and context.method not in self.methods:
+            return await call_next(context)
+        self._log_message(self._create_before_message(context))
+        start_time = time.perf_counter()
+        try:
+            result = await call_next(context)
+        except Exception as e:
+            level = logging.WARNING if isinstance(e, ToolError) else logging.ERROR
+            self._log_message(self._create_error_message(context, start_time, e), level)
+            raise
+        self._log_message(self._create_after_message(context, start_time))
+        return result
+
+
+class ToolRefusalLogFilter(logging.Filter):
+    """Log FastMCP's "Error calling tool" line for a refusal at WARNING.
+
+    FastMCP logs an error a tool raises inside the call, before any
+    middleware sees it: a ``FastMCPError`` such as ``ToolError`` at its
+    ``log_level`` (ERROR by default) without a traceback, and any other
+    exception with ``logger.exception``. Only the first is an expected
+    answer; it is lowered to WARNING. Add this to FastMCP's server logger.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if (
+            record.levelno == logging.ERROR
+            and not record.exc_info
+            and record.getMessage().startswith("Error calling tool ")
+        ):
+            record.levelno = logging.WARNING
+            record.levelname = logging.getLevelName(logging.WARNING)
+        return True
 
 
 class MCPInputSizeLimitMiddleware(Middleware):

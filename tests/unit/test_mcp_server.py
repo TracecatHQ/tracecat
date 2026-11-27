@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import logging
 import re
 import sys
 import uuid
@@ -14,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import yaml
+from fastmcp import Client, FastMCP
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware.middleware import MiddlewareContext
 from fastmcp.tools import ToolResult
@@ -80,7 +82,10 @@ from tracecat.managed_resources.guard import (
     LOCKED_MESSAGE,
     ManagedResourceLockedError,
 )
-from tracecat.mcp.middleware import MCPErrorHandlingMiddleware
+from tracecat.mcp.middleware import (
+    MCPErrorHandlingMiddleware,
+    MCPLoggingMiddleware,
+)
 from tracecat.pagination import CursorPaginatedResponse, PageParams
 from tracecat.storage.object import ExternalObject, ObjectRef
 from tracecat.tables.service import TablesService
@@ -5197,6 +5202,54 @@ async def test_a_tool_refusal_logs_a_warning_and_a_fault_an_error() -> None:
         f"ToolError:{method}": 1,
         f"RuntimeError:{method}": 1,
     }
+
+
+class _Records(logging.Handler):
+    def __init__(self) -> None:
+        super().__init__(level=logging.DEBUG)
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+
+
+@pytest.mark.anyio
+async def test_a_tool_refusal_logs_no_error_through_the_whole_pipeline() -> None:
+    """Every emitter in a real call (FastMCP's own tool log, the logging and
+    error middlewares) logs a refusal below ERROR; a fault still logs ERROR.
+
+    The FastMCP filter comes from importing ``tracecat.mcp.server``.
+    """
+
+    def refuse() -> str:
+        raise ToolError("refused")
+
+    def fail() -> str:
+        raise RuntimeError("boom")
+
+    server = FastMCP("refusal-logging")
+    server.tool(refuse)
+    server.tool(fail)
+    server.add_middleware(
+        MCPErrorHandlingMiddleware(include_traceback=False, transform_errors=True)
+    )
+    server.add_middleware(MCPLoggingMiddleware(methods=["tools/call"]))
+    records = _Records()
+    fastmcp_logger = logging.getLogger("fastmcp")
+    fastmcp_logger.addHandler(records)
+    try:
+        async with Client(server) as client:
+            await client.call_tool("refuse", {}, raise_on_error=False)
+            refusal = list(records.records)
+            records.records.clear()
+            await client.call_tool("fail", {}, raise_on_error=False)
+            fault = list(records.records)
+    finally:
+        fastmcp_logger.removeHandler(records)
+
+    assert refusal, "the refusal was not logged at all"
+    assert max(record.levelno for record in refusal) == logging.WARNING
+    assert max(record.levelno for record in fault) == logging.ERROR
 
 
 @pytest.mark.anyio
@@ -11419,3 +11472,51 @@ async def test_update_case_trigger_online_without_events_is_refused(
             workflow_id=str(workflow_id),
             status="online",
         )
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+@pytest.mark.parametrize(
+    ("tool_name", "arguments", "held", "missing"),
+    [
+        # `workflow:update` implies `workflow:read`, so the reader holds neither.
+        ("get_case_trigger", {}, {"case:read"}, "workflow:read"),
+        (
+            "update_case_trigger",
+            {"status": "offline"},
+            {"workflow:read"},
+            "workflow:update",
+        ),
+    ],
+)
+async def test_case_trigger_tools_need_the_route_scopes(
+    session: AsyncSession,
+    svc_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+    tool_name: str,
+    arguments: dict[str, Any],
+    held: set[str],
+    missing: str,
+) -> None:
+    """The tools need the same scopes as the /case-trigger routes; a viewer
+    (no workflow:update) can't turn a case trigger off or on."""
+    workflow_id = await _seed_case_trigger(
+        session,
+        svc_role,
+        status="online",
+        event_types=["case_closed"],
+        tag_filters=["phishing"],
+    )
+    viewer = svc_role.model_copy(update={"scopes": frozenset(held)})
+    _patch_case_triggers_session(monkeypatch, session, viewer)
+
+    with pytest.raises(ToolError, match=f"Missing required scope: {missing}"):
+        await _tool(getattr(mcp_server, tool_name))(
+            workspace_id=str(svc_role.workspace_id),
+            workflow_id=str(workflow_id),
+            **arguments,
+        )
+
+    saved = await _saved_case_trigger(session, workflow_id)
+    assert saved.status == "online"
+    assert saved.event_types == ["case_closed"]

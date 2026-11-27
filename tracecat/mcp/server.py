@@ -11,6 +11,7 @@ import base64
 import csv
 import hashlib
 import json
+import logging
 import re
 import uuid
 from collections import defaultdict, deque
@@ -40,7 +41,6 @@ import orjson
 import yaml
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
-from fastmcp.server.middleware.logging import LoggingMiddleware
 from fastmcp.server.middleware.rate_limiting import RateLimitingMiddleware
 from google.protobuf.json_format import MessageToDict
 from pydantic import (
@@ -248,8 +248,10 @@ from tracecat.mcp.json_patch import apply_json_patch_operations
 from tracecat.mcp.middleware import (
     MCPErrorHandlingMiddleware,
     MCPInputSizeLimitMiddleware,
+    MCPLoggingMiddleware,
     MCPRequestAuditMiddleware,
     MCPTimeoutMiddleware,
+    ToolRefusalLogFilter,
     WatchtowerMonitorMiddleware,
     get_mcp_client_id,
 )
@@ -2799,8 +2801,10 @@ mcp.add_middleware(
     MCPErrorHandlingMiddleware(include_traceback=False, transform_errors=True)
 )
 mcp.add_middleware(
-    LoggingMiddleware(methods=["tools/call"], include_payload_length=True)
+    MCPLoggingMiddleware(methods=["tools/call"], include_payload_length=True)
 )
+# FastMCP logs a tool's refusal itself, before the middleware above sees it.
+logging.getLogger("fastmcp.server.server").addFilter(ToolRefusalLogFilter())
 
 
 # ---------------------------------------------------------------------------
@@ -6657,9 +6661,14 @@ async def get_case_trigger(
     try:
         workflow_id = WorkflowUUID.new(workflow_id)
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /workflows/{id}/case-trigger`.
+        check_scopes(role, "workflow:read")
         async with CaseTriggersService.with_session(role=role) as svc:
             case_trigger = await svc.get_case_trigger(workflow_id)
             return CaseTriggerRead.model_validate(case_trigger, from_attributes=True)
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except TracecatNotFoundError as e:
         raise ToolError(str(e)) from e
     except ValueError as e:
@@ -6717,6 +6726,8 @@ async def update_case_trigger(
     try:
         workflow_id = WorkflowUUID.new(workflow_id)
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `PATCH /workflows/{id}/case-trigger`.
+        check_scopes(role, "workflow:update")
         if status is not None and status not in {"online", "offline"}:
             raise ToolError("status must be 'online' or 'offline'")
 
@@ -6738,6 +6749,9 @@ async def update_case_trigger(
         return MCPMessageResponse(
             message=f"Case trigger for workflow {workflow_id} updated successfully"
         )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except TracecatNotFoundError as e:
         raise ToolError(str(e)) from e
     except ToolError:
