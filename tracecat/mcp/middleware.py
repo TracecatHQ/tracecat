@@ -37,10 +37,6 @@ class AccessTokenLike(Protocol):
     client_id: str
 
 
-class FastMCPContextLike(Protocol):
-    def get_access_token(self) -> AccessTokenLike | None: ...
-
-
 class MCPInputSizeLimitMiddleware(Middleware):
     """Reject tool calls where any string argument exceeds a byte-size limit.
 
@@ -377,15 +373,7 @@ def get_mcp_client_id(context: MiddlewareContext) -> str:  # type: ignore[type-a
     """
     _ = context
     try:
-        access_token: AccessTokenLike | None = None
-        fastmcp_context = cast(
-            FastMCPContextLike | None,
-            getattr(context, "fastmcp_context", None),
-        )
-        if fastmcp_context is not None:
-            access_token = fastmcp_context.get_access_token()
-        if access_token is None:
-            access_token = cast(AccessTokenLike | None, get_access_token())
+        access_token = cast(AccessTokenLike | None, get_access_token())
         if access_token is not None:
             email = get_email_claim(access_token.claims)
             if email:
