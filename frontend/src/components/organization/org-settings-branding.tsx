@@ -174,7 +174,6 @@ export function OrgSettingsBrandingForm() {
 
   const form = useForm<BrandingFormValues>({
     resolver: zodResolver(brandingFormSchema),
-    mode: "onChange",
     values: {
       branding_logo: brandingSettings?.branding_logo ?? null,
       branding_primary_color_light:
@@ -185,8 +184,13 @@ export function OrgSettingsBrandingForm() {
     },
   })
   const logo = form.watch("branding_logo")
-  const lightColor = previewColor(form.watch("branding_primary_color_light"))
-  const darkColor = previewColor(form.watch("branding_primary_color_dark"))
+  const rawLightColor = form.watch("branding_primary_color_light")
+  const rawDarkColor = form.watch("branding_primary_color_dark")
+  const lightColor = previewColor(rawLightColor)
+  const darkColor = previewColor(rawDarkColor)
+  const colorsComplete = [rawLightColor, rawDarkColor].every(
+    (value) => value === "" || HEX_COLOR_PATTERN.test(value)
+  )
 
   function handleLogoChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
@@ -368,7 +372,7 @@ export function OrgSettingsBrandingForm() {
           disabled={
             updateBrandingSettingsIsPending ||
             !form.formState.isDirty ||
-            !form.formState.isValid
+            !colorsComplete
           }
         >
           {updateBrandingSettingsIsPending ? "Saving..." : "Save changes"}
