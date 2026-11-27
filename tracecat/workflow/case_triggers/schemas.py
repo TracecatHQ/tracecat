@@ -24,6 +24,16 @@ def _dedupe_items[T](items: list[T]) -> list[T]:
     return deduped
 
 
+def normalize_event_types(value: list[CaseEventType]) -> list[CaseEventType]:
+    """Event types without repeats, in their first order."""
+    return _dedupe_items(value)
+
+
+def normalize_tag_filters(value: list[str]) -> list[str]:
+    """Tag refs stripped, without blanks or repeats, in their first order."""
+    return _dedupe_items([ref.strip() for ref in value if ref and ref.strip()])
+
+
 def is_case_trigger_configured(
     *,
     status: str | None,

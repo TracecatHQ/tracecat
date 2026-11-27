@@ -16,7 +16,7 @@ import {
   Trash2Icon,
   WebhookIcon,
 } from "lucide-react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import {
   ApiError,
@@ -28,11 +28,14 @@ import {
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { TriggerTypename } from "@/components/builder/canvas/trigger-node"
-import { CASE_EVENT_SUGGESTIONS } from "@/components/builder/panel/case-event-suggestions"
 import {
   type TriggerPanelTab,
   TriggerPanelTabs,
 } from "@/components/builder/panel/trigger-panel-tabs"
+import {
+  CaseEventsField,
+  CaseTagFiltersField,
+} from "@/components/case-triggers/case-trigger-form-fields"
 import { CopyButton } from "@/components/copy-button"
 import { FormTriggerControls } from "@/components/forms/form-trigger-controls"
 import { getIcon } from "@/components/icons"
@@ -45,7 +48,7 @@ import {
   scheduleInputsToSettings,
   useScheduleForm,
 } from "@/components/schedules/schedule-form-fields"
-import { MultiTagCommandInput, type Tag } from "@/components/tags-input"
+import type { Tag } from "@/components/tags-input"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -117,7 +120,6 @@ import {
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useFormsAccess } from "@/hooks/use-forms-access"
 import {
-  useCaseTagCatalog,
   useCaseTrigger,
   useDeleteWebhookApiKey,
   useGenerateWebhookApiKey,
@@ -991,7 +993,6 @@ export function CaseTriggerControls({
   } = useCaseTrigger(workspaceId, workflowId)
   const { mutateAsync: upsertCaseTrigger, isPending: isUpdatingCaseTrigger } =
     useUpsertCaseTrigger(workspaceId, workflowId)
-  const { caseTags, caseTagsIsLoading } = useCaseTagCatalog(workspaceId)
 
   const [status, setStatus] = useState<"online" | "offline">("offline")
   const [eventTypes, setEventTypes] = useState<CaseEventType[]>([])
@@ -1048,8 +1049,7 @@ export function CaseTriggerControls({
   )
 
   const handleEventTypesChange = useCallback(
-    async (values: string[]) => {
-      const nextEvents = values as CaseEventType[]
+    async (nextEvents: CaseEventType[]) => {
       const wasOnline = status === "online"
       const nextStatus =
         wasOnline && nextEvents.length === 0 ? "offline" : status
@@ -1099,15 +1099,6 @@ export function CaseTriggerControls({
     [eventTypes, persist, status, tagFilters]
   )
 
-  const tagSuggestions = useMemo(() => {
-    return (caseTags ?? []).map((tag) => ({
-      id: tag.id,
-      label: tag.name,
-      value: tag.ref,
-      description: tag.ref,
-    }))
-  }, [caseTags])
-
   if (isLoadingCaseTrigger) {
     return <CenteredSpinner />
   }
@@ -1137,43 +1128,17 @@ export function CaseTriggerControls({
         />
       </div>
 
-      <div className="space-y-2">
-        <Label className="text-xs">Case events</Label>
-        <MultiTagCommandInput
-          value={eventTypes}
-          onChange={handleEventTypesChange}
-          suggestions={CASE_EVENT_SUGGESTIONS}
-          searchKeys={["label", "value", "group"]}
-          placeholder="Select case events..."
-          disabled={isUpdatingCaseTrigger}
-          allowCustomTags={false}
-        />
-        <p className="text-xs text-muted-foreground">
-          Choose which case events will fire this workflow.
-        </p>
-      </div>
+      <CaseEventsField
+        value={eventTypes}
+        onChange={handleEventTypesChange}
+        disabled={isUpdatingCaseTrigger}
+      />
 
-      <div className="space-y-2">
-        <Label className="text-xs">Tag allowlist</Label>
-        <MultiTagCommandInput
-          value={tagFilters}
-          onChange={handleTagFiltersChange}
-          suggestions={tagSuggestions}
-          searchKeys={["label", "value", "description"]}
-          placeholder={
-            caseTagsIsLoading ? "Loading tags..." : "Select case tags..."
-          }
-          disabled={isUpdatingCaseTrigger || caseTagsIsLoading}
-          allowCustomTags={false}
-        />
-        <p className="text-xs text-muted-foreground">
-          If empty, no tag filtering is applied.
-        </p>
-        <p className="text-xs text-muted-foreground">
-          Tag events match the added or removed tag; other events match current
-          case tags. Workflow-originated events are ignored.
-        </p>
-      </div>
+      <CaseTagFiltersField
+        value={tagFilters}
+        onChange={handleTagFiltersChange}
+        disabled={isUpdatingCaseTrigger}
+      />
     </ReadOnlyFieldset>
   )
 }

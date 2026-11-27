@@ -25,6 +25,7 @@ from typing import Annotated, Any, Literal, Self
 
 from pydantic import Field, StringConstraints, field_validator, model_validator
 
+from tracecat.cases.enums import CaseEventType
 from tracecat.core.schemas import Schema
 from tracecat.identifiers.schedules import ScheduleUUID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowID
@@ -41,6 +42,10 @@ from tracecat.webhooks.schemas import (
     WebhookApiKeyRead,
     WebhookMethod,
     normalize_cidrs,
+)
+from tracecat.workflow.case_triggers.schemas import (
+    normalize_event_types,
+    normalize_tag_filters,
 )
 from tracecat.workflow.schedules.schemas import check_cron, check_schedule_spec
 
@@ -268,14 +273,76 @@ class WebhookTriggerConfigRead(Schema):
     )
 
 
+class CaseEventTriggerConfig(Schema):
+    """Run a workflow for each case event of the chosen types.
+
+    The settings of the workflow's case trigger
+    (``/workflows/{id}/case-trigger``), which the trigger shows and edits.
+    Every workflow has one case trigger; it becomes a trigger when it is
+    turned on. Until case triggers start their targets through bindings, the
+    trigger's one target is this workflow and cannot change. Settings left out
+    of a create or update keep the case trigger's saved values. Needs the
+    ``case_addons`` plan feature.
+    """
+
+    kind: Literal[TriggerKind.CASE_TRIGGER]
+    workflow_id: AnyWorkflowID = Field(
+        description="The workflow whose case trigger this is. Fixed after create."
+    )
+    event_types: list[CaseEventType] = Field(
+        default_factory=list,
+        description="Case event types that run the workflow. Must not be empty"
+        " while the trigger is online.",
+    )
+    tag_filters: list[str] = Field(
+        default_factory=list,
+        description="Case tag refs. When set, only events on cases with one of"
+        " these tags run the workflow. Empty matches every case.",
+    )
+
+    @field_validator("event_types")
+    @classmethod
+    def _dedupe_event_types(cls, value: list[CaseEventType]) -> list[CaseEventType]:
+        return normalize_event_types(value)
+
+    @field_validator("tag_filters")
+    @classmethod
+    def _normalize_tag_filters(cls, value: list[str]) -> list[str]:
+        return normalize_tag_filters(value)
+
+
+class CaseEventTriggerConfigRead(Schema):
+    """The case trigger as ``/workflows/{id}/case-trigger`` shows it.
+
+    Readable only with ``workflow:read`` and the ``case_addons`` plan
+    feature, as on the workflow page.
+    """
+
+    kind: Literal[TriggerKind.CASE_TRIGGER]
+    workflow_id: WorkflowID = Field(description="The workflow the case trigger runs")
+    case_trigger_id: uuid.UUID = Field(
+        description="The case trigger's ID, which does not change"
+    )
+    event_types: list[CaseEventType] = Field(
+        description="Case event types that run the workflow"
+    )
+    tag_filters: list[str] = Field(
+        description="Case tag refs that limit which cases match. Empty matches all."
+    )
+
+
 TriggerConfig = Annotated[
-    ObjectStorageTriggerConfig | ScheduleTriggerConfig | WebhookTriggerConfig,
+    ObjectStorageTriggerConfig
+    | ScheduleTriggerConfig
+    | WebhookTriggerConfig
+    | CaseEventTriggerConfig,
     Field(discriminator="kind"),
 ]
 TriggerConfigRead = Annotated[
     ObjectStorageTriggerConfigRead
     | ScheduleTriggerConfigRead
-    | WebhookTriggerConfigRead,
+    | WebhookTriggerConfigRead
+    | CaseEventTriggerConfigRead,
     Field(discriminator="kind"),
 ]
 
@@ -285,8 +352,9 @@ class TriggerCreate(Schema):
     config: TriggerConfig
     status: TriggerStatus = Field(
         default=TriggerStatus.OFFLINE,
-        description="Offline when omitted, except for a webhook: its webhook"
-        " already exists and keeps its current status unless this is given.",
+        description="Offline when omitted, except for a webhook or a case"
+        " trigger: it already exists and keeps its current status unless this"
+        " is given.",
     )
 
 

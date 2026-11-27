@@ -1940,7 +1940,18 @@ class Webhook(WorkspaceModel):
 
 
 class CaseTrigger(WorkspaceModel):
-    """Configuration for case event triggers per workflow."""
+    """A workflow's case trigger, and the settings of its ``case_trigger``
+    trigger.
+
+    The case trigger outbox and dispatcher read this row. ``trigger_id``
+    links the ``trigger`` row that shows it in the Triggers tab; a case
+    trigger gets one when it is first turned on, and keeps it when it goes
+    offline. Never-used case triggers have none, so the column stays
+    nullable. Deleting the trigger leaves the case trigger (the key nulls only
+    ``trigger_id``). A database trigger deletes the ``trigger`` row when the
+    case trigger goes, including by cascade from its workflow, and copies
+    status changes to it.
+    """
 
     __tablename__ = "case_trigger"
     __table_args__ = (
@@ -1951,6 +1962,12 @@ class CaseTrigger(WorkspaceModel):
             "workspace_id",
             postgresql_where=text("status = 'online'"),
         ),
+        ForeignKeyConstraint(
+            ["trigger_id", "workspace_id"],
+            ["trigger.id", "trigger.workspace_id"],
+            ondelete="SET NULL (trigger_id)",
+        ),
+        Index("uq_case_trigger_trigger_id", "trigger_id", unique=True),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -1979,6 +1996,7 @@ class CaseTrigger(WorkspaceModel):
         nullable=False,
         unique=True,
     )
+    trigger_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
 
     workflow: Mapped[Workflow] = relationship(back_populates="case_trigger")
 

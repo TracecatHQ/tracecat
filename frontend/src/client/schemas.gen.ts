@@ -11743,6 +11743,112 @@ export const $CaseEventRead = {
   },
 } as const
 
+export const $CaseEventTriggerConfig = {
+  properties: {
+    kind: {
+      type: "string",
+      const: "case_trigger",
+      title: "Kind",
+    },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}",
+        },
+      ],
+      title: "Workflow Id",
+      description:
+        "The workflow whose case trigger this is. Fixed after create.",
+    },
+    event_types: {
+      items: {
+        $ref: "#/components/schemas/CaseEventType",
+      },
+      type: "array",
+      title: "Event Types",
+      description:
+        "Case event types that run the workflow. Must not be empty while the trigger is online.",
+    },
+    tag_filters: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Tag Filters",
+      description:
+        "Case tag refs. When set, only events on cases with one of these tags run the workflow. Empty matches every case.",
+    },
+  },
+  type: "object",
+  required: ["kind", "workflow_id"],
+  title: "CaseEventTriggerConfig",
+  description: `Run a workflow for each case event of the chosen types.
+
+The settings of the workflow's case trigger
+(\`\`/workflows/{id}/case-trigger\`\`), which the trigger shows and edits.
+Every workflow has one case trigger; it becomes a trigger when it is
+turned on. Until case triggers start their targets through bindings, the
+trigger's one target is this workflow and cannot change. Settings left out
+of a create or update keep the case trigger's saved values. Needs the
+\`\`case_addons\`\` plan feature.`,
+} as const
+
+export const $CaseEventTriggerConfigRead = {
+  properties: {
+    kind: {
+      type: "string",
+      const: "case_trigger",
+      title: "Kind",
+    },
+    workflow_id: {
+      type: "string",
+      title: "Workflow Id",
+      description: "The workflow the case trigger runs",
+    },
+    case_trigger_id: {
+      type: "string",
+      format: "uuid",
+      title: "Case Trigger Id",
+      description: "The case trigger's ID, which does not change",
+    },
+    event_types: {
+      items: {
+        $ref: "#/components/schemas/CaseEventType",
+      },
+      type: "array",
+      title: "Event Types",
+      description: "Case event types that run the workflow",
+    },
+    tag_filters: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Tag Filters",
+      description:
+        "Case tag refs that limit which cases match. Empty matches all.",
+    },
+  },
+  type: "object",
+  required: [
+    "kind",
+    "workflow_id",
+    "case_trigger_id",
+    "event_types",
+    "tag_filters",
+  ],
+  title: "CaseEventTriggerConfigRead",
+  description: `The case trigger as \`\`/workflows/{id}/case-trigger\`\` shows it.
+
+Readable only with \`\`workflow:read\`\` and the \`\`case_addons\`\` plan
+feature, as on the workflow page.`,
+} as const
+
 export const $CaseEventType = {
   type: "string",
   enum: [
@@ -45575,11 +45681,15 @@ export const $TriggerCreate = {
         {
           $ref: "#/components/schemas/WebhookTriggerConfig",
         },
+        {
+          $ref: "#/components/schemas/CaseEventTriggerConfig",
+        },
       ],
       title: "Config",
       discriminator: {
         propertyName: "kind",
         mapping: {
+          case_trigger: "#/components/schemas/CaseEventTriggerConfig",
           object_storage: "#/components/schemas/ObjectStorageTriggerConfig",
           schedule: "#/components/schemas/ScheduleTriggerConfig",
           webhook: "#/components/schemas/WebhookTriggerConfig",
@@ -45589,7 +45699,7 @@ export const $TriggerCreate = {
     status: {
       $ref: "#/components/schemas/TriggerStatus",
       description:
-        "Offline when omitted, except for a webhook: its webhook already exists and keeps its current status unless this is given.",
+        "Offline when omitted, except for a webhook or a case trigger: it already exists and keeps its current status unless this is given.",
       default: "offline",
     },
   },
@@ -45600,7 +45710,7 @@ export const $TriggerCreate = {
 
 export const $TriggerKind = {
   type: "string",
-  enum: ["object_storage", "schedule", "webhook"],
+  enum: ["object_storage", "schedule", "webhook", "case_trigger"],
   title: "TriggerKind",
   description:
     "What a trigger listens to. Each kind has its own source and config.",
@@ -45706,11 +45816,15 @@ export const $TriggerRead = {
         {
           $ref: "#/components/schemas/WebhookTriggerConfigRead",
         },
+        {
+          $ref: "#/components/schemas/CaseEventTriggerConfigRead",
+        },
       ],
       title: "Config",
       discriminator: {
         propertyName: "kind",
         mapping: {
+          case_trigger: "#/components/schemas/CaseEventTriggerConfigRead",
           object_storage: "#/components/schemas/ObjectStorageTriggerConfigRead",
           schedule: "#/components/schemas/ScheduleTriggerConfigRead",
           webhook: "#/components/schemas/WebhookTriggerConfigRead",
@@ -45798,10 +45912,14 @@ export const $TriggerUpdate = {
             {
               $ref: "#/components/schemas/WebhookTriggerConfig",
             },
+            {
+              $ref: "#/components/schemas/CaseEventTriggerConfig",
+            },
           ],
           discriminator: {
             propertyName: "kind",
             mapping: {
+              case_trigger: "#/components/schemas/CaseEventTriggerConfig",
               object_storage: "#/components/schemas/ObjectStorageTriggerConfig",
               schedule: "#/components/schemas/ScheduleTriggerConfig",
               webhook: "#/components/schemas/WebhookTriggerConfig",

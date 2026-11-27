@@ -3249,6 +3249,59 @@ export type CaseEventRead =
   | SubCasesRemovedEventRead
 
 /**
+ * Run a workflow for each case event of the chosen types.
+ *
+ * The settings of the workflow's case trigger
+ * (``/workflows/{id}/case-trigger``), which the trigger shows and edits.
+ * Every workflow has one case trigger; it becomes a trigger when it is
+ * turned on. Until case triggers start their targets through bindings, the
+ * trigger's one target is this workflow and cannot change. Settings left out
+ * of a create or update keep the case trigger's saved values. Needs the
+ * ``case_addons`` plan feature.
+ */
+export type CaseEventTriggerConfig = {
+  kind: "case_trigger"
+  /**
+   * The workflow whose case trigger this is. Fixed after create.
+   */
+  workflow_id: string
+  /**
+   * Case event types that run the workflow. Must not be empty while the trigger is online.
+   */
+  event_types?: Array<CaseEventType>
+  /**
+   * Case tag refs. When set, only events on cases with one of these tags run the workflow. Empty matches every case.
+   */
+  tag_filters?: Array<string>
+}
+
+/**
+ * The case trigger as ``/workflows/{id}/case-trigger`` shows it.
+ *
+ * Readable only with ``workflow:read`` and the ``case_addons`` plan
+ * feature, as on the workflow page.
+ */
+export type CaseEventTriggerConfigRead = {
+  kind: "case_trigger"
+  /**
+   * The workflow the case trigger runs
+   */
+  workflow_id: string
+  /**
+   * The case trigger's ID, which does not change
+   */
+  case_trigger_id: string
+  /**
+   * Case event types that run the workflow
+   */
+  event_types: Array<CaseEventType>
+  /**
+   * Case tag refs that limit which cases match. Empty matches all.
+   */
+  tag_filters: Array<string>
+}
+
+/**
  * Case activity type values.
  */
 export type CaseEventType =
@@ -14056,8 +14109,9 @@ export type TriggerCreate = {
     | ObjectStorageTriggerConfig
     | ScheduleTriggerConfig
     | WebhookTriggerConfig
+    | CaseEventTriggerConfig
   /**
-   * Offline when omitted, except for a webhook: its webhook already exists and keeps its current status unless this is given.
+   * Offline when omitted, except for a webhook or a case trigger: it already exists and keeps its current status unless this is given.
    */
   status?: TriggerStatus
 }
@@ -14065,7 +14119,11 @@ export type TriggerCreate = {
 /**
  * What a trigger listens to. Each kind has its own source and config.
  */
-export type TriggerKind = "object_storage" | "schedule" | "webhook"
+export type TriggerKind =
+  | "object_storage"
+  | "schedule"
+  | "webhook"
+  | "case_trigger"
 
 export type TriggerListResponse = {
   items: Array<TriggerRead>
@@ -14104,6 +14162,7 @@ export type TriggerRead = {
     | ObjectStorageTriggerConfigRead
     | ScheduleTriggerConfigRead
     | WebhookTriggerConfigRead
+    | CaseEventTriggerConfigRead
   bindings: Array<TriggerBindingRead>
   created_at: string
   updated_at: string
@@ -14139,6 +14198,7 @@ export type TriggerUpdate = {
     | ObjectStorageTriggerConfig
     | ScheduleTriggerConfig
     | WebhookTriggerConfig
+    | CaseEventTriggerConfig
     | null
   status?: TriggerStatus | null
 }

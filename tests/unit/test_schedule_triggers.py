@@ -804,6 +804,7 @@ def test_every_kind_names_its_entitlement() -> None:
         TriggerKind.OBJECT_STORAGE: Entitlement.OBJECT_TRIGGERS,
         TriggerKind.SCHEDULE: None,
         TriggerKind.WEBHOOK: None,
+        TriggerKind.CASE_TRIGGER: Entitlement.CASE_ADDONS,
     }
 
 

@@ -62,8 +62,8 @@ export function WorkspaceTriggers() {
             <EmptyTitle>No triggers yet</EmptyTitle>
             <EmptyDescription>
               A trigger starts workflows and agents: on a schedule, on a request
-              to a webhook, or when an outside event arrives, such as a new file
-              in object storage.
+              to a webhook, on a case event, or when an outside event arrives,
+              such as a new file in object storage.
               {canCreate === true ? " Create one with Create trigger." : ""}
             </EmptyDescription>
           </EmptyHeader>
@@ -142,8 +142,8 @@ function LockedTriggersNote({ locked }: { locked: LockedTriggerCount[] }) {
   return (
     <p className="text-xs text-muted-foreground">
       {parts.join(" and ")} {total === 1 ? "is" : "are"} hidden because your
-      plan doesn&apos;t include {total === 1 ? "that kind" : "those kinds"}.
-      Nothing was deleted.
+      plan doesn&apos;t include{" "}
+      {locked.length === 1 ? "that kind" : "those kinds"}. Nothing was deleted.
     </p>
   )
 }

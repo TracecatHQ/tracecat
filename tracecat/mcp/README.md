@@ -145,11 +145,12 @@ stored config whole. Submissions are not exposed over MCP.
 
 The event source tools need the `object_triggers` entitlement. The trigger
 tools are open to every plan; reading, creating or changing a trigger needs its
-kind's entitlement (`object_triggers` for `object_storage`, none for
-`schedule` and `webhook`), and `list_triggers` leaves out the kinds the plan
+kind's entitlement (`object_triggers` for `object_storage`, `case_addons` for
+`case_trigger`, none for `schedule` and `webhook`), and `list_triggers` leaves out the kinds the plan
 lacks and counts them in `locked` (kind, entitlement, count). A `schedule` trigger also needs `schedule:read` to be read or listed,
-and a `webhook` trigger needs `workflow:read` (its `url` holds the webhook secret, as
-in `get_webhook`).
+a `webhook` trigger needs `workflow:read` (its `url` holds the webhook secret, as
+in `get_webhook`), and a `case_trigger` trigger needs `workflow:read` too (as in
+`get_case_trigger`).
 Scopes: list and get tools need `trigger:read`; `create_event_source` and
 `create_trigger` need `trigger:create`; the update tools and
 `create_trigger_binding` need `trigger:update`. Anything that can make a target run also needs
@@ -172,7 +173,8 @@ for callers without `trigger:update`.
 
 An event source is an inbound feed (kind `aws_sns`: a customer SNS topic). A
 trigger is a rule over a source's events (kind `object_storage`), a workflow
-schedule (kind `schedule`) or a workflow's webhook (kind `webhook`). A binding starts a workflow or an agent preset for
+schedule (kind `schedule`), a workflow's webhook (kind `webhook`) or a
+workflow's case trigger (kind `case_trigger`). A binding starts a workflow or an agent preset for
 each matching event. Each `config` is discriminated by `kind`. There are no
 delete tools: take a source, trigger or binding offline instead. The API
 deletes triggers and bindings.
@@ -198,6 +200,17 @@ passed); its URL does not change. That needs `workflow:update` and
 `workflow:update` on top of `trigger:update`, and a config sets only the
 settings it names. The API key stays
 on the workflow's webhook. Its one binding is fixed, as for schedules.
+
+A `case_trigger` trigger is the case trigger `get_case_trigger` and
+`update_case_trigger` show and change, the same way as a webhook: every
+workflow has one, it is listed once it has been turned on (or made a trigger
+with `create_trigger`), and it stays listed when it goes offline. A config sets
+only the `event_types` and `tag_filters` it names, and the case trigger keeps
+its on/off status unless `status` is passed. Online needs at least one event
+type and a published workflow. Writes need `workflow:update` (creating also
+`workflow:execute`) and the `case_addons` feature, and refuse a managed
+workflow, as `update_case_trigger` does. Its one binding is fixed, as for
+schedules.
 
 ## Workflow tag tools
 
