@@ -365,7 +365,7 @@ export function WebhookControls({
         toast({
           title: "Invalid IP allowlist entry",
           description: result.error,
-          variant: "destructive",
+          variant: "warning",
         })
         return
       }
