@@ -90,6 +90,7 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { ReadOnlyFieldset } from "@/components/managed/read-only-fieldset"
 import { SkillLibraryProviderIcon } from "@/components/skills/skill-library-provider-icon"
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
+import { StartedByTrigger } from "@/components/triggers/trigger-runs"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
@@ -207,6 +208,7 @@ const RESERVED_SUBAGENT_ALIASES = new Set([
   "task",
 ])
 const AGENT_PRESET_TAB_QUERY_PARAM = "tab"
+const AGENT_PRESET_SESSION_QUERY_PARAM = "session"
 
 function AgentPresetLoadError({
   title,
@@ -693,7 +695,9 @@ function AgentPresetChatPane({
 
   const latestChatId =
     chats?.find((candidate) => !candidate.is_readonly)?.id ?? chats?.[0]?.id
-  const activeChatId = selectedChatId ?? latestChatId
+  // ?session= opens one session, such as a trigger's run (Recent runs links).
+  const linkedChatId = useSearchParams().get(AGENT_PRESET_SESSION_QUERY_PARAM)
+  const activeChatId = selectedChatId ?? linkedChatId ?? latestChatId
 
   const handleHistoryScopeChange = (nextScope: ChatHistoryScope) => {
     setHistoryScope(nextScope)
@@ -922,6 +926,14 @@ function AgentPresetChatPane({
     <div className="flex h-full flex-col bg-background">
       <div className="@container/agent-preset-bar flex min-h-12 shrink-0 flex-wrap items-center gap-1 border-b border-border/60 px-5 py-1.5">
         {leading}
+        {/* Only a session no person created can be a trigger's. */}
+        {chat && "created_by" in chat && chat.created_by === null ? (
+          <StartedByTrigger
+            workspaceId={workspaceId}
+            target={{ sessionId: chat.id }}
+            className="ml-2"
+          />
+        ) : null}
         <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
           {preset ? (
             <AgentPresetVersionSelect

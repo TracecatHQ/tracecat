@@ -325,6 +325,12 @@ from tracecat.tiers.service import OrgLimitsService
 from tracecat.triggers.dependencies import TRIGGERS_ENTITLEMENT
 from tracecat.triggers.enums import TriggerKind, TriggerStatus
 from tracecat.triggers.exceptions import TriggerError
+from tracecat.triggers.runs.schemas import (
+    TriggerRunOrigin,
+    TriggerRunRead,
+    TriggerStoppedEventRead,
+)
+from tracecat.triggers.runs.service import TriggerRunsService
 from tracecat.triggers.schemas import (
     BindingTarget,
     EventSourceConfig,
@@ -7130,6 +7136,115 @@ async def get_trigger(
     """
     async with _triggers_service(workspace_id, "get trigger", "trigger:read") as svc:
         return await svc.get_trigger(_coerce_uuid_arg(trigger_id, "trigger_id"))
+
+
+@mcp.tool()
+async def list_trigger_runs(
+    workspace_id: uuid.UUID,
+    trigger_id: uuid.UUID,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+) -> MCPPaginatedResponse[TriggerRunRead]:
+    """List the runs a trigger started, open runs first, then by close time.
+
+    Covers runs started since the `TracecatTriggerId` link shipped, by object
+    storage triggers and by webhooks listed in the Triggers tab. Schedules and
+    case triggers are not linked yet. Workflow runs need `workflow:read` and
+    agent runs `agent:read`; with only one, only that kind is listed.
+
+    Args:
+        workspace_id: The workspace ID.
+        trigger_id: The trigger ID, from `list_triggers`.
+        limit: Maximum number of runs to return.
+        cursor: `next_cursor` from a previous page.
+
+    Returns JSON with `items` (target_type `workflow` or `agent`,
+    target_name, wf_exec_id, workflow_id for a workflow run, session_id for an
+    agent run, status, start_time, close_time) and the cursor fields. Open a
+    workflow run with `get_workflow_execution`; an agent run is a turn of the
+    session `session_id`.
+    """
+    async with _triggers_service(
+        workspace_id, "list trigger runs", "trigger:read"
+    ) as svc:
+        page = await TriggerRunsService(svc.session, svc.role).list_runs(
+            _coerce_uuid_arg(trigger_id, "trigger_id"),
+            CursorPaginationParams(limit=_trigger_page_limit(limit), cursor=cursor),
+        )
+    return MCPPaginatedResponse(
+        items=page.items,
+        next_cursor=page.next_cursor,
+        prev_cursor=page.prev_cursor,
+        has_more=page.has_more,
+        has_previous=page.has_previous,
+    )
+
+
+@mcp.tool()
+async def list_trigger_stopped_events(
+    workspace_id: uuid.UUID,
+    trigger_id: uuid.UUID,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+) -> MCPPaginatedResponse[TriggerStoppedEventRead]:
+    """List a trigger's events that stopped retrying, newest first.
+
+    An `object_storage` trigger's event is retried with backoff when a target
+    fails to start, and stops after 8 attempts. Other kinds list none. The
+    event itself is not returned.
+
+    Args:
+        workspace_id: The workspace ID.
+        trigger_id: The trigger ID, from `list_triggers`.
+        limit: Maximum number of events to return.
+        cursor: `next_cursor` from a previous page.
+
+    Returns JSON with `items` (id, attempts, error with credentials redacted,
+    created_at) and the cursor fields.
+    """
+    async with _triggers_service(
+        workspace_id, "list trigger stopped events", "trigger:read"
+    ) as svc:
+        page = await TriggerRunsService(svc.session, svc.role).list_stopped_events(
+            _coerce_uuid_arg(trigger_id, "trigger_id"),
+            CursorPaginationParams(limit=_trigger_page_limit(limit), cursor=cursor),
+        )
+    return MCPPaginatedResponse(
+        items=page.items,
+        next_cursor=page.next_cursor,
+        has_more=page.has_more,
+        has_previous=page.has_previous,
+    )
+
+
+@mcp.tool()
+async def get_trigger_run_origin(
+    workspace_id: uuid.UUID,
+    wf_exec_id: str | None = None,
+    session_id: uuid.UUID | None = None,
+) -> TriggerRunOrigin | None:
+    """Get the trigger that started a workflow run or an agent session.
+
+    Give exactly one of `wf_exec_id` (needs `workflow:read`) and `session_id`
+    (needs `agent:read`). A child run answers with its root run's trigger.
+
+    Args:
+        workspace_id: The workspace ID.
+        wf_exec_id: A workflow execution ID.
+        session_id: An agent session ID.
+
+    Returns JSON with trigger_id, name and kind (both null if the trigger was
+    deleted since), or null when no trigger started it.
+    """
+    async with _triggers_service(
+        workspace_id, "get trigger run origin", "trigger:read"
+    ) as svc:
+        return await TriggerRunsService(svc.session, svc.role).run_origin(
+            wf_exec_id=wf_exec_id,
+            session_id=_coerce_uuid_arg(session_id, "session_id")
+            if session_id is not None
+            else None,
+        )
 
 
 @mcp.tool()

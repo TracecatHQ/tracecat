@@ -416,6 +416,7 @@ async def _matching_targets(
             TriggerBinding.agent_preset_id,
             TriggerBinding.instruction,
             Trigger.name,
+            Trigger.id,
         )
         .join(
             ObjectStorageTrigger,
@@ -459,13 +460,24 @@ async def _matching_targets(
         .order_by(EventOutbox.id, TriggerBinding.id)
     )
     targets: dict[int, list[Target]] = {}
-    for row_id, binding_id, target_type, workflow_id, preset_id, instruction, name in (
-        await session.execute(stmt)
-    ).tuples():
+    for (
+        row_id,
+        binding_id,
+        target_type,
+        workflow_id,
+        preset_id,
+        instruction,
+        name,
+        trigger_id,
+    ) in (await session.execute(stmt)).tuples():
         target: Target
         match TriggerTargetType(target_type):
             case TriggerTargetType.WORKFLOW if workflow_id is not None:
-                target = WorkflowTarget(binding_id=binding_id, workflow_id=workflow_id)
+                target = WorkflowTarget(
+                    binding_id=binding_id,
+                    workflow_id=workflow_id,
+                    trigger_id=trigger_id,
+                )
             case TriggerTargetType.AGENT if (
                 preset_id is not None and instruction is not None
             ):
@@ -474,6 +486,7 @@ async def _matching_targets(
                     agent_preset_id=preset_id,
                     instruction=instruction,
                     trigger_name=name,
+                    trigger_id=trigger_id,
                 )
             case _:
                 # The table's check constraint rules this out.
@@ -767,6 +780,7 @@ class TriggerOutboxDispatcher:
                 payload=row.payload,
                 trigger_type=TriggerType.OBJECT_STORAGE,
                 registry_lock=published.registry_lock,
+                trigger_id=target.trigger_id,
             )
         except WorkflowAlreadyStartedError:
             return "already_started"
@@ -817,6 +831,7 @@ class TriggerOutboxDispatcher:
                 text=message,
                 request_id=row.occurrence_key,
                 origin=UserMessageOrigin.TRACECAT,
+                trigger_id=target.trigger_id,
             )
         return "started"
 

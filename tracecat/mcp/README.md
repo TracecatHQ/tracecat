@@ -169,6 +169,19 @@ for callers without `trigger:update`.
 - `update_trigger(workspace_id, trigger_id, name=None, config=None, status=None)`
 - `create_trigger_binding(workspace_id, trigger_id, target, status="online")`
 - `update_trigger_binding(workspace_id, trigger_id, binding_id, status=None, instruction=None)`
+- `list_trigger_runs(workspace_id, trigger_id, limit=..., cursor=None)`
+- `list_trigger_stopped_events(workspace_id, trigger_id, limit=..., cursor=None)`
+- `get_trigger_run_origin(workspace_id, wf_exec_id=None, session_id=None)`
+
+A run a trigger starts carries the trigger's ID in the `TracecatTriggerId`
+search attribute: object storage triggers' workflow and agent runs, and
+webhooks that have a trigger row. Schedules and case triggers are not linked
+yet. `list_trigger_runs` reads those runs (root runs only); workflow runs also
+need `workflow:read` and agent runs `agent:read`. `list_trigger_stopped_events`
+lists an `object_storage` trigger's events that hit the attempt cap, with the
+redacted error and never the event. `get_trigger_run_origin` goes the other
+way, from a run (`workflow:read`) or an agent session (`agent:read`) to its
+trigger.
 
 An event source is an inbound feed (kind `aws_sns`: a customer SNS topic). A
 trigger is a rule over a source's events (kind `object_storage`), a workflow

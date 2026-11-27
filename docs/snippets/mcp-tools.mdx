@@ -277,6 +277,24 @@
   Get a trigger with its config and bindings.
 </ResponseField>
 
+<ResponseField name="list_trigger_runs" type="tool">
+  List the runs a trigger started, open runs first, then by close time.
+
+  Covers runs started since the `TracecatTriggerId` link shipped, by object storage triggers and by webhooks listed in the Triggers tab. Schedules and case triggers are not linked yet. Workflow runs need `workflow:read` and agent runs `agent:read`; with only one, only that kind is listed.
+</ResponseField>
+
+<ResponseField name="list_trigger_stopped_events" type="tool">
+  List a trigger's events that stopped retrying, newest first.
+
+  An `object_storage` trigger's event is retried with backoff when a target fails to start, and stops after 8 attempts. Other kinds list none. The event itself is not returned.
+</ResponseField>
+
+<ResponseField name="get_trigger_run_origin" type="tool">
+  Get the trigger that started a workflow run or an agent session.
+
+  Give exactly one of `wf_exec_id` (needs `workflow:read`) and `session_id` (needs `agent:read`). A child run answers with its root run's trigger.
+</ResponseField>
+
 <ResponseField name="create_trigger" type="tool">
   Create a trigger. Add targets with `create_trigger_binding`.
 

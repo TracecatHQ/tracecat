@@ -123,6 +123,7 @@ from tracecat.workflow.executions.schemas import (
     WorkflowExecutionStatusFilterMode,
     WorkflowExecutionStatusLiteral,
 )
+from tracecat.workflow.executions.trigger_link import trigger_id_pairs
 from tracecat.workflow.executions.types import StartOutcome
 from tracecat.workspaces.schemas import WorkspaceSettings
 from tracecat.workspaces.service import WorkspaceService
@@ -563,9 +564,13 @@ class WorkflowExecutionsService:
         duration_lte_seconds: int | None = None,
         relation: WorkflowExecutionRelationFilter = WorkflowExecutionRelationFilter.ALL,
         correlation_id: str | None = None,
+        trigger_id: uuid.UUID | None = None,
+        workflow_types: set[str] | None = None,
     ) -> WorkflowExecutionsPage:
         query = build_query(
             correlation_id=correlation_id,
+            trigger_id=trigger_id,
+            workflow_types=workflow_types,
             workflow_id=workflow_id,
             trigger_types=trigger_types,
             triggered_by_user_id=triggered_by_user_id,
@@ -1692,8 +1697,13 @@ class WorkflowExecutionsService:
         memo: dict[str, Any] | None = None,
         fixed_action_results: dict[str, FixedActionResult] | None = None,
         correlation_id: str | None = None,
+        trigger_id: uuid.UUID | None = None,
     ) -> WorkflowExecutionCreateResponse:
-        """Create a workflow execution and wait until Temporal acknowledges start."""
+        """Create a workflow execution and wait until Temporal acknowledges start.
+
+        ``trigger_id`` is the trigger row that started the run, set as
+        ``TracecatTriggerId`` once the namespace has it.
+        """
         if wf_exec_id is None:
             wf_exec_id = generate_exec_id(wf_id)
 
@@ -1709,6 +1719,7 @@ class WorkflowExecutionsService:
             memo=memo,
             fixed_action_results=fixed_action_results,
             correlation_id=correlation_id,
+            trigger_id=trigger_id,
         )
 
         return WorkflowExecutionCreateResponse(
@@ -1891,6 +1902,7 @@ class WorkflowExecutionsService:
         time_anchor: datetime.datetime | None = None,
         registry_lock: RegistryLock | None = None,
         memo: dict[str, Any] | None = None,
+        trigger_id: uuid.UUID | None = None,
     ) -> WorkflowDispatchResponse:
         """Create a new workflow execution.
 
@@ -1899,6 +1911,8 @@ class WorkflowExecutionsService:
         Args:
             memo: Optional memo dict to store with the workflow execution.
                   Useful for correlation (e.g., parent_wf_exec_id).
+            trigger_id: The trigger row that started the run, set as
+                  ``TracecatTriggerId`` once the namespace has it.
         """
         if wf_exec_id is None:
             wf_exec_id = generate_exec_id(wf_id)
@@ -1912,6 +1926,7 @@ class WorkflowExecutionsService:
             time_anchor=time_anchor,
             registry_lock=registry_lock,
             memo=memo,
+            trigger_id=trigger_id,
         )
 
     async def _dispatch_workflow(
@@ -1924,6 +1939,7 @@ class WorkflowExecutionsService:
         execution_type: ExecutionType = ExecutionType.PUBLISHED,
         time_anchor: datetime.datetime | None = None,
         registry_lock: RegistryLock | None = None,
+        trigger_id: uuid.UUID | None = None,
         **kwargs: Any,
     ) -> WorkflowDispatchResponse:
         if self.role is None:
@@ -1991,6 +2007,7 @@ class WorkflowExecutionsService:
                 )
         # Add execution type search attribute
         pairs.append(execution_type.to_temporal_search_attr_pair())
+        pairs.extend(await trigger_id_pairs(self._client, trigger_id))
         search_attrs = TypedSearchAttributes(search_attributes=pairs)
         # Apply the delay last: Temporal counts it from submission.
         self._apply_start_delay(kwargs, start_slot.remaining_delay())
@@ -2123,6 +2140,7 @@ class WorkflowExecutionsService:
         registry_lock: RegistryLock | None = None,
         fixed_action_results: dict[str, FixedActionResult] | None = None,
         correlation_id: str | None = None,
+        trigger_id: uuid.UUID | None = None,
         **kwargs: Any,
     ) -> None:
         """Start a DSL workflow run, paced by the org's start rate."""
@@ -2203,6 +2221,7 @@ class WorkflowExecutionsService:
         pairs.append(execution_type.to_temporal_search_attr_pair())
         if correlation_id is not None:
             pairs.append(TemporalSearchAttr.CORRELATION_ID.create_pair(correlation_id))
+        pairs.extend(await trigger_id_pairs(self._client, trigger_id))
         search_attrs = TypedSearchAttributes(search_attributes=pairs)
         # Apply the delay last: Temporal counts it from submission.
         self._apply_start_delay(kwargs, start_slot.remaining_delay())

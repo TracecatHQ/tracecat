@@ -21,6 +21,7 @@ from temporalio.client import (
 from temporalio.common import (
     Priority,
     RetryPolicy,
+    SearchAttributePair,
     TypedSearchAttributes,
     WorkflowIDReusePolicy,
 )
@@ -73,6 +74,7 @@ from tracecat.workflow.executions.enums import (
     TemporalSearchAttr,
     TriggerType,
 )
+from tracecat.workflow.executions.trigger_link import trigger_id_pairs
 
 # A tombstone claims the workflow ID of a turn whose start outcome was lost. No
 # worker registers this type or polls this queue: the execution only has to exist.
@@ -268,6 +270,9 @@ class AgentBackend[InputT, OutputT](ABC):
     async def start_turn(self, context: SessionTurnContext) -> None:
         """Reserve the session, commit ownership, and start its typed workflow."""
         client = await get_temporal_client()
+        # Before the session lock: the first call in a process may probe Temporal.
+        # Never raises; empty until the namespace has TracecatTriggerId.
+        trigger_link = await trigger_id_pairs(client, context.trigger_id)
         locked_session = (
             select(AgentSession)
             .where(
@@ -308,7 +313,10 @@ class AgentBackend[InputT, OutputT](ABC):
         await rejoin_future_on_cancel(
             asyncio.create_task(
                 self._prepare_and_dispatch_turn(
-                    replace(context, session=session), client, reissue=reissue
+                    replace(context, session=session),
+                    client,
+                    reissue=reissue,
+                    trigger_link=trigger_link,
                 )
             )
         )
@@ -450,7 +458,12 @@ class AgentBackend[InputT, OutputT](ABC):
         return await claim_unstarted_workflow_id(client, self.workflow_id(run_id))
 
     async def _prepare_and_dispatch_turn(
-        self, context: SessionTurnContext, client: Client, *, reissue: bool
+        self,
+        context: SessionTurnContext,
+        client: Client,
+        *,
+        reissue: bool,
+        trigger_link: Sequence[SearchAttributePair[Any]] = (),
     ) -> None:
         """Settle preparation, dispatch, and cleanup while caller cancellation waits."""
         session = context.session
@@ -479,7 +492,7 @@ class AgentBackend[InputT, OutputT](ABC):
                     prompt_run_id=context.prompt_run_id,
                 )
             )
-            search_attributes = self._search_attributes(context)
+            search_attributes = self._search_attributes(context, trigger_link)
             session.curr_run_id = context.run_id
             session.active_stream_id = context.stream_id
             session.last_error = None
@@ -619,8 +632,14 @@ class AgentBackend[InputT, OutputT](ABC):
             ctx_role.reset(role_token)
 
     @staticmethod
-    def _search_attributes(context: SessionTurnContext) -> TypedSearchAttributes:
-        """Encode metadata for a direct session turn; child callers own theirs."""
+    def _search_attributes(
+        context: SessionTurnContext,
+        trigger_link: Sequence[SearchAttributePair[Any]] = (),
+    ) -> TypedSearchAttributes:
+        """Encode metadata for a direct session turn; child callers own theirs.
+
+        ``trigger_link`` is the turn's ``TracecatTriggerId`` pair, if any.
+        """
         pairs = [
             TriggerType.MANUAL.to_temporal_search_attr_pair(),
             ExecutionType.PUBLISHED.to_temporal_search_attr_pair(),
@@ -640,6 +659,7 @@ class AgentBackend[InputT, OutputT](ABC):
                     str(context.role.workspace_id)
                 )
             )
+        pairs.extend(trigger_link)
         return TypedSearchAttributes(search_attributes=pairs)
 
     async def handle(

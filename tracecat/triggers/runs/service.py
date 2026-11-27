@@ -1,0 +1,341 @@
+"""A trigger's recent runs and stopped events, and the trigger behind a run.
+
+Runs are read from Temporal by ``TracecatTriggerId``, which starts set only
+once the namespace has the attribute (``trigger_link``). Stopped events are
+the trigger's ``event_outbox`` rows that hit the attempt cap.
+
+Access: everything goes through ``TriggersService.get_trigger`` (workspace,
+the kind's read scope and entitlement), plus the read scope of the runs
+listed: ``workflow:read`` for workflow runs, ``agent:read`` for agent runs.
+"""
+
+from __future__ import annotations
+
+import uuid
+from typing import Any
+
+from sqlalchemy import and_, func, select
+
+from tracecat.authz.controls import check_scopes, has_scope
+from tracecat.db.models import AgentSession, EventOutbox, Workflow
+from tracecat.dsl.client import get_temporal_client
+from tracecat.identifiers.workflow import WorkflowExecutionID, exec_id_to_parts
+from tracecat.pagination import (
+    CursorPaginationParams,
+    PaginationError,
+    PaginationErrorCode,
+)
+from tracecat.sanitization import redact_sensitive_text
+from tracecat.service import BaseWorkspaceService
+from tracecat.triggers.enums import TriggerErrorCode, TriggerKind, TriggerTargetType
+from tracecat.triggers.exceptions import TriggerError
+from tracecat.triggers.runs.schemas import (
+    TriggerRunOrigin,
+    TriggerRunRead,
+    TriggerRunsPage,
+    TriggerStoppedEventRead,
+    TriggerStoppedEventsPage,
+)
+from tracecat.triggers.schemas import ObjectStorageTriggerConfigRead
+from tracecat.triggers.service import TriggersService
+from tracecat.workflow.executions.common import build_query
+from tracecat.workflow.executions.correlation import (
+    AGENT_SESSION_CORRELATION_KIND,
+    build_agent_session_correlation_id,
+)
+from tracecat.workflow.executions.enums import TemporalSearchAttr
+from tracecat.workflow.executions.schemas import WorkflowExecutionRelationFilter
+from tracecat.workflow.executions.service import WorkflowExecutionsService
+from tracecat.workflow.executions.trigger_link import trigger_id_registered
+
+DSL_WORKFLOW_TYPE = "DSLWorkflow"
+"""Workflow runs; every other type a trigger starts is an agent turn."""
+STOPPED_ERROR_MAX_LENGTH = 1_000
+
+
+def _stopped_error(last_error: str | None, event: dict[str, Any]) -> str | None:
+    """A stopped row's error without credentials or the event's own values.
+
+    The dispatcher already redacts credentials when it saves the error; the
+    event's string values (the object key above all) are blanked here too.
+    """
+    if not last_error:
+        return None
+    event_values = [value for value in event.values() if isinstance(value, str)]
+    redacted = redact_sensitive_text(last_error, sensitive_values=event_values)
+    return redacted[:STOPPED_ERROR_MAX_LENGTH]
+
+
+def _session_id_of(correlation_id: str | None) -> uuid.UUID | None:
+    """The agent session an ``agent-session:<id>`` correlation ID names."""
+    if correlation_id is None:
+        return None
+    kind, _, value = correlation_id.partition(":")
+    if kind != AGENT_SESSION_CORRELATION_KIND:
+        return None
+    try:
+        return uuid.UUID(value)
+    except ValueError:
+        return None
+
+
+class TriggerRunsService(BaseWorkspaceService):
+    """Read what a trigger started and what it could not."""
+
+    service_name = "trigger_runs"
+
+    async def list_runs(
+        self, trigger_id: uuid.UUID, params: CursorPaginationParams
+    ) -> TriggerRunsPage:
+        """The runs the trigger started: open runs first, then by close time.
+
+        Root runs only; a workflow run's child runs inherit the attribute and
+        are left out. Workflow runs need ``workflow:read`` and agent runs
+        ``agent:read``; with one of them the page holds only that kind.
+
+        Raises:
+            ScopeDeniedError: Without the trigger's read scopes, or without
+                both ``workflow:read`` and ``agent:read``.
+            TriggerError: ``not_found`` if the workspace has no such trigger.
+            ValueError: If the cursor belongs to another query.
+        """
+        trigger = await TriggersService(self.session, self.role).get_trigger(trigger_id)
+        workflows = has_scope(self.role.scopes or frozenset(), "workflow:read")
+        agents = has_scope(self.role.scopes or frozenset(), "agent:read")
+        if not (workflows and agents):
+            check_scopes(self.role, "workflow:read", "agent:read", require_all=False)
+        if not await trigger_id_registered(await get_temporal_client()):
+            return TriggerRunsPage(items=[])
+        executions = await WorkflowExecutionsService.connect(
+            role=self.role, session=self.session
+        )
+        page = await executions.list_executions_paginated(
+            pagination=params,
+            trigger_id=trigger.id,
+            workflow_types={DSL_WORKFLOW_TYPE} if not agents else None,
+            exclude_workflow_types={DSL_WORKFLOW_TYPE} if not workflows else None,
+            relation=WorkflowExecutionRelationFilter.ROOT,
+        )
+        items: list[TriggerRunRead] = []
+        for execution in page.items:
+            status = execution.status.name if execution.status else "RUNNING"
+            if execution.workflow_type == DSL_WORKFLOW_TYPE:
+                try:
+                    workflow_id, _ = exec_id_to_parts(execution.id)
+                except ValueError:
+                    continue
+                items.append(
+                    TriggerRunRead(
+                        target_type=TriggerTargetType.WORKFLOW,
+                        wf_exec_id=execution.id,
+                        workflow_id=workflow_id,
+                        status=status,
+                        start_time=execution.start_time,
+                        close_time=execution.close_time,
+                    )
+                )
+                continue
+            session_id = _session_id_of(
+                execution.typed_search_attributes.get(
+                    TemporalSearchAttr.CORRELATION_ID.key
+                )
+            )
+            if session_id is None:
+                continue
+            items.append(
+                TriggerRunRead(
+                    target_type=TriggerTargetType.AGENT,
+                    wf_exec_id=execution.id,
+                    session_id=session_id,
+                    status=status,
+                    start_time=execution.start_time,
+                    close_time=execution.close_time,
+                )
+            )
+        items = await self._with_target_names(items)
+        return TriggerRunsPage(
+            items=items,
+            next_cursor=page.next_cursor,
+            prev_cursor=page.prev_cursor,
+            has_more=page.has_more,
+            has_previous=page.has_previous,
+        )
+
+    async def _with_target_names(
+        self, items: list[TriggerRunRead]
+    ) -> list[TriggerRunRead]:
+        """Fill each run's target: one query for workflows, one for sessions.
+
+        An agent run also gets its session's preset, which its link needs.
+        """
+        workflow_ids = {
+            uuid.UUID(str(i.workflow_id)) for i in items if i.workflow_id is not None
+        }
+        session_ids = {i.session_id for i in items if i.session_id is not None}
+        titles: dict[uuid.UUID, str] = {}
+        presets: dict[uuid.UUID, uuid.UUID | None] = {}
+        if workflow_ids:
+            rows = await self.session.execute(
+                select(Workflow.id, Workflow.title).where(
+                    Workflow.workspace_id == self.workspace_id,
+                    Workflow.id.in_(workflow_ids),
+                )
+            )
+            titles.update(rows.tuples().all())
+        if session_ids:
+            rows = await self.session.execute(
+                select(
+                    AgentSession.id, AgentSession.title, AgentSession.agent_preset_id
+                ).where(
+                    AgentSession.workspace_id == self.workspace_id,
+                    AgentSession.id.in_(session_ids),
+                )
+            )
+            for session_id, title, preset_id in rows.tuples():
+                titles[session_id] = title
+                presets[session_id] = preset_id
+        filled: list[TriggerRunRead] = []
+        for item in items:
+            if item.session_id is not None:
+                update = {
+                    "target_name": titles.get(item.session_id),
+                    "agent_preset_id": presets.get(item.session_id),
+                }
+            elif item.workflow_id is not None:
+                update = {"target_name": titles.get(uuid.UUID(str(item.workflow_id)))}
+            else:
+                update = {}
+            filled.append(item.model_copy(update=update))
+        return filled
+
+    async def list_stopped_events(
+        self, trigger_id: uuid.UUID, params: CursorPaginationParams
+    ) -> TriggerStoppedEventsPage:
+        """The trigger's events that stopped retrying, newest first.
+
+        Only ``object_storage`` triggers queue events; other kinds have none.
+        A row belongs to the trigger when it came through the trigger's source
+        and its key starts with the trigger's prefix, as the dispatcher
+        matches. The event body is never returned, and the error is redacted.
+
+        Raises:
+            ScopeDeniedError: Without the trigger's read scopes.
+            TriggerError: ``not_found`` if the workspace has no such trigger.
+            PaginationError: If the cursor is not one this list returned.
+        """
+        trigger = await TriggersService(self.session, self.role).get_trigger(trigger_id)
+        config = trigger.config
+        if trigger.kind != TriggerKind.OBJECT_STORAGE or not isinstance(
+            config, ObjectStorageTriggerConfigRead
+        ):
+            return TriggerStoppedEventsPage(items=[])
+        filters = [
+            EventOutbox.workspace_id == self.workspace_id,
+            EventOutbox.source_id == config.source_id,
+            EventOutbox.kind == TriggerKind.OBJECT_STORAGE.value,
+            EventOutbox.next_attempt_at.is_(None),
+            func.starts_with(EventOutbox.payload["key"].astext, config.key_prefix),
+        ]
+        if params.cursor is not None:
+            try:
+                before = int(params.cursor)
+            except ValueError as e:
+                raise PaginationError(
+                    "Invalid cursor", code=PaginationErrorCode.INVALID_CURSOR
+                ) from e
+            filters.append(EventOutbox.id < before)
+        rows = (
+            await self.session.execute(
+                select(
+                    EventOutbox.id,
+                    EventOutbox.attempts,
+                    EventOutbox.last_error,
+                    EventOutbox.created_at,
+                    # Read only to blank its values out of the error.
+                    EventOutbox.payload,
+                )
+                .where(and_(*filters))
+                .order_by(EventOutbox.id.desc())
+                .limit(params.limit + 1)
+            )
+        ).tuples()
+        events = [
+            TriggerStoppedEventRead(
+                id=row_id,
+                attempts=attempts,
+                error=_stopped_error(last_error, payload),
+                created_at=created_at,
+            )
+            for row_id, attempts, last_error, created_at, payload in rows
+        ]
+        has_more = len(events) > params.limit
+        events = events[: params.limit]
+        return TriggerStoppedEventsPage(
+            items=events,
+            next_cursor=str(events[-1].id) if has_more else None,
+            has_more=has_more,
+            has_previous=params.cursor is not None,
+        )
+
+    async def run_origin(
+        self,
+        *,
+        wf_exec_id: WorkflowExecutionID | None = None,
+        session_id: uuid.UUID | None = None,
+    ) -> TriggerRunOrigin | None:
+        """The trigger that started a workflow run or an agent session, if any.
+
+        A workflow run's child runs answer with their root's trigger. A
+        session answers with the trigger of any of its turns.
+
+        Raises:
+            ScopeDeniedError: Without ``workflow:read`` (a run) or
+                ``agent:read`` (a session), or the trigger's read scopes.
+            ValueError: Unless exactly one of the two is given.
+        """
+        if (wf_exec_id is None) == (session_id is None):
+            raise ValueError("Give exactly one of wf_exec_id and session_id")
+        check_scopes(self.role, "workflow:read" if wf_exec_id else "agent:read")
+        client = await get_temporal_client()
+        if not await trigger_id_registered(client):
+            return None
+        raw: str | None = None
+        if wf_exec_id is not None:
+            executions = await WorkflowExecutionsService.connect(
+                role=self.role, session=self.session
+            )
+            if execution := await executions.get_execution(wf_exec_id):
+                raw = execution.typed_search_attributes.get(
+                    TemporalSearchAttr.TRIGGER_ID.key
+                )
+        elif session_id is not None:
+            query = " AND ".join(
+                (
+                    build_query(
+                        workspace_id=self.workspace_id,
+                        correlation_id=build_agent_session_correlation_id(session_id),
+                    ),
+                    f"{TemporalSearchAttr.TRIGGER_ID.value} IS NOT NULL",
+                )
+            )
+            async for execution in client.list_workflows(query, limit=1):
+                raw = execution.typed_search_attributes.get(
+                    TemporalSearchAttr.TRIGGER_ID.key
+                )
+        if raw is None:
+            return None
+        try:
+            trigger_id = uuid.UUID(raw)
+        except ValueError:
+            return None
+        try:
+            trigger = await TriggersService(self.session, self.role).get_trigger(
+                trigger_id
+            )
+        except TriggerError as e:
+            if e.code != TriggerErrorCode.NOT_FOUND:
+                raise
+            return TriggerRunOrigin(trigger_id=trigger_id)
+        return TriggerRunOrigin(
+            trigger_id=trigger_id, name=trigger.name, kind=trigger.kind
+        )

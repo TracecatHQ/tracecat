@@ -19,6 +19,7 @@ import { SectionHead } from "@/components/executions/section"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import NoContent from "@/components/no-content"
 import { AlertNotification } from "@/components/notifications"
+import { StartedByTrigger } from "@/components/triggers/trigger-runs"
 import { Button } from "@/components/ui/button"
 import {
   formatExecutionId,
@@ -26,6 +27,7 @@ import {
   type WorkflowExecutionReadCompact,
 } from "@/lib/event-history"
 import { useCompactWorkflowExecution } from "@/lib/hooks"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 const defaultLayout = [15, 24, 61]
 
@@ -60,6 +62,7 @@ export default function ExecutionPage() {
 }
 
 function ExecutionDetails({ executionId }: { executionId: string }) {
+  const workspaceId = useWorkspaceId()
   const [requestedActionRef, setRequestedActionRef] = useState<
     string | undefined
   >()
@@ -124,6 +127,11 @@ function ExecutionDetails({ executionId }: { executionId: string }) {
               }}
             />
           )}
+          <StartedByTrigger
+            workspaceId={workspaceId}
+            target={{ wfExecId: executionId }}
+            className="flex border-b px-4 py-1.5"
+          />
           <div className="min-h-0 flex-1 overflow-auto">
             <EventHistoryContent
               execution={execution}

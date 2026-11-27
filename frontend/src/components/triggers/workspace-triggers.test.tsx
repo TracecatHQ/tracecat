@@ -44,6 +44,15 @@ jest.mock("@/client", () => ({
   triggersListEventSources: jest.fn(),
   triggersListTriggers: jest.fn(),
   triggersUpdateTriggerBinding: jest.fn(),
+  // The detail page's Recent runs and Stopped events (trigger-runs.test.tsx).
+  triggersListTriggerRuns: jest.fn(async () => ({
+    items: [],
+    has_more: false,
+  })),
+  triggersListTriggerStoppedEvents: jest.fn(async () => ({
+    items: [],
+    has_more: false,
+  })),
 }))
 
 let scopes: Record<string, boolean | undefined> = {}

@@ -1,3 +1,4 @@
+import uuid
 from collections.abc import Collection
 from datetime import UTC, datetime
 from typing import Any, Literal, TypeGuard
@@ -375,6 +376,8 @@ def build_query(
     duration_gte_seconds: int | None = None,
     duration_lte_seconds: int | None = None,
     correlation_id: str | None = None,
+    trigger_id: uuid.UUID | None = None,
+    workflow_types: Collection[str] | None = None,
     _include_legacy: bool = True,
 ) -> str:
     query = []
@@ -448,6 +451,16 @@ def build_query(
         if "'" in correlation_id or "\\" in correlation_id:
             raise ValueError("Invalid correlation ID")
         query.append(f"{TemporalSearchAttr.CORRELATION_ID.value} = '{correlation_id}'")
+
+    if trigger_id is not None:
+        query.append(f"{TemporalSearchAttr.TRIGGER_ID.value} = '{trigger_id}'")
+
+    if workflow_types:
+        include_type_query = " OR ".join(
+            f"WorkflowType = '{workflow_type}'"
+            for workflow_type in sorted(workflow_types)
+        )
+        query.append(f"({include_type_query})")
 
     if exclude_workflow_types:
         workflow_type_query = " AND ".join(

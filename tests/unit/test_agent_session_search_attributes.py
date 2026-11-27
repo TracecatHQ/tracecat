@@ -16,6 +16,7 @@ from temporalio.converter import decode_typed_search_attributes
 
 from tracecat.agent.adapter.vercel import UIMessage
 from tracecat.agent.backends.schemas import AgentWorkflowArgs
+from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.service import (
     AGENT_SESSION_EXECUTION_SCOPES,
     AgentSessionService,
@@ -25,6 +26,7 @@ from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import BasicChatRequest, ChatRequest, VercelChatRequest
 from tracecat.db.models import AgentSession
+from tracecat.workflow.executions import trigger_link
 from tracecat.workflow.executions.correlation import build_agent_session_correlation_id
 from tracecat.workflow.executions.enums import (
     ExecutionType,
@@ -247,3 +249,56 @@ async def test_run_turn_rejects_vercel_file_only_prompt(
             session_id=session_id,
             request=cast(ChatRequest, request),
         )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("registered", [True, False])
+async def test_trigger_turn_stamps_trigger_id_once_registered(
+    registered: bool,
+    role_without_user: Role,
+    temporal_start_client: tuple[Client, AsyncMock],
+) -> None:
+    """A trigger's turn carries TracecatTriggerId only once the namespace has it."""
+    service = AgentSessionService(_build_db_session(), role_without_user)
+    session_id = uuid.uuid4()
+    agent_session = _build_session(role_without_user, session_id=session_id)
+    temporal_client, start_rpc = temporal_start_client
+    trigger_id = uuid.uuid4()
+
+    with (
+        patch.object(
+            trigger_link, "_probe", trigger_link._ProbeState(ready=registered)
+        ),
+        patch.object(
+            trigger_link, "trigger_id_registered", AsyncMock(return_value=registered)
+        ),
+        patch.object(service.session, "scalar", AsyncMock(return_value=agent_session)),
+        patch.object(service, "_build_agent_config", _mock_agent_config_context),
+        patch(
+            "tracecat.agent.backends.base.get_temporal_client",
+            AsyncMock(return_value=temporal_client),
+        ),
+    ):
+        await service._start_new_turn(
+            agent_session,
+            user_prompt="event",
+            request_instructions=None,
+            page_context=None,
+            is_first_prompt=False,
+            run_id=uuid.uuid4(),
+            stream_id=uuid.uuid4(),
+            origin=UserMessageOrigin.TRACECAT,
+            trigger_id=trigger_id,
+        )
+
+    assert start_rpc.await_args is not None
+    pairs = _search_attr_map(
+        decode_typed_search_attributes(start_rpc.await_args.args[1].search_attributes)
+    )
+    if registered:
+        assert pairs[TemporalSearchAttr.TRIGGER_ID.value] == str(trigger_id)
+    else:
+        assert TemporalSearchAttr.TRIGGER_ID.value not in pairs
+    assert pairs[
+        TemporalSearchAttr.CORRELATION_ID.value
+    ] == build_agent_session_correlation_id(session_id)
