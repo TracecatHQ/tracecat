@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import func, select, update
@@ -50,12 +51,11 @@ def default_trigger_name(workflow_title: str | None) -> str:
     return f"{title[:_TITLE_IN_NAME_MAX]} schedule"
 
 
-def _current(schedule: Schedule, key: str) -> object:
-    """A schedule setting as stored; a missing timeout means none (0)."""
-    value = getattr(schedule, key)
-    if key == "timeout" and value is None:
-        return 0
-    return value
+@dataclass(frozen=True)
+class DeletedSchedule:
+    """The ID of a schedule that was just deleted."""
+
+    id: uuid.UUID
 
 
 class WorkflowSchedulesService(BaseWorkspaceService):
@@ -365,7 +365,10 @@ class WorkflowSchedulesService(BaseWorkspaceService):
                 Schedule.id == schedule_uuid,
                 Workflow.workspace_id == self.workspace_id,
             )
-            .with_for_update(of=Workflow)
+            # The schedule row too, read fresh: an update that adopts a
+            # schedule without a trigger row must see a concurrent adoption.
+            .with_for_update(of=(Workflow, Schedule))
+            .execution_options(populate_existing=True)
         )
         try:
             return result.scalar_one()
@@ -408,7 +411,11 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         return schedule
 
     async def _update_schedule_impl(
-        self, schedule: Schedule, params: ScheduleUpdate
+        self,
+        schedule: Schedule,
+        params: ScheduleUpdate,
+        *,
+        trigger_name: str | None = None,
     ) -> None:
         """Apply ``params`` to a schedule whose workflow the caller locked.
 
@@ -444,6 +451,8 @@ class WorkflowSchedulesService(BaseWorkspaceService):
             values: dict[str, object] = {"updated_at": func.now()}
             if "status" in params.model_fields_set:
                 values["status"] = schedule.status
+            if trigger_name is not None:
+                values["name"] = trigger_name
             await self.session.execute(
                 update(Trigger)
                 .where(
@@ -468,7 +477,8 @@ class WorkflowSchedulesService(BaseWorkspaceService):
                     schedule_id=schedule_id,
                 )
 
-        AfterCommitQueue.of(self.session).add(_update_schedule)
+        if params.model_fields_set:
+            AfterCommitQueue.of(self.session).add(_update_schedule)
 
     @require_scope("schedule:delete")
     @audit_log(
@@ -541,10 +551,10 @@ class WorkflowSchedulesService(BaseWorkspaceService):
             await self.session.flush()
 
     # ----- Entry points for the Triggers tab -----
-    # The triggers service calls these inside its own transaction, so they
-    # don't commit. Each needs its schedule scope and writes a ``schedule``
-    # audit record, as ``/schedules`` does: the Triggers tab is another way
-    # in, not a way around either.
+    # Each writes the schedule, its trigger row and binding, and commits, so
+    # its ``schedule`` audit record follows the commit as on ``/schedules``.
+    # Each needs its schedule scope: the Triggers tab is another way in, not
+    # a way around it.
 
     @require_scope("schedule:create")
     @audit_log(resource_type="schedule", action="create", resource_id_attr="id")
@@ -559,11 +569,15 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         """
         await self._require_published_workflow(params.workflow_id)
         return await self._create_schedule_impl(
-            params, commit=False, trigger_name=trigger_name
+            params, commit=True, trigger_name=trigger_name
         )
 
     def _trigger_update_audit_details(
-        self, trigger_id: uuid.UUID, params: ScheduleUpdate
+        self,
+        trigger_id: uuid.UUID,
+        params: ScheduleUpdate,
+        *,
+        trigger_name: str | None = None,
     ) -> AuditEventDetails:
         return AuditEventDetails(
             data={"changed_fields": sorted(params.model_fields_set)}
@@ -577,7 +591,11 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         attempt_metadata=_trigger_update_audit_details,
     )
     async def update_trigger_schedule(
-        self, trigger_id: uuid.UUID, params: ScheduleUpdate
+        self,
+        trigger_id: uuid.UUID,
+        params: ScheduleUpdate,
+        *,
+        trigger_name: str | None = None,
     ) -> Schedule:
         """Update the schedule behind a ``schedule`` trigger.
 
@@ -585,34 +603,36 @@ class WorkflowSchedulesService(BaseWorkspaceService):
             TracecatNotFoundError: If no schedule belongs to the trigger.
         """
         schedule = await self._get_trigger_schedule(trigger_id)
-        # A trigger config replaces every setting; send Temporal only what
-        # changed, read under the lock, so an untouched setting isn't
-        # rewritten.
-        changed = {
-            key: value
-            for key, value in params.model_dump(exclude_unset=True).items()
-            if value != _current(schedule, key)
-        }
-        await self._update_schedule_impl(
-            schedule, ScheduleUpdate.model_validate(changed)
-        )
-        await self.session.flush()
+        # Inputs go to Temporal only when they really change: the bridge's
+        # inputs update does not reach Temporal today, and a config replace
+        # always carries them. The spec fields always go together, so the
+        # Temporal schedule never ends up with neither cron nor interval.
+        if "inputs" in params.model_fields_set and (params.inputs or {}) == (
+            schedule.inputs or {}
+        ):
+            params = ScheduleUpdate.model_validate(
+                params.model_dump(exclude_unset=True, exclude={"inputs"})
+            )
+        await self._update_schedule_impl(schedule, params, trigger_name=trigger_name)
+        await self.session.commit()
+        await self.session.refresh(schedule)
         return schedule
 
     @require_scope("schedule:delete")
     @audit_log(resource_type="schedule", action="delete", resource_id_attr="id")
-    async def delete_trigger_schedule(self, trigger_id: uuid.UUID) -> Schedule:
+    async def delete_trigger_schedule(self, trigger_id: uuid.UUID) -> DeletedSchedule:
         """Delete the schedule behind a ``schedule`` trigger, and so the trigger.
 
         Returns:
-            The deleted schedule, for its audit record.
+            The deleted schedule's ID, for its audit record.
 
         Raises:
             TracecatNotFoundError: If no schedule belongs to the trigger.
         """
         schedule = await self._get_trigger_schedule(trigger_id)
-        await self._delete_schedule_impl(schedule.id, commit=False)
-        return schedule
+        schedule_id = schedule.id
+        await self._delete_schedule_impl(schedule_id, commit=True)
+        return DeletedSchedule(id=schedule_id)
 
     async def _get_trigger_schedule(self, trigger_id: uuid.UUID) -> Schedule:
         """The schedule of a trigger, with its workflow locked until commit.

@@ -18,8 +18,8 @@ status change is copied to ``trigger.status``.
 
 Rolling deploy: the previous release still creates schedules without a
 ``trigger`` row while this one rolls out. Those stay out of the Triggers tab
-until the next release reruns ``BACKFILL_SQL`` (it is idempotent) and makes the
-column NOT NULL. This release adopts such a schedule when it next updates it.
+until the next release reruns ``LOCK_WORKFLOWS_SQL`` and ``BACKFILL_SQL`` in
+one transaction (they are idempotent) and makes the column NOT NULL. This release adopts such a schedule when it next updates it.
 
 The downgrade deletes the ``schedule`` trigger rows (the previous release
 cannot read that kind) and drops what the upgrade added. Schedules themselves
@@ -71,6 +71,18 @@ SYNC_TRIGGER_SQL = (
     f" FOR EACH ROW EXECUTE FUNCTION public.{_SYNC_FUNCTION}()"
 )
 DROP_SYNC_TRIGGER_SQL = f"DROP TRIGGER IF EXISTS {_SYNC_TRIGGER} ON public.schedule"
+
+# Run first, in the backfill's transaction: lock the workflows of the schedules
+# about to be backfilled, in ID order. App writes lock the workflow and then
+# the schedule; the backfill locks schedules and its binding inserts need a
+# key-share lock on their workflow, so without this the two could deadlock.
+LOCK_WORKFLOWS_SQL = """
+SELECT w.id
+FROM workflow w
+WHERE w.id IN (SELECT s.workflow_id FROM schedule s WHERE s.trigger_id IS NULL)
+ORDER BY w.id
+FOR UPDATE OF w
+"""
 
 # One trigger row and one workflow binding per schedule that has none. Safe to
 # run again: it only picks schedules whose trigger_id is still null, and locks
@@ -150,7 +162,11 @@ def upgrade() -> None:
     with op.get_context().autocommit_block():
         # Outside the DDL transaction the backfill takes only row locks, so
         # the previous release keeps reading and writing schedules meanwhile.
+        # Its own transaction, workflows locked first (LOCK_WORKFLOWS_SQL).
+        op.execute("BEGIN")
+        op.execute(LOCK_WORKFLOWS_SQL)
         op.execute(BACKFILL_SQL)
+        op.execute("COMMIT")
         # VALIDATE takes SHARE UPDATE EXCLUSIVE here: no blocking of reads or
         # writes during its scan.
         op.execute(f'ALTER TABLE schedule VALIDATE CONSTRAINT "{_FK}"')

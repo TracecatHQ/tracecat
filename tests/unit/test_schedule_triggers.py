@@ -359,26 +359,67 @@ async def test_a_config_replaces_every_schedule_setting(
     assert params.every == timedelta(hours=2)
 
 
-async def test_a_config_update_sends_temporal_only_what_changed(
+async def test_a_config_update_leaves_unchanged_inputs_out(
+    schedules: WorkflowSchedulesService,
     triggers: TriggersService,
     workflow: SimpleNamespace,
     temporal: _Temporal,
 ) -> None:
-    """An untouched setting (inputs here) isn't rewritten on the Temporal
-    schedule."""
-    created = await triggers.create_trigger(
-        TriggerCreate(name="s", config=_config(workflow, inputs={"a": 1}))
+    """Unchanged inputs (None and {} alike) aren't sent to the Temporal
+    schedule; the spec always goes whole."""
+    made_with_inputs = await triggers.create_trigger(
+        TriggerCreate(name="a", config=_config(workflow, inputs={"a": 1}))
     )
+    made_without = await schedules.create_schedule(
+        ScheduleCreate(workflow_id=WorkflowUUID.new(workflow.id), cron="0 * * * *")
+    )
+    assert made_without.inputs == {}
+    without_id = made_without.trigger_id
+    assert without_id is not None
 
     await triggers.update_trigger(
-        created.id,
+        made_with_inputs.id,
         TriggerUpdate(
             config=_config(workflow, every=timedelta(hours=2), inputs={"a": 1})
         ),
     )
+    await triggers.update_trigger(
+        without_id,
+        TriggerUpdate(config=_config(workflow, every=None, cron="5 * * * *")),
+    )
+
+    for _, params in temporal.updated:
+        assert "inputs" not in params.model_fields_set
+        assert {"cron", "every", "offset"} <= params.model_fields_set
+    assert [params.cron for _, params in temporal.updated] == [None, "5 * * * *"]
+
+
+async def test_a_config_keeping_the_cron_still_clears_a_stale_interval(
+    triggers: TriggersService,
+    schedules: WorkflowSchedulesService,
+    workflow: SimpleNamespace,
+    temporal: _Temporal,
+) -> None:
+    """/schedules can leave cron and interval both stored. Replacing the config
+    with the same cron must send the cron too, not only every=None, or the
+    Temporal schedule would be left with no run times."""
+    schedule = await schedules.create_schedule(
+        ScheduleCreate(workflow_id=WorkflowUUID.new(workflow.id), cron="0 * * * *")
+    )
+    trigger_id = schedule.trigger_id
+    assert trigger_id is not None
+    await schedules.update_schedule(
+        schedule.id, ScheduleUpdate(every=timedelta(hours=1))
+    )
+    temporal.updated.clear()
+
+    await triggers.update_trigger(
+        trigger_id,
+        TriggerUpdate(config=_config(workflow, every=None, cron="0 * * * *")),
+    )
 
     [(_, params)] = temporal.updated
-    assert params.model_fields_set == {"every"}
+    assert (params.cron, params.every) == ("0 * * * *", None)
 
 
 async def test_a_row_with_cron_and_interval_still_reads(

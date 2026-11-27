@@ -154,6 +154,15 @@ def _linked(engine: Engine) -> dict[uuid.UUID, tuple[Any, ...]]:
     return {row[0]: tuple(row[1:]) for row in rows}
 
 
+def _backfill(engine: Engine) -> None:
+    """Rerun the backfill as the contract release will: one transaction,
+    workflows locked first."""
+    migration = _migration()
+    with engine.begin() as conn:
+        conn.execute(text(migration.LOCK_WORKFLOWS_SQL))
+        conn.execute(text(migration.BACKFILL_SQL))
+
+
 def _count(engine: Engine, table: str) -> int:
     return _run(engine, f'SELECT count(*) FROM "{table}"')[0][0]
 
@@ -194,7 +203,7 @@ def test_backfill_links_every_schedule_once(db_url: str, engine: Engine) -> None
     assert _linked(engine) == expected
 
     # A second run changes nothing.
-    _run(engine, _migration().BACKFILL_SQL)
+    _backfill(engine)
     assert _linked(engine) == expected
     assert (_count(engine, "trigger"), _count(engine, "trigger_binding")) == (3, 3)
 
@@ -202,7 +211,7 @@ def test_backfill_links_every_schedule_once(db_url: str, engine: Engine) -> None
     # picks up just those.
     late = _schedule(engine, ws, report, "online")
     assert _linked(engine)[late][0] is None
-    _run(engine, _migration().BACKFILL_SQL)
+    _backfill(engine)
     assert _linked(engine)[late][:3] == (
         "schedule",
         "Nightly report schedule",
@@ -238,7 +247,7 @@ def test_the_trigger_row_follows_its_schedule(db_url: str, engine: Engine) -> No
 
     # A workflow delete cascades to its schedules and so to their triggers.
     _schedule(engine, ws, workflow, "online")
-    _run(engine, _migration().BACKFILL_SQL)
+    _backfill(engine)
     assert _count(engine, "trigger") == 1
     _run(engine, "DELETE FROM workflow WHERE id = :id", id=workflow)
     assert (_count(engine, "trigger"), _count(engine, "trigger_binding")) == (0, 0)

@@ -431,16 +431,18 @@ class TriggersService(BaseWorkspaceService):
             await self._check_can_run_bound([trigger.id])
         try:
             if trigger.kind == TriggerKind.SCHEDULE:
-                # Before the header is dirtied: the schedule service locks the
-                # workflow, then writes the trigger row, the same order as
-                # /schedules. Flushing a dirty header first would lock the
-                # trigger row before the workflow, and the two could deadlock.
+                # The schedule service writes the name, status and settings
+                # and commits. It locks the workflow before the trigger row,
+                # the same order as /schedules, so the header must not be
+                # dirtied (and flushed) here first.
                 await self._update_schedule_trigger(trigger, params)
+                await self.session.refresh(trigger)
+                return trigger
             if params.name is not None:
                 trigger.name = params.name
             if params.status is not None:
                 trigger.status = params.status.value
-            if params.config is not None and trigger.kind != TriggerKind.SCHEDULE:
+            if params.config is not None:
                 await self._write_config(trigger, params.config)
                 # The header's timestamp covers its settings too.
                 trigger.updated_at = func.now()
@@ -467,9 +469,9 @@ class TriggersService(BaseWorkspaceService):
         if trigger.kind == TriggerKind.SCHEDULE:
             schedules = WorkflowSchedulesService(self.session, self.role)
             try:
-                # The schedule's database trigger deletes the trigger row.
+                # Commits. The schedule's database trigger deletes the
+                # trigger row.
                 await schedules.delete_trigger_schedule(trigger.id)
-                await self.session.commit()
             except TracecatNotFoundError as e:
                 await self.session.rollback()
                 raise _not_found("Trigger") from e
@@ -506,7 +508,6 @@ class TriggersService(BaseWorkspaceService):
                 ),
                 trigger_name=params.name,
             )
-            await self.session.commit()
         except TracecatNotFoundError as e:
             await self.session.rollback()
             raise _not_found("Workflow") from e
@@ -523,10 +524,11 @@ class TriggersService(BaseWorkspaceService):
     async def _update_schedule_trigger(
         self, trigger: Trigger, params: TriggerUpdate
     ) -> None:
-        """Send a trigger update's config and status to its schedule.
+        """Send a trigger update to its schedule, which commits it.
 
-        The name lives on the trigger row only. A config replaces every
-        schedule setting; its workflow must stay the schedule's.
+        A config replaces every schedule setting; its workflow must stay the
+        schedule's. The schedule service also writes the name and status to
+        the trigger row.
         """
         update: dict[str, Any] = {}
         if isinstance(params.config, ScheduleTriggerConfig):
@@ -545,13 +547,10 @@ class TriggersService(BaseWorkspaceService):
             update |= _schedule_settings(params.config)
         if params.status is not None:
             update["status"] = params.status.value
-        if not update:
-            return
         schedules = WorkflowSchedulesService(self.session, self.role)
         try:
-            # Writes the trigger row's status and timestamp too.
             await schedules.update_trigger_schedule(
-                trigger.id, ScheduleUpdate(**update)
+                trigger.id, ScheduleUpdate(**update), trigger_name=params.name
             )
         except TracecatNotFoundError as e:
             raise _not_found("Trigger") from e
