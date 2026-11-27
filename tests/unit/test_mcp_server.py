@@ -55,7 +55,7 @@ from tracecat.agent.skill.schemas import (
 )
 from tracecat.agent.stream.events import StreamDelta, StreamEnd
 from tracecat.auth.types import Role
-from tracecat.cases.enums import CaseFieldReadType, CaseViewVisibility
+from tracecat.cases.enums import CaseFieldReadType, CaseVerdict, CaseViewVisibility
 from tracecat.cases.schemas import CaseFieldRead
 from tracecat.cases.search_schemas import CaseCriteria, CaseQuery, CaseSearchRequest
 from tracecat.db.models import Schedule, Workflow
@@ -3797,6 +3797,105 @@ async def test_create_case_passes_tags_into_the_create(monkeypatch):
     assert _payload(result)["id"] == str(case_id)
 
 
+@pytest.mark.anyio
+@pytest.mark.usefixtures("resolved_workspace")
+async def test_create_case_passes_verdict(monkeypatch):
+    captured: dict[str, Any] = {}
+
+    async def _create_case(params, *, tags, create_missing_tags):
+        captured["verdict"] = params.verdict
+        return SimpleNamespace(id=uuid.uuid4(), short_id="CASE-0001")
+
+    case_service = SimpleNamespace(create_case=_create_case)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(case_service)),
+    )
+
+    await _tool(mcp_server.create_case)(
+        workspace_id=str(uuid.uuid4()),
+        summary="Verdict",
+        description="Created with a verdict",
+        status="new",
+        priority="medium",
+        severity="low",
+        verdict="false_positive",
+    )
+    assert captured["verdict"] == CaseVerdict.FALSE_POSITIVE
+
+    await _tool(mcp_server.create_case)(
+        workspace_id=str(uuid.uuid4()),
+        summary="No verdict",
+        description="Created without a verdict",
+        status="new",
+        priority="medium",
+        severity="low",
+    )
+    assert captured["verdict"] is None
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.parametrize(
+    ("verdict", "expected_fields", "expected_verdict"),
+    [
+        ("true_positive", {"verdict"}, CaseVerdict.TRUE_POSITIVE),
+        ("none", {"verdict"}, None),
+        (None, set(), None),
+    ],
+)
+async def test_update_case_sets_or_clears_verdict(
+    monkeypatch,
+    verdict: str | None,
+    expected_fields: set[str],
+    expected_verdict: CaseVerdict | None,
+):
+    captured: dict[str, Any] = {}
+
+    async def _update_case(case, params):
+        captured["params"] = params
+
+    case_service = SimpleNamespace(
+        get_case=AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4())),
+        update_case=_update_case,
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(case_service)),
+    )
+
+    await _tool(mcp_server.update_case)(
+        workspace_id=str(uuid.uuid4()),
+        case_id=str(uuid.uuid4()),
+        verdict=verdict,
+    )
+
+    params = captured["params"]
+    assert params.model_fields_set == expected_fields
+    assert params.verdict == expected_verdict
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("resolved_workspace")
+async def test_update_case_rejects_invalid_verdict(monkeypatch):
+    case_service = SimpleNamespace(get_case=AsyncMock(), update_case=AsyncMock())
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(case_service)),
+    )
+
+    with pytest.raises(ToolError):
+        await _tool(mcp_server.update_case)(
+            workspace_id=str(uuid.uuid4()),
+            case_id=str(uuid.uuid4()),
+            verdict="malicious",
+        )
+    case_service.update_case.assert_not_awaited()
+
+
 # ---------------------------------------------------------------------------
 # Case field tests
 # ---------------------------------------------------------------------------
@@ -4497,6 +4596,7 @@ async def test_get_case(monkeypatch):
         status=SimpleNamespace(value="new"),
         priority=SimpleNamespace(value="high"),
         severity=SimpleNamespace(value="medium"),
+        verdict=None,
         description="Detailed description",
         assignee=None,
         payload={"key": "value"},
@@ -4561,6 +4661,7 @@ async def test_get_case(monkeypatch):
     assert payload["fields"][0]["value"] == "hello"
     assert payload["parent"] is None
     assert payload["num_sub_cases"] == 0
+    assert payload["verdict"] is None
 
 
 @pytest.mark.anyio
@@ -4580,6 +4681,7 @@ async def test_get_case_includes_hierarchy(monkeypatch):
         status=SimpleNamespace(value="new"),
         priority=SimpleNamespace(value="low"),
         severity=SimpleNamespace(value="low"),
+        verdict=SimpleNamespace(value="benign"),
         description="",
         assignee=None,
         payload=None,
@@ -4633,6 +4735,7 @@ async def test_get_case_includes_hierarchy(monkeypatch):
     )
     assert payload["parent"]["short_id"] == "CASE-0001"
     assert payload["num_sub_cases"] == 0
+    assert payload["verdict"] == "benign"
 
 
 @pytest.mark.anyio

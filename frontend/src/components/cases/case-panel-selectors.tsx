@@ -1,6 +1,11 @@
 "use client"
 
-import { CircleIcon, CircleSlashIcon, ListIcon } from "lucide-react"
+import {
+  CircleDashedIcon,
+  CircleIcon,
+  CircleSlashIcon,
+  ListIcon,
+} from "lucide-react"
 import { useMemo, useState } from "react"
 import type {
   CaseDropdownDefinitionRead,
@@ -8,12 +13,15 @@ import type {
   CasePriority,
   CaseSeverity,
   CaseStatus,
+  CaseVerdict,
   WorkspaceMember,
 } from "@/client"
 import {
+  getCategoryTextClass,
   PRIORITIES,
   SEVERITIES,
   STATUSES,
+  VERDICTS,
 } from "@/components/cases/case-categories"
 import { CaseValueDisplay } from "@/components/cases/case-value-display"
 import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
@@ -50,59 +58,6 @@ export interface AssigneeInfo {
   email: string
   first_name?: string | null
   last_name?: string | null
-}
-
-// Color mappings for Linear-style display
-function getPriorityColor(priority: CasePriority): string {
-  switch (priority) {
-    case "high":
-    case "critical":
-      return "text-red-600"
-    case "medium":
-      return "text-orange-600"
-    case "low":
-      return "text-muted-foreground"
-    default:
-      return "text-muted-foreground"
-  }
-}
-
-function getSeverityColor(severity: CaseSeverity): string {
-  switch (severity) {
-    case "high":
-    case "critical":
-    case "fatal":
-      return "text-red-600"
-    case "informational":
-      return "text-blue-600"
-    case "medium":
-      return "text-orange-600"
-    case "low":
-      return "text-muted-foreground"
-    case "other":
-      return "text-muted-foreground"
-    default:
-      return "text-muted-foreground"
-  }
-}
-
-function getStatusColor(status: CaseStatus): string {
-  switch (status) {
-    case "new":
-      return "text-yellow-600"
-    case "in_progress":
-      return "text-blue-600"
-    case "on_hold":
-      return "text-orange-600"
-    case "resolved":
-      return "text-green-600"
-    case "closed":
-      return "text-violet-600"
-    case "other":
-      return "text-muted-foreground"
-    default:
-      return "text-muted-foreground"
-  }
 }
 
 interface StatusSelectProps {
@@ -144,7 +99,7 @@ export function StatusSelect({
             <CaseValueDisplay
               icon={currentStatus.icon}
               label={currentStatus.label}
-              color={getStatusColor(currentStatus.value)}
+              color={getCategoryTextClass(currentStatus.color)}
               labelClassName={valueClassName}
             />
           </div>
@@ -156,7 +111,7 @@ export function StatusSelect({
             <CaseValueDisplay
               icon={props.icon}
               label={props.label}
-              color={getStatusColor(props.value)}
+              color={getCategoryTextClass(props.color)}
             />
           </SelectItem>
         ))}
@@ -204,7 +159,7 @@ export function PrioritySelect({
             <CaseValueDisplay
               icon={currentPriority.icon}
               label={currentPriority.label}
-              color={getPriorityColor(currentPriority.value)}
+              color={getCategoryTextClass(currentPriority.color)}
               labelClassName={valueClassName}
             />
           </div>
@@ -216,7 +171,7 @@ export function PrioritySelect({
             <CaseValueDisplay
               icon={props.icon}
               label={props.label}
-              color={getPriorityColor(props.value)}
+              color={getCategoryTextClass(props.color)}
             />
           </SelectItem>
         ))}
@@ -264,7 +219,7 @@ export function SeveritySelect({
             <CaseValueDisplay
               icon={currentSeverity.icon}
               label={currentSeverity.label}
-              color={getSeverityColor(currentSeverity.value)}
+              color={getCategoryTextClass(currentSeverity.color)}
               labelClassName={valueClassName}
             />
           </div>
@@ -276,7 +231,91 @@ export function SeveritySelect({
             <CaseValueDisplay
               icon={props.icon}
               label={props.label}
-              color={getSeverityColor(props.value)}
+              color={getCategoryTextClass(props.color)}
+            />
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
+/** Select value used for a case without a verdict. */
+export const NO_VERDICT = "__NO_VERDICT__" as const
+
+interface VerdictSelectProps {
+  verdict: CaseVerdict | null | undefined
+  onValueChange: (verdict: CaseVerdict | null) => void
+  showLabel?: boolean
+  triggerClassName?: string
+  valueClassName?: string
+}
+
+/** Select for a case verdict, including a "No verdict" option that clears it. */
+export function VerdictSelect({
+  verdict,
+  onValueChange,
+  showLabel = true,
+  triggerClassName,
+  valueClassName,
+}: VerdictSelectProps) {
+  const currentVerdict = verdict ? VERDICTS[verdict] : null
+
+  function handleValueChange(value: string) {
+    onValueChange(value === NO_VERDICT ? null : (value as CaseVerdict))
+  }
+
+  return (
+    <Select value={verdict ?? NO_VERDICT} onValueChange={handleValueChange}>
+      <SelectTrigger
+        className={cn(
+          linearStyles.trigger.base,
+          linearStyles.trigger.hover,
+          triggerClassName
+        )}
+      >
+        <SelectValue>
+          <div
+            className={cn(
+              "flex items-center gap-2",
+              !showLabel && "w-full justify-end"
+            )}
+          >
+            {showLabel && (
+              <span className="text-xs text-muted-foreground">Verdict</span>
+            )}
+            {currentVerdict ? (
+              <CaseValueDisplay
+                icon={currentVerdict.icon}
+                label={currentVerdict.label}
+                color={getCategoryTextClass(currentVerdict.color)}
+                labelClassName={valueClassName}
+              />
+            ) : (
+              <CaseValueDisplay
+                icon={CircleDashedIcon}
+                label="No verdict"
+                color="text-muted-foreground"
+                labelClassName={valueClassName}
+              />
+            )}
+          </div>
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={NO_VERDICT}>
+          <CaseValueDisplay
+            icon={CircleDashedIcon}
+            label="No verdict"
+            color="text-muted-foreground"
+          />
+        </SelectItem>
+        {Object.values(VERDICTS).map((props) => (
+          <SelectItem key={props.value} value={props.value}>
+            <CaseValueDisplay
+              icon={props.icon}
+              label={props.label}
+              color={getCategoryTextClass(props.color)}
             />
           </SelectItem>
         ))}

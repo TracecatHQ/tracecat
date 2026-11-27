@@ -4,27 +4,51 @@ import {
   CircleHelpIcon,
   CircleIcon,
   CirclePauseIcon,
+  CircleSlashIcon,
+  EyeIcon,
   FlagTriangleRightIcon,
+  FlaskConicalIcon,
   InfoIcon,
+  ShieldAlertIcon,
+  ShieldCheckIcon,
+  ShieldIcon,
   SignalHighIcon,
   SignalIcon,
   SignalMediumIcon,
   TrafficConeIcon,
 } from "lucide-react"
-import type { CasePriority, CaseSeverity, CaseStatus } from "@/client"
+import type {
+  CasePriority,
+  CaseSeverity,
+  CaseStatus,
+  CaseVerdict,
+} from "@/client"
 
 import type { CaseBadgeProps } from "@/components/cases/case-badge"
 
 const palette = {
   gray: "bg-muted/50 text-muted-foreground",
-  yellow: "bg-yellow-500/10 text-yellow-700",
-  orange: "bg-orange-500/10 text-orange-700",
-  red: "bg-red-500/10 text-red-700",
-  fuchsia: "bg-fuchsia-500/10 text-fuchsia-700",
-  emerald: "bg-green-500/10 text-green-700",
-  sky: "bg-blue-500/10 text-blue-700",
-  violet: "bg-violet-500/10 text-violet-700",
+  yellow: "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400",
+  orange: "bg-orange-500/10 text-orange-700 dark:text-orange-400",
+  red: "bg-red-500/10 text-red-700 dark:text-red-400",
+  fuchsia: "bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-400",
+  emerald: "bg-green-500/10 text-green-700 dark:text-green-400",
+  sky: "bg-blue-500/10 text-blue-700 dark:text-blue-400",
+  violet: "bg-violet-500/10 text-violet-700 dark:text-violet-400",
   slate: "bg-muted text-muted-foreground",
+}
+
+/**
+ * Returns the text color classes of a category color, for tinting an icon or
+ * label without the badge background.
+ */
+export function getCategoryTextClass(color?: string): string {
+  const tokens = color
+    ?.split(" ")
+    .filter(
+      (token) => token.startsWith("text-") || token.startsWith("dark:text-")
+    )
+  return tokens?.length ? tokens.join(" ") : "text-muted-foreground"
 }
 
 export const STATUSES: Record<CaseStatus, CaseBadgeProps<CaseStatus>> = {
@@ -158,6 +182,53 @@ export const SEVERITIES: Record<CaseSeverity, CaseBadgeProps<CaseSeverity>> = {
     label: "Other",
     value: "other",
     icon: CircleIcon,
+    color: palette.gray,
+  },
+}
+
+/** Case verdicts aligned with OCSF Incident Finding verdict IDs 0-6. */
+/** Verdicts are labels, not urgency, so they stay neutral and differ by icon. */
+export const VERDICTS: Record<CaseVerdict, CaseBadgeProps<CaseVerdict>> = {
+  unknown: {
+    label: "Unknown",
+    value: "unknown",
+    icon: CircleHelpIcon,
+    color: palette.gray,
+  },
+  false_positive: {
+    label: "False positive",
+    value: "false_positive",
+    icon: ShieldCheckIcon,
+    color: palette.gray,
+  },
+  true_positive: {
+    label: "True positive",
+    value: "true_positive",
+    icon: ShieldAlertIcon,
+    color: palette.gray,
+  },
+  disregard: {
+    label: "Disregard",
+    value: "disregard",
+    icon: CircleSlashIcon,
+    color: palette.gray,
+  },
+  suspicious: {
+    label: "Suspicious",
+    value: "suspicious",
+    icon: EyeIcon,
+    color: palette.gray,
+  },
+  benign: {
+    label: "Benign",
+    value: "benign",
+    icon: ShieldIcon,
+    color: palette.gray,
+  },
+  test: {
+    label: "Test",
+    value: "test",
+    icon: FlaskConicalIcon,
     color: palette.gray,
   },
 }

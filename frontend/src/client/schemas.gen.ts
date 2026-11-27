@@ -9897,6 +9897,16 @@ export const $CaseCreate = {
     severity: {
       $ref: "#/components/schemas/CaseSeverity",
     },
+    verdict: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseVerdict",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
     fields: {
       anyOf: [
         {
@@ -11605,6 +11615,9 @@ export const $CaseEventRead = {
       $ref: "#/components/schemas/SeverityChangedEventRead",
     },
     {
+      $ref: "#/components/schemas/VerdictChangedEventRead",
+    },
+    {
       $ref: "#/components/schemas/FieldChangedEventRead",
     },
     {
@@ -11725,6 +11738,7 @@ export const $CaseEventRead = {
       task_status_changed: "#/components/schemas/TaskStatusChangedEventRead",
       task_workflow_changed:
         "#/components/schemas/TaskWorkflowChangedEventRead",
+      verdict_changed: "#/components/schemas/VerdictChangedEventRead",
     },
   },
 } as const
@@ -11739,6 +11753,7 @@ export const $CaseEventType = {
     "case_viewed",
     "priority_changed",
     "severity_changed",
+    "verdict_changed",
     "status_changed",
     "fields_changed",
     "assignee_changed",
@@ -12754,6 +12769,16 @@ export const $CaseRead = {
     severity: {
       $ref: "#/components/schemas/CaseSeverity",
     },
+    verdict: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseVerdict",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
     description: {
       type: "string",
       title: "Description",
@@ -12897,6 +12922,16 @@ export const $CaseReadMinimal = {
     },
     severity: {
       $ref: "#/components/schemas/CaseSeverity",
+    },
+    verdict: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseVerdict",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
     assignee: {
       anyOf: [
@@ -13105,6 +13140,7 @@ export const $CaseSearchOrder = {
     "updated_at",
     "priority",
     "severity",
+    "verdict",
     "status",
     "tasks",
     "id",
@@ -14339,6 +14375,17 @@ export const $CaseUpdate = {
         },
       ],
     },
+    verdict: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseVerdict",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "Set to null to clear the verdict.",
+    },
     fields: {
       anyOf: [
         {
@@ -14392,6 +14439,30 @@ export const $CaseUpdate = {
   },
   type: "object",
   title: "CaseUpdate",
+} as const
+
+export const $CaseVerdict = {
+  type: "string",
+  enum: [
+    "unknown",
+    "false_positive",
+    "true_positive",
+    "disregard",
+    "suspicious",
+    "benign",
+    "test",
+  ],
+  title: "CaseVerdict",
+  description: `Case verdict values aligned with OCSF Incident Finding verdict.
+
+Values:
+    UNKNOWN (0): The type is unknown
+    FALSE_POSITIVE (1): The incident is a false positive
+    TRUE_POSITIVE (2): The incident is a true positive
+    DISREGARD (3): The incident can be disregarded as it is unimportant, an error or accident
+    SUSPICIOUS (4): The incident is suspicious
+    BENIGN (5): The incident is benign
+    TEST (6): The incident is a test`,
 } as const
 
 export const $CaseVersionActorRead = {
@@ -47345,6 +47416,72 @@ export const $VercelChatRequest = {
   required: ["message"],
   title: "VercelChatRequest",
   description: "Vercel AI SDK format request with structured UI messages.",
+} as const
+
+export const $VerdictChangedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "verdict_changed",
+      title: "Type",
+      default: "verdict_changed",
+    },
+    old: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseVerdict",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    new: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseVerdict",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["old", "new", "created_at"],
+  title: "VerdictChangedEventRead",
+  description: "Event for when a case verdict is set, changed, or cleared.",
 } as const
 
 export const $VersionDiff = {

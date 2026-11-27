@@ -75,6 +75,7 @@ jest.mock("@/components/cases/case-panel-selectors", () => ({
   CaseDropdownSelect: () => <div />,
   PrioritySelect: () => <div />,
   SeveritySelect: () => <div />,
+  VerdictSelect: () => <div />,
   StatusSelect: () => <div />,
 }))
 jest.mock("@/components/cases/case-panel-fields-group", () => ({

@@ -8,7 +8,10 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import type { CasePriority, CaseTaskRead, CaseTaskStatus } from "@/client"
-import { PRIORITIES } from "@/components/cases/case-categories"
+import {
+  getCategoryTextClass,
+  PRIORITIES,
+} from "@/components/cases/case-categories"
 import type { CaseTaskProgress } from "@/components/cases/case-panel-switcher"
 import {
   Select,
@@ -86,22 +89,9 @@ export const CASE_TASK_STATUSES: Record<
   },
 }
 
-/**
- * Text color utilities for a priority icon: an urgency ramp, red at the top.
- * Explicit light/dark pairs, never `text-destructive` — `--destructive` is a
- * background token that inverts darker in dark mode, so as text it goes muddy
- * on the near-black dark background.
- */
+/** Text color utilities for a priority icon, matching the case priority badge. */
 export function priorityIconTone(priority: CasePriority): string {
-  switch (priority) {
-    case "critical":
-    case "high":
-      return "text-red-600 dark:text-red-400"
-    case "medium":
-      return "text-amber-600 dark:text-amber-400"
-    default:
-      return "text-muted-foreground"
-  }
+  return getCategoryTextClass(PRIORITIES[priority].color)
 }
 
 /** Returns whether a task status counts as done for progress purposes. */

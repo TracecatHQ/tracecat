@@ -38,6 +38,7 @@ from tracecat.cases.enums import (
     CasePriority,
     CaseSeverity,
     CaseStatus,
+    CaseVerdict,
 )
 from tracecat.cases.filters import resolve_tag_ids
 from tracecat.cases.schemas import (
@@ -71,6 +72,7 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.pagination import CursorPaginationParams
+from tracecat.query.filters import Condition, FilterOp
 from tracecat.tables.enums import SqlType
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -1391,6 +1393,91 @@ class TestCasesService:
         assert events[0].type == CaseEventType.CASE_CLOSED
         assert events[0].data["old"] == CaseStatus.NEW.value
         assert events[0].data["new"] == CaseStatus.CLOSED.value
+
+    async def test_case_verdict_defaults_to_null_and_records_changes(
+        self,
+        cases_service: CasesService,
+        case_create_params: CaseCreate,
+    ) -> None:
+        """Verdict starts null; setting, changing, and clearing it emit events."""
+        created_case = await cases_service.create_case(case_create_params)
+        assert created_case.verdict is None
+
+        for verdict in (CaseVerdict.SUSPICIOUS, CaseVerdict.TRUE_POSITIVE, None):
+            await cases_service.update_case(created_case, CaseUpdate(verdict=verdict))
+            assert created_case.verdict == verdict
+
+        # An update that omits verdict leaves the cleared value alone.
+        await cases_service.update_case(created_case, CaseUpdate(summary="Renamed"))
+        assert created_case.verdict is None
+
+        events = [
+            event
+            for event in await cases_service.events.list_events(created_case)
+            if event.type == CaseEventType.VERDICT_CHANGED
+        ]
+        assert [(e.data["old"], e.data["new"]) for e in reversed(events)] == [
+            (None, CaseVerdict.SUSPICIOUS.value),
+            (CaseVerdict.SUSPICIOUS.value, CaseVerdict.TRUE_POSITIVE.value),
+            (CaseVerdict.TRUE_POSITIVE.value, None),
+        ]
+
+    async def test_search_cases_filters_by_verdict(
+        self,
+        cases_service: CasesService,
+        case_create_params: CaseCreate,
+    ) -> None:
+        """Verdict supports enum and is_null filters."""
+        benign = await cases_service.create_case(
+            case_create_params.model_copy(
+                update={"summary": "Benign", "verdict": CaseVerdict.BENIGN}
+            )
+        )
+        unset = await cases_service.create_case(
+            case_create_params.model_copy(update={"summary": "Unset"})
+        )
+
+        async def _ids(condition: Condition) -> set[uuid.UUID]:
+            response = await cases_service.search_cases(
+                CursorPaginationParams(limit=100), filters=condition
+            )
+            return {item.id for item in response.items}
+
+        assert await _ids(
+            Condition(field="verdict", op=FilterOp.IN, value=["benign"])
+        ) == {benign.id}
+        assert await _ids(Condition(field="verdict", op=FilterOp.IS_NULL)) == {unset.id}
+
+    @pytest.mark.parametrize("sort", ["asc", "desc"])
+    async def test_search_cases_sorts_unset_verdict_last(
+        self,
+        cases_service: CasesService,
+        case_create_params: CaseCreate,
+        sort: Literal["asc", "desc"],
+    ) -> None:
+        """Verdict sorts in OCSF order with unset verdicts last in both directions."""
+        unset = await cases_service.create_case(
+            case_create_params.model_copy(update={"summary": "Unset"})
+        )
+        false_positive = await cases_service.create_case(
+            case_create_params.model_copy(
+                update={"summary": "FP", "verdict": CaseVerdict.FALSE_POSITIVE}
+            )
+        )
+        test_case = await cases_service.create_case(
+            case_create_params.model_copy(
+                update={"summary": "Test", "verdict": CaseVerdict.TEST}
+            )
+        )
+
+        response = await cases_service.search_cases(
+            CursorPaginationParams(limit=100), order_by="verdict", sort=sort
+        )
+
+        ranked = [false_positive.id, test_case.id]
+        if sort == "desc":
+            ranked.reverse()
+        assert [item.id for item in response.items] == [*ranked, unset.id]
 
     async def test_update_case_with_fields(
         self,
