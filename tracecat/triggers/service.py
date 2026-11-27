@@ -303,17 +303,15 @@ class TriggersService(BaseWorkspaceService):
     ) -> CursorPaginatedResponse[TriggerRead]:
         """List triggers newest first, each with its config and bindings.
 
-        Without ``schedule:read`` the ``schedule`` triggers are left out.
+        Kinds the caller may not read are left out (``_check_kind_readable``).
         ``source_id`` keeps triggers that read that source. ``workflow_id`` and
         ``agent_preset_id`` keep triggers with a binding to that target; every
         binding of a kept trigger is still returned. Besides the page itself,
         one query reads the page's bindings and one per kind reads settings.
         """
         statement = select(Trigger).where(Trigger.workspace_id == self.workspace_id)
-        if not self._can_read_schedules():
-            # A schedule's settings (inputs included) are as private as on
-            # /schedules.
-            statement = statement.where(Trigger.kind != TriggerKind.SCHEDULE.value)
+        if hidden := [k.value for k in TriggerKind if not await self._can_read(k)]:
+            statement = statement.where(Trigger.kind.not_in(hidden))
         if kind is not None:
             statement = statement.where(Trigger.kind == kind.value)
         if source_id is not None:
@@ -349,16 +347,13 @@ class TriggersService(BaseWorkspaceService):
     async def get_trigger(self, trigger_id: uuid.UUID) -> TriggerRead:
         """Get a trigger with its config and bindings.
 
-        A ``schedule`` trigger also needs ``schedule:read``, as on
-        ``/schedules``; ``list_triggers`` leaves them out without it.
-
         Raises:
+            EntitlementRequired: If the plan lacks the kind's feature.
             ScopeDeniedError: For a schedule, without ``schedule:read``.
             TriggerError: ``not_found`` if the workspace has no such trigger.
         """
         trigger = await self._get_trigger_row(trigger_id)
-        if trigger.kind == TriggerKind.SCHEDULE:
-            check_scopes(self.role, "schedule:read")
+        await self._check_kind_readable(TriggerKind(trigger.kind))
         (item,) = await self._read_triggers([trigger])
         return item
 
@@ -378,7 +373,9 @@ class TriggersService(BaseWorkspaceService):
                 this trigger kind, ``conflict`` if the workflow was never
                 saved.
         """
-        await self._check_kind_entitled(params.config.kind)
+        # Checked up front: the routes answer with the read view, and a write
+        # that commits and then fails to read back would look like a failure.
+        await self._check_kind_readable(params.config.kind)
         if isinstance(params.config, ScheduleTriggerConfig):
             return await self._create_schedule_trigger(params, params.config)
         trigger = Trigger(
@@ -423,7 +420,7 @@ class TriggersService(BaseWorkspaceService):
         """
         await self._lock_config()
         trigger = await self._get_trigger_row(trigger_id)
-        await self._check_kind_entitled(TriggerKind(trigger.kind))
+        await self._check_kind_readable(TriggerKind(trigger.kind))
         if params.config is not None and params.config.kind != trigger.kind:
             raise TriggerError(
                 TriggerErrorCode.INVALID, "A trigger's kind cannot change"
@@ -764,8 +761,29 @@ class TriggersService(BaseWorkspaceService):
 
     # ----- Helpers -----
 
-    def _can_read_schedules(self) -> bool:
-        return has_scope(self.role.scopes or frozenset(), "schedule:read")
+    async def _can_read(self, kind: TriggerKind) -> bool:
+        """Whether the caller may read triggers of ``kind`` at all.
+
+        A kind needs its plan feature, and a schedule needs ``schedule:read``:
+        its settings, inputs included, are as private as on ``/schedules``.
+        """
+        entitlement = ENTITLEMENT_BY_TRIGGER_KIND[kind]
+        if entitlement is not None and not await self.has_entitlement(entitlement):
+            return False
+        if kind == TriggerKind.SCHEDULE:
+            return has_scope(self.role.scopes or frozenset(), "schedule:read")
+        return True
+
+    async def _check_kind_readable(self, kind: TriggerKind) -> None:
+        """Require the kind's plan feature and, for schedules, ``schedule:read``.
+
+        Raises:
+            EntitlementRequired: If the organization lacks the feature (403).
+            ScopeDeniedError: For a schedule, without ``schedule:read``.
+        """
+        await self._check_kind_entitled(kind)
+        if kind == TriggerKind.SCHEDULE:
+            check_scopes(self.role, "schedule:read")
 
     async def _check_kind_entitled(self, kind: TriggerKind) -> None:
         """Require the plan feature of a trigger kind, if it has one.

@@ -6894,7 +6894,7 @@ async def _triggers_service(
     Checks, in order: the caller's workspace role, the event sources
     entitlement (``event_sources`` tools only, as on their routes), and the
     scopes. Trigger tools are open to every plan: the service checks each
-    trigger kind's entitlement on writes. Any error raised inside the block,
+    trigger kind's entitlement, and lists leave out the kinds the plan lacks. Any error raised inside the block,
     the tool's own included, reaches the client as a ``ToolError``.
     """
     try:

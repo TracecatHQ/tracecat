@@ -144,8 +144,10 @@ stored config whole. Submissions are not exposed over MCP.
 ## Trigger tools
 
 The event source tools need the `object_triggers` entitlement. The trigger
-tools are open to every plan; creating or changing a trigger needs its kind's
-entitlement (`object_triggers` for `object_storage`, none for `schedule`).
+tools are open to every plan; reading, creating or changing a trigger needs its
+kind's entitlement (`object_triggers` for `object_storage`, none for
+`schedule`), and `list_triggers` leaves out the kinds the plan lacks. A
+`schedule` trigger also needs `schedule:read` to be read or listed.
 Scopes: list and get tools need `trigger:read`; `create_event_source` and
 `create_trigger` need `trigger:create`; the update tools and
 `create_trigger_binding` need `trigger:update`. Anything that can make a target run also needs

@@ -23,9 +23,9 @@ SOURCE_KINDS_BY_TRIGGER_KIND: dict[TriggerKind, frozenset[EventSourceKind]] = {
 }
 
 # The plan feature each trigger kind needs, or None for a kind every plan has.
-# Creating, changing or deleting a trigger (or its bindings) checks its kind's
-# entry; reading does not. Entitlements are flat booleans, so a kind maps to
-# one flag.
+# Every read and write of a trigger (or its bindings) checks its kind's entry;
+# lists leave out the kinds the plan lacks. Entitlements are flat booleans, so
+# a kind maps to one flag.
 ENTITLEMENT_BY_TRIGGER_KIND: dict[TriggerKind, Entitlement | None] = {
     TriggerKind.OBJECT_STORAGE: Entitlement.OBJECT_TRIGGERS,
     TriggerKind.SCHEDULE: None,

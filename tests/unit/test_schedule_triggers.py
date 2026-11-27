@@ -685,6 +685,70 @@ async def test_schedules_need_no_entitlement_and_object_storage_does(
         )
 
 
+async def test_reads_hide_object_storage_triggers_without_the_plan(
+    monkeypatch: pytest.MonkeyPatch,
+    triggers: TriggersService,
+    workflow: SimpleNamespace,
+    temporal: _Temporal,
+) -> None:
+    """A plan downgrade keeps object storage triggers, and their agent
+    instructions, out of reads."""
+    entitled = True
+
+    async def _entitlement(entitlement: Entitlement) -> bool:
+        return entitled
+
+    monkeypatch.setattr(triggers, "has_entitlement", _entitlement)
+    source = await triggers.create_event_source(
+        EventSourceCreate(
+            name="bucket",
+            config=AwsSnsSourceConfig(
+                kind=EventSourceKind.AWS_SNS,
+                topic_arn=f"arn:aws:sns:us-east-1:123456789012:t{uuid.uuid4().hex}",
+            ),
+        )
+    )
+    uploads = await triggers.create_trigger(
+        TriggerCreate(
+            name="uploads",
+            config=ObjectStorageTriggerConfig(
+                kind=TriggerKind.OBJECT_STORAGE, source_id=source.id
+            ),
+        )
+    )
+    uploads_id = uploads.id
+    await triggers.create_trigger(TriggerCreate(name="s", config=_config(workflow)))
+
+    entitled = False
+
+    page = await triggers.list_triggers(PageParams(limit=10))
+    assert [item.kind for item in page.items] == [TriggerKind.SCHEDULE]
+    with pytest.raises(EntitlementRequired):
+        await triggers.get_trigger(uploads_id)
+
+
+async def test_a_schedule_write_without_schedule_read_is_refused_first(
+    session: AsyncSession,
+    svc_role: Role,
+    workflow: SimpleNamespace,
+    temporal: _Temporal,
+) -> None:
+    """The routes answer with the read view, so the write must not commit and
+    then fail to read back."""
+    scopes = (svc_role.scopes or frozenset()) - {
+        "schedule:read",
+        "schedule:update",
+        "schedule:delete",
+    }
+    writer = TriggersService(session, svc_role.model_copy(update={"scopes": scopes}))
+    assert "schedule:create" in scopes
+
+    with pytest.raises(ScopeDeniedError):
+        await writer.create_trigger(TriggerCreate(name="s", config=_config(workflow)))
+
+    assert temporal.created == []
+
+
 # ----- Listing -----
 
 
