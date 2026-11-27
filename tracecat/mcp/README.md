@@ -150,7 +150,8 @@ kind's entitlement (`object_triggers` for `object_storage`, `case_addons` for
 lacks and counts them in `locked` (kind, entitlement, count). A `schedule` trigger also needs `schedule:read` to be read or listed,
 a `webhook` trigger needs `workflow:read` (its `url` holds the webhook secret, as
 in `get_webhook`), and a `case_trigger` trigger needs `workflow:read` too (as in
-`get_case_trigger`).
+`get_case_trigger`). Forms are not triggers and `list_triggers` does not list
+them; `list_forms` does.
 Scopes: list and get tools need `trigger:read`; `create_event_source` and
 `create_trigger` need `trigger:create`; the update tools and
 `create_trigger_binding` need `trigger:update`. Anything that can make a target run also needs

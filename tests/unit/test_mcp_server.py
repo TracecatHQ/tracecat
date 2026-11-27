@@ -10267,6 +10267,22 @@ async def test_trigger_tools_are_registered_without_delete_tools() -> None:
     ]
 
 
+@pytest.mark.anyio
+async def test_list_triggers_sends_forms_to_list_forms() -> None:
+    """Forms are not triggers: list_triggers has no form kind and says so."""
+    tool = next(
+        tool
+        for tool in await mcp_server.mcp.list_tools()
+        if tool.name == "list_triggers"
+    )
+
+    kinds = tool.parameters["properties"]["kind"]["anyOf"][0]["enum"]
+    assert "form" not in kinds
+    assert tool.description is not None
+    assert "Forms are not listed here" in tool.description
+    assert "`list_forms`" in tool.description
+
+
 _EVENT_SOURCE_TOOLS = [
     name for name in _TRIGGER_TOOL_ARGUMENTS if "event_source" in name
 ]

@@ -7079,7 +7079,9 @@ async def list_triggers(
     request to `config.url`. Kind `case_trigger` is a workflow's case trigger
     (the one `get_case_trigger` shows), listed once it has been turned on or
     made a trigger with `create_trigger`: it runs its one bound workflow for
-    each case event in `config.event_types`.
+    each case event in `config.event_types`. Forms are not listed here, though
+    an online form starts its workflow on each submission: `list_forms` lists
+    them, and they are managed with the form tools only.
 
     Args:
         workspace_id: The workspace ID.
