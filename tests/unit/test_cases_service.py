@@ -1448,6 +1448,37 @@ class TestCasesService:
         ) == {benign.id}
         assert await _ids(Condition(field="verdict", op=FilterOp.IS_NULL)) == {unset.id}
 
+    @pytest.mark.parametrize("sort", ["asc", "desc"])
+    async def test_search_cases_sorts_unset_verdict_last(
+        self,
+        cases_service: CasesService,
+        case_create_params: CaseCreate,
+        sort: Literal["asc", "desc"],
+    ) -> None:
+        """Verdict sorts in OCSF order with unset verdicts last in both directions."""
+        unset = await cases_service.create_case(
+            case_create_params.model_copy(update={"summary": "Unset"})
+        )
+        false_positive = await cases_service.create_case(
+            case_create_params.model_copy(
+                update={"summary": "FP", "verdict": CaseVerdict.FALSE_POSITIVE}
+            )
+        )
+        test_case = await cases_service.create_case(
+            case_create_params.model_copy(
+                update={"summary": "Test", "verdict": CaseVerdict.TEST}
+            )
+        )
+
+        response = await cases_service.search_cases(
+            CursorPaginationParams(limit=100), order_by="verdict", sort=sort
+        )
+
+        ranked = [false_positive.id, test_case.id]
+        if sort == "desc":
+            ranked.reverse()
+        assert [item.id for item in response.items] == [*ranked, unset.id]
+
     async def test_update_case_with_fields(
         self,
         cases_service: CasesService,

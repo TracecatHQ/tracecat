@@ -54,5 +54,6 @@ def downgrade() -> None:
     # PostgreSQL cannot drop enum values, so VERDICT_CHANGED stays on
     # caseeventtype. The previous application version raises LookupError when
     # it loads case events recorded with it, so delete them before rolling back.
+    op.execute("DELETE FROM case_event WHERE type = 'VERDICT_CHANGED'")
     op.execute('ALTER TABLE "case" DROP COLUMN IF EXISTS verdict')
     op.execute("DROP TYPE IF EXISTS caseverdict")

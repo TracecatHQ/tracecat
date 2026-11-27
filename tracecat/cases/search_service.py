@@ -110,14 +110,20 @@ def parse_case_short_id(value: str) -> int | None:
     return None
 
 
-def _enum_sort_expr(column: Any, ordered_values: Sequence[str]) -> ColumnElement[int]:
-    """Build a SQL expression that sorts enum/text values by semantic order."""
+def _enum_sort_expr(
+    column: Any, ordered_values: Sequence[str], *, nullable: bool = False
+) -> ColumnElement[int]:
+    """Build a SQL expression that sorts enum/text values by semantic order.
+
+    With ``nullable``, unset values rank as NULL so they sort last in both
+    directions instead of after every value.
+    """
     return sa.case(
         *[
             (column == enum_value, index)
             for index, enum_value in enumerate(ordered_values)
         ],
-        else_=len(ordered_values),
+        else_=None if nullable else len(ordered_values),
     )
 
 
@@ -609,7 +615,7 @@ class CaseSearchService(BaseWorkspaceService):
             sort_attr = _enum_sort_expr(Case.severity, enum_sort_values)
         elif sort_column == "verdict":
             enum_sort_values = CASE_VERDICT_SORT_ORDER
-            sort_attr = _enum_sort_expr(Case.verdict, enum_sort_values)
+            sort_attr = _enum_sort_expr(Case.verdict, enum_sort_values, nullable=True)
         elif sort_column == "status":
             enum_sort_values = CASE_STATUS_SORT_ORDER
             sort_attr = _enum_sort_expr(Case.status, enum_sort_values)
