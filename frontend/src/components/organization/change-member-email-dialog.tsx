@@ -1,6 +1,12 @@
 "use client"
 
-import { type FormEvent, type MouseEvent, useEffect, useState } from "react"
+import {
+  type FormEvent,
+  type MouseEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react"
 import { type OrgMemberRead, organizationChangeOrgMemberEmail } from "@/client"
 import {
   AlertDialog,
@@ -66,6 +72,7 @@ export function ChangeMemberEmailDialog({
   const [email, setEmail] = useState("")
   const [touched, setTouched] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (open) {
@@ -112,7 +119,11 @@ export function ChangeMemberEmailDialog({
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setTouched(true)
-    if (error === null && member?.user_id) {
+    if (error !== null) {
+      inputRef.current?.focus()
+      return
+    }
+    if (member?.user_id) {
       setConfirming(true)
     }
   }
@@ -149,6 +160,7 @@ export function ChangeMemberEmailDialog({
             <div className="space-y-2">
               <Label htmlFor="member-new-email">New email</Label>
               <Input
+                ref={inputRef}
                 id="member-new-email"
                 type="email"
                 autoComplete="off"
