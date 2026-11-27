@@ -31,7 +31,8 @@ export function useFormTriggers(workspaceId: string) {
     enabled,
   })
   const listed = useMemo(
-    () => forms.filter((form) => form.workflow_id && form.workflow_title),
+    // The list nulls both workflow fields together; a title may be "".
+    () => forms.filter((form) => form.workflow_id != null),
     [forms]
   )
   // The plan check failed: whether forms exist is unknown, not "none".

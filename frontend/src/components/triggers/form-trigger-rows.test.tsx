@@ -310,6 +310,19 @@ describe("Forms in the Triggers tab", () => {
     ).toBeInTheDocument()
   })
 
+  it("lists a form whose workflow has an empty title", async () => {
+    jest.mocked(formsListForms).mockResolvedValue({
+      items: [{ ...FORM, workflow_title: "" }],
+      has_more: false,
+    })
+
+    renderWithClient(<WorkspaceTriggers />)
+
+    expect(
+      await screen.findByRole("link", { name: /Report phishing/ })
+    ).toBeInTheDocument()
+  })
+
   it("keeps the triggers when forms fail to load", async () => {
     jest.mocked(formsListForms).mockRejectedValue(new Error("boom"))
 
