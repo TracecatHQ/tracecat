@@ -42,7 +42,7 @@ Tracecat never reads your bucket on ingest. The triggered workflow or agent fetc
 
 Tracecat confirms the subscription by itself through the SNS `ConfirmSubscription` API. The source shows the subscription as `confirmed` when it is done.
 
-A source created from the Triggers tab starts online, so it queues events as soon as the subscription is confirmed. A source created through the API or the MCP server starts offline unless you create it online; turn it online to start queuing events.
+A source created from the Triggers tab starts online, so it queues events as soon as the subscription is confirmed. A source created through the API or the MCP server starts offline unless you create it online; turn it online to start queuing events. Turning a source online when it already has online workflow or agent triggers also needs the `workflow:execute` or `agent:execute` scope for their targets.
 
 `confirmed` reflects the last confirmation message SNS sent to Tracecat. It is not a live check of the subscription. If you delete the subscription in AWS, SNS may not notify Tracecat, and the source keeps showing `confirmed` until a new subscription is confirmed.
 

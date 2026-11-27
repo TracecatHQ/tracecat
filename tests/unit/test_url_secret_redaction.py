@@ -45,7 +45,8 @@ WEBHOOK_SECRET = "synthetic-webhook-secret-0123456789"
 INVITATION_TOKEN = "synthetic-invitation-token-0123456789"
 WORKFLOW_ID = "wf_0zLWumDDdMzepLBrQIOwpD"
 STATE_VALUE = "synthetic-signed-state-0123456789"
-SECRETS = (INGEST_TOKEN, WEBHOOK_SECRET, INVITATION_TOKEN, STATE_VALUE)
+CODE_VALUE = "synthetic-code-0123456789"
+SECRETS = (INGEST_TOKEN, WEBHOOK_SECRET, INVITATION_TOKEN, STATE_VALUE, CODE_VALUE)
 
 INGEST_PATH = f"/ingest/sns/{INGEST_TOKEN}"
 WEBHOOK_PATH = f"/webhooks/{WORKFLOW_ID}/{WEBHOOK_SECRET}?state={STATE_VALUE}"
@@ -138,13 +139,13 @@ def _captured_loguru() -> Generator[list[str]]:
             id="channel-link-callback",
         ),
         pytest.param(
-            f"/agent/channel-links/callback?code=synthetic-code&state={STATE_VALUE}",
+            f"/agent/channel-links/callback?code={CODE_VALUE}&state={STATE_VALUE}",
             "/agent/channel-links/callback"
             f"?code={REDACTED_URL_SECRET}&state={REDACTED_URL_SECRET}",
             id="callback-query",
         ),
         pytest.param(
-            f"/agent/channel-links/callback?co%64e=synthetic-code&st%61te={STATE_VALUE}",
+            f"/agent/channel-links/callback?co%64e={CODE_VALUE}&st%61te={STATE_VALUE}",
             "/agent/channel-links/callback"
             f"?co%64e={REDACTED_URL_SECRET}&st%61te={REDACTED_URL_SECRET}",
             id="encoded-query-names",
@@ -434,9 +435,7 @@ def test_errors_on_routes_with_credential_query_params_do_not_escape(
     route: str,
 ) -> None:
     with _captured_loguru() as lines:
-        response = TestClient(app).get(
-            f"{route}?code=synthetic-code&state={STATE_VALUE}"
-        )
+        response = TestClient(app).get(f"{route}?code={CODE_VALUE}&state={STATE_VALUE}")
     assert response.status_code == 500
     _assert_no_secret(lines)
 
