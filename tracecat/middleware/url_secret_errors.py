@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import traceback
+
 from fastapi import status
 from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -20,8 +22,8 @@ class URLSecretErrorMiddleware:
     records it on the span. For a URL that carries a secret the error text can
     contain it: a failed lookup echoes its bound parameters, the token among
     them. This middleware sits inside that layer and, for those URLs only,
-    logs the error type, reports the error to Sentry (which drops exception
-    text) and answers the same 500 body without re-raising.
+    logs the error type and stack frames, reports the error to Sentry (which
+    drops exception text) and answers the same 500 body without re-raising.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -52,6 +54,9 @@ class URLSecretErrorMiddleware:
             logger.error(
                 "Unexpected error",
                 error_type=type(exc).__name__,
+                # Frames only (file, line, function, source): the error text
+                # is left out because it can echo the secret.
+                frames="".join(traceback.format_tb(exc.__traceback__)),
                 role=ctx_role.get(),
                 path=redacted_path,
             )

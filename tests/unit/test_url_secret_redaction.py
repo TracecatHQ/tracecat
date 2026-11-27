@@ -148,6 +148,11 @@ def _captured_loguru() -> Generator[list[str]]:
             id="encoded-query-names",
         ),
         pytest.param(
+            f"/agent/channel-links/callback?x='&state={STATE_VALUE}",
+            f"/agent/channel-links/callback?x='&state={REDACTED_URL_SECRET}",
+            id="quote-before-secret",
+        ),
+        pytest.param(
             "/cases?postcode=12345", "/cases?postcode=12345", id="query-other"
         ),
         pytest.param("/workflows/wf_1/webhook", "/workflows/wf_1/webhook", id="other"),
@@ -362,12 +367,18 @@ def test_secret_url_errors_do_not_escape_the_app(
     # raise_server_exceptions=True fails the test if the error is re-raised
     # to the server, where uvicorn and OTel would record its text.
     with _captured_loguru() as lines:
-        response = TestClient(app).post(INGEST_PATH, content=b"{}")
+        response = TestClient(app).post(
+            INGEST_PATH, content=b"{}", headers={"Origin": "https://example.com"}
+        )
     assert response.status_code == 500
     assert response.json() == {
         "message": "An unexpected error occurred. Please try again later."
     }
     _assert_no_secret(lines)
+    assert any("lookup_fails" in line for line in lines), "expected stack frames"
+    # The 500 still passes through the outer layers (CORS here; the security
+    # headers sit beside it outside development).
+    assert "access-control-allow-origin" in response.headers
 
 
 def test_filter_redacts_mapping_args() -> None:

@@ -1064,6 +1064,10 @@ def create_app(**kwargs) -> FastAPI:
     _install_scim_exception_handlers(app)
 
     # Middleware
+    # Innermost, so it catches errors on secret-bearing URLs before Starlette's
+    # server-error layer re-raises them to uvicorn, and its 500 still passes
+    # through the security-header and CORS layers.
+    app.add_middleware(URLSecretErrorMiddleware)
     app.add_middleware(RequestLoggingMiddleware)
     if config.TRACECAT__APP_ENV != "development":
         app.add_middleware(SecurityHeadersMiddleware)
@@ -1080,9 +1084,6 @@ def create_app(**kwargs) -> FastAPI:
     app.add_middleware(
         CancelOnDisconnectMiddleware, path_suffixes=CASE_SEARCH_PATH_SUFFIXES
     )
-    # Outermost of the app's middleware, so it catches errors on secret-bearing
-    # URLs before Starlette's server-error layer re-raises them to uvicorn.
-    app.add_middleware(URLSecretErrorMiddleware)
     instrument_fastapi_app(app, service_name="tracecat-api")
 
     logger.info(
