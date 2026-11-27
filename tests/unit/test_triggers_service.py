@@ -14,6 +14,7 @@ from tracecat.db.models import (
     AgentPreset,
     ObjectStorageTrigger,
     Trigger,
+    TriggerBinding,
     Workflow,
     Workspace,
 )
@@ -487,6 +488,78 @@ async def test_list_triggers_filters_and_returns_bindings_in_one_page(
     assert [t.id for t in by_source.items] == [to_agent]
     by_kind = await service.list_triggers(PageParams(), kind=TriggerKind.OBJECT_STORAGE)
     assert len(by_kind.items) == 3
+
+
+async def test_rows_of_a_kind_this_version_does_not_know_are_skipped(
+    service: TriggersService,
+    session: AsyncSession,
+    svc_workspace: Workspace,
+    workflow: Workflow,
+) -> None:
+    """A newer version's kind (rolling deploy, rollback) never fails a read."""
+    known = await _trigger(service)
+    future = Trigger(
+        id=uuid.uuid4(),
+        workspace_id=svc_workspace.id,
+        kind="future_kind",
+        name="from a newer version",
+        status=TriggerStatus.ONLINE.value,
+    )
+    session.add(future)
+    await session.flush()
+    binding = TriggerBinding(
+        workspace_id=svc_workspace.id,
+        trigger_id=future.id,
+        target_type=TriggerTargetType.WORKFLOW.value,
+        workflow_id=workflow.id,
+        status=TriggerStatus.ONLINE.value,
+    )
+    session.add(binding)
+    await session.commit()
+    future_id, binding_id, workflow_id = future.id, binding.id, workflow.id
+
+    page = await service.list_triggers(PageParams(limit=1))
+    assert [t.id for t in page.items] == [known]
+    assert not page.has_more
+    by_workflow = await service.list_triggers(
+        PageParams(), workflow_id=WorkflowUUID.new(workflow.id)
+    )
+    assert by_workflow.items == []
+
+    workflow_target = WorkflowBindingTarget(
+        type=TriggerTargetType.WORKFLOW, workflow_id=WorkflowUUID.new(workflow.id)
+    )
+    for call in (
+        service.get_trigger(future_id),
+        service.update_trigger(future_id, TriggerUpdate(name="x")),
+        service.delete_trigger(future_id),
+        service.create_binding(future_id, TriggerBindingCreate(target=workflow_target)),
+        service.update_binding(
+            future_id, binding_id, TriggerBindingUpdate(status=TriggerStatus.OFFLINE)
+        ),
+        service.delete_binding(future_id, binding_id),
+    ):
+        with pytest.raises(TriggerError) as exc:
+            await call
+        assert exc.value.code is TriggerErrorCode.NOT_FOUND
+
+    # Left as the newer version wrote it.
+    stored = await session.execute(
+        select(Trigger.name, Trigger.kind, Trigger.status).where(
+            Trigger.id == future_id
+        )
+    )
+    assert stored.tuples().all() == [
+        ("from a newer version", "future_kind", TriggerStatus.ONLINE.value)
+    ]
+    kept = await session.execute(
+        select(
+            TriggerBinding.id, TriggerBinding.workflow_id, TriggerBinding.status
+        ).where(TriggerBinding.trigger_id == future_id)
+    )
+    assert kept.tuples().all() == [
+        (binding_id, workflow_id, TriggerStatus.ONLINE.value)
+    ]
 
 
 async def test_making_a_binding_live_needs_the_right_to_run_its_target(

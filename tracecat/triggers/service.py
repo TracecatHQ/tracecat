@@ -91,6 +91,13 @@ _UQ_BINDING_WORKFLOW = "uq_trigger_binding_trigger_id_workflow_id"
 _UQ_BINDING_AGENT = "uq_trigger_binding_trigger_id_agent_preset_id"
 
 
+# A newer version may have written rows of a kind this one does not know
+# (during a rolling deploy, or after an app-only rollback). Every read of the
+# ``trigger`` table keeps to these kinds, so such rows are left out of lists
+# and answer not found, instead of failing in ``TriggerKind(...)``.
+_KNOWN_KINDS = tuple(kind.value for kind in TriggerKind)
+
+
 def _not_found(what: str) -> TriggerError:
     return TriggerError(TriggerErrorCode.NOT_FOUND, f"{what} not found")
 
@@ -303,15 +310,17 @@ class TriggersService(BaseWorkspaceService):
     ) -> CursorPaginatedResponse[TriggerRead]:
         """List triggers newest first, each with its config and bindings.
 
-        Kinds the caller may not read are left out (``_check_kind_readable``).
-        ``source_id`` keeps triggers that read that source. ``workflow_id`` and
-        ``agent_preset_id`` keep triggers with a binding to that target; every
-        binding of a kept trigger is still returned. Besides the page itself,
-        one query reads the page's bindings and one per kind reads settings.
+        Kinds the caller may not read (``_check_kind_readable``) and kinds
+        this version does not know are left out. ``source_id`` keeps triggers
+        that read that source. ``workflow_id`` and ``agent_preset_id`` keep
+        triggers with a binding to that target; every binding of a kept
+        trigger is still returned. Besides the page itself, one query reads
+        the page's bindings and one per kind reads settings.
         """
-        statement = select(Trigger).where(Trigger.workspace_id == self.workspace_id)
-        if hidden := [k.value for k in TriggerKind if not await self._can_read(k)]:
-            statement = statement.where(Trigger.kind.not_in(hidden))
+        readable = [k.value for k in TriggerKind if await self._can_read(k)]
+        statement = select(Trigger).where(
+            Trigger.workspace_id == self.workspace_id, Trigger.kind.in_(readable)
+        )
         if kind is not None:
             statement = statement.where(Trigger.kind == kind.value)
         if source_id is not None:
@@ -896,9 +905,12 @@ class TriggersService(BaseWorkspaceService):
         ]
 
     async def _get_trigger_row(self, trigger_id: uuid.UUID) -> Trigger:
+        """Get a trigger row of a kind this version knows (``_KNOWN_KINDS``)."""
         trigger = await self.session.scalar(
             select(Trigger).where(
-                Trigger.workspace_id == self.workspace_id, Trigger.id == trigger_id
+                Trigger.workspace_id == self.workspace_id,
+                Trigger.id == trigger_id,
+                Trigger.kind.in_(_KNOWN_KINDS),
             )
         )
         if trigger is None:
