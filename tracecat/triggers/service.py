@@ -12,6 +12,11 @@ through bindings, that binding cannot be added to, changed or removed.
 A ``webhook`` trigger is a workflow's webhook: its settings are the
 ``webhook`` row, which ``tracecat.webhooks.service`` writes with the trigger
 row and binding. Its binding is fixed the same way.
+
+A ``case_trigger`` trigger is a workflow's case trigger: its settings are the
+``case_trigger`` row, which ``CaseTriggersService`` writes with the trigger
+row and binding. Its binding is fixed the same way, and the kind needs the
+``case_addons`` plan feature.
 """
 
 from __future__ import annotations
@@ -33,6 +38,7 @@ from tracecat.db.errors import is_unique_violation
 from tracecat.db.locks import derive_lock_key_from_parts, pg_advisory_xact_lock
 from tracecat.db.models import (
     AgentPreset,
+    CaseTrigger,
     EventSource,
     ObjectStorageTrigger,
     Schedule,
@@ -46,6 +52,7 @@ from tracecat.exceptions import (
     EntitlementRequired,
     TracecatConflictError,
     TracecatNotFoundError,
+    TracecatValidationError,
 )
 from tracecat.identifiers.schedules import ScheduleUUID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
@@ -64,6 +71,8 @@ from tracecat.triggers.exceptions import TriggerError
 from tracecat.triggers.schemas import (
     AgentBindingTarget,
     AwsSnsSourceConfig,
+    CaseEventTriggerConfig,
+    CaseEventTriggerConfigRead,
     EventSourceConfig,
     EventSourceCreate,
     EventSourceRead,
@@ -94,6 +103,8 @@ from tracecat.triggers.types import (
 )
 from tracecat.webhooks import service as webhook_service
 from tracecat.webhooks.schemas import WebhookApiKeyRead, WebhookUpdate
+from tracecat.workflow.case_triggers.schemas import CaseTriggerUpdate
+from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.schedules.schemas import ScheduleCreate, ScheduleUpdate
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
@@ -126,17 +137,25 @@ _WEBHOOK_TARGET_FIXED = (
     " added, changed or removed. Use the webhook of the other workflow"
     " instead."
 )
+_CASE_TRIGGER_TARGET_FIXED = (
+    "A case trigger runs its own workflow only, so its target cannot be"
+    " added, changed or removed. Use the case trigger of the other workflow"
+    " instead."
+)
 _FIXED_TARGET_BY_KIND: dict[TriggerKind, str] = {
     TriggerKind.SCHEDULE: _SCHEDULE_TARGET_FIXED,
     TriggerKind.WEBHOOK: _WEBHOOK_TARGET_FIXED,
+    TriggerKind.CASE_TRIGGER: _CASE_TRIGGER_TARGET_FIXED,
 }
 
 # The scope a kind's settings need to be read, on top of ``trigger:read``: the
 # same as on the kind's own routes. A webhook's URL holds its secret, and
-# ``workflow:read`` is what shows it on the workflow page.
+# ``workflow:read`` is what shows it on the workflow page; the same scope shows
+# a workflow's case trigger there.
 _READ_SCOPE_BY_KIND: dict[TriggerKind, str] = {
     TriggerKind.SCHEDULE: "schedule:read",
     TriggerKind.WEBHOOK: "workflow:read",
+    TriggerKind.CASE_TRIGGER: "workflow:read",
 }
 
 
@@ -425,17 +444,21 @@ class TriggersService(BaseWorkspaceService):
         A ``schedule`` trigger is created with its schedule and bound to the
         schedule's workflow; see ``_create_schedule_trigger``. A ``webhook``
         trigger is the workflow's existing webhook, given these settings and
-        bound to the workflow; see ``_create_webhook_trigger``.
+        bound to the workflow; see ``_create_webhook_trigger``. A
+        ``case_trigger`` trigger is the workflow's existing case trigger, the
+        same way; see ``_create_case_trigger_trigger``.
 
         Raises:
             EntitlementRequired: If the plan lacks the kind's feature.
             ScopeDeniedError: For a schedule, without ``schedule:create`` or
-                ``workflow:execute``; for a webhook, without
+                ``workflow:execute``; for a webhook or case trigger, without
                 ``workflow:update`` or ``workflow:execute``.
-            TriggerError: ``not_found`` if the source or workflow is not in
-                the workspace, ``invalid`` if the source's kind cannot feed
-                this trigger kind, ``conflict`` if the workflow was never
-                saved (schedule) or its webhook already is a trigger.
+            TriggerError: ``not_found`` if the source, workflow or a case tag
+                is not in the workspace, ``invalid`` if the source's kind
+                cannot feed this trigger kind or a case trigger cannot go
+                online, ``conflict`` if the workflow was never saved
+                (schedule) or its webhook or case trigger already is a
+                trigger.
         """
         # Checked up front: the routes answer with the read view, and a write
         # that commits and then fails to read back would look like a failure.
@@ -444,6 +467,8 @@ class TriggersService(BaseWorkspaceService):
             return await self._create_schedule_trigger(params, params.config)
         if isinstance(params.config, WebhookTriggerConfig):
             return await self._create_webhook_trigger(params, params.config)
+        if isinstance(params.config, CaseEventTriggerConfig):
+            return await self._create_case_trigger_trigger(params, params.config)
         trigger = Trigger(
             id=uuid.uuid4(),
             workspace_id=self.workspace_id,
@@ -477,15 +502,17 @@ class TriggersService(BaseWorkspaceService):
         (as ``POST /schedules/{id}`` does), which needs ``schedule:update``.
         For a ``webhook`` trigger they go to its webhook (as
         ``PATCH /workflows/{id}/webhook`` does), which needs
-        ``workflow:update``.
+        ``workflow:update``; for a ``case_trigger`` trigger, to its case
+        trigger (as ``PATCH /workflows/{id}/case-trigger`` does), the same.
 
         Raises:
             EntitlementRequired: If the plan lacks the kind's feature.
             ScopeDeniedError: If the change needs the right to run a bound
                 target and the caller lacks it.
             TriggerError: ``not_found``, or ``invalid`` if the config is of
-                another kind, names a source that cannot feed it, or moves a
-                schedule or webhook to another workflow.
+                another kind, names a source that cannot feed it, moves a
+                schedule, webhook or case trigger to another workflow, or
+                would put a case trigger online without event types.
         """
         await self._lock_config()
         trigger = await self._get_trigger_row(trigger_id)
@@ -513,6 +540,11 @@ class TriggersService(BaseWorkspaceService):
                 # and webhook before it writes the trigger row, and commits.
                 await self._update_webhook_trigger(trigger, params)
                 return trigger
+            if trigger.kind == TriggerKind.CASE_TRIGGER:
+                # As for webhooks: the case trigger service locks the
+                # workflow before it writes the trigger row, and commits.
+                await self._update_case_trigger_trigger(trigger, params)
+                return trigger
             if params.name is not None:
                 trigger.name = params.name
             if params.status is not None:
@@ -534,8 +566,9 @@ class TriggersService(BaseWorkspaceService):
 
         Deleting a ``schedule`` trigger deletes its schedule, Temporal
         schedule included, and needs ``schedule:delete``. Deleting a
-        ``webhook`` trigger turns the webhook offline and keeps it (every
-        workflow has one), and needs ``workflow:update``.
+        ``webhook`` or ``case_trigger`` trigger turns the webhook or case
+        trigger offline and keeps it (every workflow has one), and needs
+        ``workflow:update``.
 
         Raises:
             EntitlementRequired: If the plan lacks the kind's feature.
@@ -563,6 +596,20 @@ class TriggersService(BaseWorkspaceService):
                 await webhook_service.delete_trigger_webhook(
                     role=self.role, session=self.session, trigger_id=trigger.id
                 )
+            except TracecatNotFoundError as e:
+                await self.session.rollback()
+                raise _not_found("Trigger") from e
+            except BaseException:
+                await self.session.rollback()
+                raise
+            return
+        if trigger.kind == TriggerKind.CASE_TRIGGER:
+            try:
+                # Commits. Turns the case trigger offline and deletes the
+                # trigger row; the case trigger stays.
+                await CaseTriggersService(
+                    self.session, self.role
+                ).delete_trigger_case_trigger(trigger.id)
             except TracecatNotFoundError as e:
                 await self.session.rollback()
                 raise _not_found("Trigger") from e
@@ -723,11 +770,91 @@ class TriggersService(BaseWorkspaceService):
         except TracecatConflictError as e:
             raise TriggerError(TriggerErrorCode.CONFLICT, str(e)) from e
 
+    async def _create_case_trigger_trigger(
+        self, params: TriggerCreate, config: CaseEventTriggerConfig
+    ) -> Trigger:
+        """Make the workflow's case trigger a trigger, with its trigger row
+        and binding.
+
+        The case trigger service writes all three. Changing a case trigger
+        needs ``workflow:update``, as on the workflow page; the binding makes
+        every matching case event run the workflow, so it also needs
+        ``workflow:execute``.
+        """
+        _check_can_run(self.role, TriggerTargetType.WORKFLOW)
+        case_triggers = CaseTriggersService(self.session, self.role)
+        try:
+            case_trigger = await case_triggers.create_trigger_case_trigger(
+                WorkflowUUID.new(config.workflow_id),
+                # The case trigger already exists and may be live: only a
+                # status the caller gave changes it, never the default.
+                _case_trigger_update(
+                    config,
+                    params.status if "status" in params.model_fields_set else None,
+                ),
+                trigger_name=params.name,
+            )
+        except TracecatNotFoundError as e:
+            await self.session.rollback()
+            raise TriggerError(TriggerErrorCode.NOT_FOUND, str(e)) from e
+        except TracecatConflictError as e:
+            await self.session.rollback()
+            raise TriggerError(TriggerErrorCode.CONFLICT, str(e)) from e
+        except TracecatValidationError as e:
+            await self.session.rollback()
+            raise TriggerError(TriggerErrorCode.INVALID, str(e)) from e
+        except BaseException:
+            await self.session.rollback()
+            raise
+        if case_trigger.trigger_id is None:
+            raise RuntimeError(
+                f"Case trigger {case_trigger.id} was saved without a trigger"
+            )
+        return await self._get_trigger_row(case_trigger.trigger_id)
+
+    async def _update_case_trigger_trigger(
+        self, trigger: Trigger, params: TriggerUpdate
+    ) -> None:
+        """Send a trigger update to its case trigger, which commits it.
+
+        A config sets the case trigger settings it names; its workflow must
+        stay the case trigger's. The case trigger service also writes the
+        name and status to the trigger row.
+        """
+        status = params.status
+        if isinstance(params.config, CaseEventTriggerConfig):
+            workflow_id = await self.session.scalar(
+                select(CaseTrigger.workflow_id).where(
+                    CaseTrigger.workspace_id == self.workspace_id,
+                    CaseTrigger.trigger_id == trigger.id,
+                )
+            )
+            if workflow_id != WorkflowUUID.new(params.config.workflow_id):
+                raise TriggerError(
+                    TriggerErrorCode.INVALID,
+                    "A case trigger's workflow cannot change. Use the other"
+                    " workflow's case trigger instead.",
+                )
+            update = _case_trigger_update(params.config, status)
+        else:
+            update = CaseTriggerUpdate.model_validate(
+                {"status": status.value} if status is not None else {}
+            )
+        try:
+            await CaseTriggersService(
+                self.session, self.role
+            ).update_trigger_case_trigger(trigger.id, update, trigger_name=params.name)
+        except TracecatNotFoundError as e:
+            raise TriggerError(TriggerErrorCode.NOT_FOUND, str(e)) from e
+        except TracecatValidationError as e:
+            raise TriggerError(TriggerErrorCode.INVALID, str(e)) from e
+
     async def _write_config(self, trigger: Trigger, config: TriggerConfig) -> None:
         """Insert or replace the kind's settings row of ``trigger``.
 
-        Schedules and webhooks are written by their own services instead
-        (``_create_schedule_trigger``, ``_create_webhook_trigger`` and the
+        Schedules, webhooks and case triggers are written by their own
+        services instead (``_create_schedule_trigger``,
+        ``_create_webhook_trigger``, ``_create_case_trigger_trigger`` and the
         matching updates).
         """
         match config:
@@ -749,6 +876,8 @@ class TriggersService(BaseWorkspaceService):
                 raise TypeError("The schedule service writes schedule settings")
             case WebhookTriggerConfig():
                 raise TypeError("The webhook service writes webhook settings")
+            case CaseEventTriggerConfig():
+                raise TypeError("The case trigger service writes case triggers")
 
     async def _read_configs(
         self, triggers: Sequence[Trigger]
@@ -809,6 +938,18 @@ class TriggersService(BaseWorkspaceService):
                     for webhook in webhooks:
                         if webhook.trigger_id is not None:
                             configs[webhook.trigger_id] = _webhook_config(webhook)
+                case TriggerKind.CASE_TRIGGER:
+                    case_triggers = await self.session.scalars(
+                        select(CaseTrigger).where(
+                            CaseTrigger.workspace_id == self.workspace_id,
+                            CaseTrigger.trigger_id.in_(trigger_ids),
+                        )
+                    )
+                    for case_trigger in case_triggers:
+                        if case_trigger.trigger_id is not None:
+                            configs[case_trigger.trigger_id] = _case_trigger_config(
+                                case_trigger
+                            )
         return configs
 
     # ----- Bindings -----
@@ -824,8 +965,8 @@ class TriggersService(BaseWorkspaceService):
             ScopeDeniedError: If the caller may not run the target.
             TriggerError: ``not_found`` if the trigger or target is not in the
                 workspace, ``conflict`` if the trigger already has that target,
-                ``invalid`` for a ``schedule`` or ``webhook`` trigger, whose
-                one target is fixed.
+                ``invalid`` for a ``schedule``, ``webhook`` or ``case_trigger``
+                trigger, whose one target is fixed.
         """
         _check_can_run(self.role, params.target.type)
         await self._lock_config()
@@ -880,8 +1021,8 @@ class TriggersService(BaseWorkspaceService):
                 and the caller lacks it.
             EntitlementRequired: If the plan lacks the trigger kind's feature.
             TriggerError: ``not_found``, or ``invalid`` for an instruction on a
-                workflow binding or for any change to a ``schedule`` or
-                ``webhook`` trigger's binding.
+                workflow binding or for any change to a ``schedule``,
+                ``webhook`` or ``case_trigger`` trigger's binding.
         """
         await self._lock_config()
         binding = await self._get_binding_row(trigger_id, binding_id)
@@ -911,8 +1052,8 @@ class TriggersService(BaseWorkspaceService):
         Raises:
             EntitlementRequired: If the plan lacks the trigger kind's feature.
             TriggerError: ``not_found`` if the trigger has no such binding,
-                ``invalid`` for a ``schedule`` or ``webhook`` trigger, whose
-                one target is fixed.
+                ``invalid`` for a ``schedule``, ``webhook`` or ``case_trigger``
+                trigger, whose one target is fixed.
         """
         await self._get_binding_row(trigger_id, binding_id)
         await self._check_bindings_editable(await self._get_trigger_row(trigger_id))
@@ -1210,6 +1351,40 @@ def _webhook_config(webhook: Webhook) -> WebhookTriggerConfigRead:
             if api_key is not None
             else None
         ),
+    )
+
+
+def _case_trigger_update(
+    config: CaseEventTriggerConfig, status: TriggerStatus | None
+) -> CaseTriggerUpdate:
+    """A case trigger config as a case trigger update: the settings the
+    caller gave, and the status when one is given.
+
+    Settings left out keep the case trigger's saved values.
+    """
+    values: dict[str, Any] = config.model_dump(
+        exclude={"kind", "workflow_id"}, exclude_unset=True
+    )
+    if status is not None:
+        values["status"] = status.value
+    return CaseTriggerUpdate.model_validate(values)
+
+
+def _case_trigger_config(case_trigger: CaseTrigger) -> CaseEventTriggerConfigRead:
+    """The trigger view of a case trigger row.
+
+    Only callers with ``workflow:read`` and ``case_addons`` get here
+    (``_READ_SCOPE_BY_KIND``, ``ENTITLEMENT_BY_TRIGGER_KIND``), the same
+    callers ``GET /workflows/{id}/case-trigger`` answers.
+    """
+    return CaseEventTriggerConfigRead.model_validate(
+        {
+            "kind": TriggerKind.CASE_TRIGGER,
+            "workflow_id": WorkflowUUID.new(case_trigger.workflow_id),
+            "case_trigger_id": case_trigger.id,
+            "event_types": list(case_trigger.event_types or []),
+            "tag_filters": list(case_trigger.tag_filters or []),
+        }
     )
 
 

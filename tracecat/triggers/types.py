@@ -30,6 +30,7 @@ ENTITLEMENT_BY_TRIGGER_KIND: dict[TriggerKind, Entitlement | None] = {
     TriggerKind.OBJECT_STORAGE: Entitlement.OBJECT_TRIGGERS,
     TriggerKind.SCHEDULE: None,
     TriggerKind.WEBHOOK: None,
+    TriggerKind.CASE_TRIGGER: Entitlement.CASE_ADDONS,
 }
 
 # Binding a target means every matching event runs it, so the caller needs

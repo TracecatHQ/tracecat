@@ -133,13 +133,15 @@ _MIGRATIONS = Path(__file__).resolve().parents[1] / "alembic" / "versions"
 TRIGGER_SYNC_MIGRATIONS = (
     _MIGRATIONS / "61ebd010e726_link_schedules_to_triggers.py",
     _MIGRATIONS / "fa8c621ea06a_link_webhooks_to_triggers.py",
+    _MIGRATIONS / "9620041994d1_link_case_triggers_to_triggers.py",
 )
 
 
 def _install_trigger_sync(conn: Any) -> None:
     """Install the production triggers that keep trigger rows in step.
 
-    One per trigger kind with its own settings table (schedules, webhooks).
+    One per trigger kind with its own settings table (schedules, webhooks,
+    case triggers).
     The SQL comes from the migrations that define them, as for the MCP token
     revoker below.
     """
