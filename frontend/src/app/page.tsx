@@ -14,7 +14,11 @@ export default function HomePage() {
     if (userIsLoading) {
       return
     }
-    router.replace(user ? getPostAuthRedirectPath({}) : "/sign-in")
+    if (user) {
+      router.push(getPostAuthRedirectPath({}))
+    } else {
+      router.replace("/sign-in")
+    }
   }, [user, router, userIsLoading])
 
   return <CenteredSpinner />
