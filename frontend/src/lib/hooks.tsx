@@ -721,6 +721,10 @@ export function useUpsertCaseTrigger(workspaceId: string, workflowId: string) {
       queryClient.invalidateQueries({
         queryKey: ["case-trigger", workspaceId, workflowId],
       })
+      // A case trigger that has been turned on also shows in the Triggers tab.
+      queryClient.invalidateQueries({
+        queryKey: triggersQueryKey(workspaceId),
+      })
     },
     onError: (error) => {
       console.error("Failed to update case trigger:", error)

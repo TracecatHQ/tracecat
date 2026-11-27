@@ -175,6 +175,8 @@ class SessionTurnContext:
     author_id: UUID | None = None
     # The run that first sent a retried prompt; None for a new message.
     prompt_run_id: UUID | None = None
+    # The trigger that sent the prompt, set on the turn as TracecatTriggerId.
+    trigger_id: UUID | None = None
 
 
 @runtime_checkable

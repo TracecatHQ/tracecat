@@ -11,6 +11,7 @@ import base64
 import csv
 import hashlib
 import json
+import logging
 import re
 import uuid
 from collections import defaultdict, deque
@@ -31,6 +32,7 @@ from typing import (
     Any,
     Literal,
     NamedTuple,
+    NotRequired,
     TypedDict,
     cast,
     get_args,
@@ -40,7 +42,6 @@ import orjson
 import yaml
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
-from fastmcp.server.middleware.logging import LoggingMiddleware
 from fastmcp.server.middleware.rate_limiting import RateLimitingMiddleware
 from google.protobuf.json_format import MessageToDict
 from pydantic import (
@@ -248,8 +249,10 @@ from tracecat.mcp.json_patch import apply_json_patch_operations
 from tracecat.mcp.middleware import (
     MCPErrorHandlingMiddleware,
     MCPInputSizeLimitMiddleware,
+    MCPLoggingMiddleware,
     MCPRequestAuditMiddleware,
     MCPTimeoutMiddleware,
+    ToolRefusalLogFilter,
     WatchtowerMonitorMiddleware,
     get_mcp_client_id,
 )
@@ -325,6 +328,12 @@ from tracecat.tiers.service import OrgLimitsService
 from tracecat.triggers.dependencies import TRIGGERS_ENTITLEMENT
 from tracecat.triggers.enums import TriggerKind, TriggerStatus
 from tracecat.triggers.exceptions import TriggerError
+from tracecat.triggers.runs.schemas import (
+    TriggerRunOrigin,
+    TriggerRunRead,
+    TriggerStoppedEventRead,
+)
+from tracecat.triggers.runs.service import TriggerRunsService
 from tracecat.triggers.schemas import (
     BindingTarget,
     EventSourceConfig,
@@ -2793,8 +2802,10 @@ mcp.add_middleware(
     MCPErrorHandlingMiddleware(include_traceback=False, transform_errors=True)
 )
 mcp.add_middleware(
-    LoggingMiddleware(methods=["tools/call"], include_payload_length=True)
+    MCPLoggingMiddleware(methods=["tools/call"], include_payload_length=True)
 )
+# FastMCP logs a tool's refusal itself, before the middleware above sees it.
+logging.getLogger("fastmcp.server.server").addFilter(ToolRefusalLogFilter())
 
 
 # ---------------------------------------------------------------------------
@@ -4607,6 +4618,10 @@ async def edit_workflow(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `PATCH /workflows/{id}/draft`. The edit document is
+        # written directly, not through a scoped service method, and it holds
+        # the definition, schedules and case trigger.
+        check_scopes(role, "workflow:update")
         wf_id = WorkflowUUID.new(workflow_id)
         request = parse_workflow_edit_request(
             base_revision=base_revision,
@@ -4692,6 +4707,9 @@ async def edit_workflow(
                 draft_revision=compute_workflow_edit_revision(refreshed_document),
                 actions=_action_index_entries(refreshed_document),
             )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except WorkflowEditError as e:
         raise _workflow_edit_error_to_tool_error(e) from e
     except ToolError:
@@ -6651,9 +6669,14 @@ async def get_case_trigger(
     try:
         workflow_id = WorkflowUUID.new(workflow_id)
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /workflows/{id}/case-trigger`.
+        check_scopes(role, "workflow:read")
         async with CaseTriggersService.with_session(role=role) as svc:
             case_trigger = await svc.get_case_trigger(workflow_id)
             return CaseTriggerRead.model_validate(case_trigger, from_attributes=True)
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except TracecatNotFoundError as e:
         raise ToolError(str(e)) from e
     except ValueError as e:
@@ -6663,17 +6686,28 @@ async def get_case_trigger(
         raise ToolError(f"Failed to get case trigger: {e}") from None
 
 
+class _CaseTriggerUpdateArgs(TypedDict):
+    """The `update_case_trigger` arguments the caller passed.
+
+    A key is present only when its argument was given: the service reads the
+    update with `exclude_unset`, so a key set to `None` would clear it.
+    """
+
+    status: NotRequired[Literal["online", "offline"]]
+    event_types: NotRequired[list[CaseEventType]]
+    tag_filters: NotRequired[list[str]]
+
+
 # Plain literal so `scripts/generate_mcp_docs.py` can resolve it statically. The
 # live `CaseEventType` values are appended at decoration time, below, rather
 # than interpolated here - that keeps this the single source of the prose.
 _UPDATE_CASE_TRIGGER_DESCRIPTION = """Update an existing case trigger for a workflow.
 
-This tool replaces the whole trigger: every call sends `status`, `event_types`
-and `tag_filters`, so pass all three. Omitting `event_types` or `tag_filters`
-clears them, and omitting `status` fails the write outright because the column
-is non-null. Call `get_case_trigger` first and send its current values back,
-changing only what you mean to change. Patching `/case_trigger` through
-`edit_workflow` is partial, unlike this tool.
+Only the arguments you pass change; the rest keep their saved values. A
+status-only call keeps the saved `event_types` and `tag_filters`: `"offline"`
+always works, and `"online"` works when the saved event types are non-empty
+and the workflow is published. Pass an empty list to clear `event_types` or
+`tag_filters`.
 
 Valid `event_types` values: {_CASE_EVENT_TYPE_VALUES_CSV}.
 
@@ -6681,15 +6715,17 @@ Args:
     workspace_id: The workspace ID.
     workflow_id: The workflow ID.
     status: Enum string: `"online"` or `"offline"`. `"online"` is rejected
-        unless `event_types` is non-empty and the workflow has a runnable
-        published definition, so publish before enabling.
+        unless the trigger's event types (saved or passed) are non-empty and
+        the workflow has a runnable published definition, so publish before
+        enabling. Omit to leave unchanged.
     event_types: List of case event type strings using underscores. The
-        valid values are listed above.
+        valid values are listed above. Omit to leave unchanged.
     tag_filters: List of case tag *refs* (slugs), e.g. `["malware","phishing"]`,
         not tag names or UUIDs. Refs are OR-matched: the trigger fires when the
         case carries any listed tag, or for `tag_added`/`tag_removed` when the
         added or removed tag is listed. An empty list means no tag filtering.
-        Refs that do not exist yet are created automatically.
+        Refs that do not exist yet are created automatically. Omit to leave
+        unchanged.
 
 Returns a confirmation message.
 """
@@ -6712,14 +6748,19 @@ async def update_case_trigger(
     try:
         workflow_id = WorkflowUUID.new(workflow_id)
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `PATCH /workflows/{id}/case-trigger`.
+        check_scopes(role, "workflow:update")
         if status is not None and status not in {"online", "offline"}:
             raise ToolError("status must be 'online' or 'offline'")
 
-        update_params = CaseTriggerUpdate(
-            status=cast(Literal["online", "offline"] | None, status),
-            event_types=event_types,
-            tag_filters=tag_filters,
-        )
+        update_args: _CaseTriggerUpdateArgs = {}
+        if status is not None:
+            update_args["status"] = cast(Literal["online", "offline"], status)
+        if event_types is not None:
+            update_args["event_types"] = event_types
+        if tag_filters is not None:
+            update_args["tag_filters"] = tag_filters
+        update_params = CaseTriggerUpdate(**update_args)
 
         async with CaseTriggersService.with_session(role=role) as svc:
             await svc.update_case_trigger(
@@ -6728,11 +6769,14 @@ async def update_case_trigger(
         return MCPMessageResponse(
             message=f"Case trigger for workflow {workflow_id} updated successfully"
         )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except TracecatNotFoundError as e:
         raise ToolError(str(e)) from e
     except ToolError:
         raise
-    except ValueError as e:
+    except (ValueError, TracecatValidationError) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to update case trigger", error=str(e))
@@ -7059,7 +7103,8 @@ async def update_event_source(
 @mcp.tool()
 async def list_triggers(
     workspace_id: uuid.UUID,
-    kind: Literal["object_storage", "schedule", "webhook"] | None = None,
+    kind: Literal["object_storage", "schedule", "webhook", "case_trigger"]
+    | None = None,
     source_id: uuid.UUID | None = None,
     workflow_id: MCPWorkflowUUID | None = None,
     agent_preset_id: uuid.UUID | None = None,
@@ -7075,7 +7120,12 @@ async def list_triggers(
     holds): it runs its one bound workflow on `config.cron` or `config.every`.
     Kind `webhook` is a workflow's webhook (the one `get_webhook` shows),
     listed once it has been turned on: it runs its one bound workflow for each
-    request to `config.url`.
+    request to `config.url`. Kind `case_trigger` is a workflow's case trigger
+    (the one `get_case_trigger` shows), listed once it has been turned on or
+    made a trigger with `create_trigger`: it runs its one bound workflow for
+    each case event in `config.event_types`. Forms are not listed here, though
+    an online form starts its workflow on each submission: `list_forms` lists
+    them, and they are managed with the form tools only.
 
     Args:
         workspace_id: The workspace ID.
@@ -7092,10 +7142,12 @@ async def list_triggers(
     `schedule` config holds schedule_id, workflow_id, cron or every, offset,
     start_at, end_at, timeout and inputs. A `webhook` config holds webhook_id,
     workflow_id, methods, allowlisted_cidrs, include_headers, url (it contains
-    the webhook's secret) and api_key (preview only). Schedules need
-    `schedule:read` and webhooks `workflow:read` to be listed. Triggers of a
-    kind the plan lacks (such as `object_storage` without `object_triggers`)
-    are not listed but counted in `locked` (kind, entitlement, count).
+    the webhook's secret) and api_key (preview only). A `case_trigger` config
+    holds case_trigger_id, workflow_id, event_types and tag_filters. Schedules
+    need `schedule:read`, and webhooks and case triggers `workflow:read`, to be
+    listed. Triggers of a kind the plan lacks (such as `object_storage`
+    without `object_triggers`, or `case_trigger` without `case_addons`) are
+    not listed but counted in `locked` (kind, entitlement, count).
     """
     async with _triggers_service(workspace_id, "list triggers", "trigger:read") as svc:
         page = await svc.list_triggers(
@@ -7133,6 +7185,123 @@ async def get_trigger(
 
 
 @mcp.tool()
+async def list_trigger_runs(
+    workspace_id: uuid.UUID,
+    trigger_id: uuid.UUID,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+) -> MCPPaginatedResponse[TriggerRunRead]:
+    """List the root runs a trigger started, open runs first, then by close time.
+
+    Child runs of a workflow run carry the link too but are left out.
+
+    Covers runs started since the `TracecatTriggerId` link shipped, by object
+    storage triggers and by webhooks and case triggers listed in the Triggers
+    tab. Schedules are not linked yet. Needs `trigger:read`
+    and the trigger kind's read scope (`workflow:read` for webhooks and case
+    triggers); workflow runs also need `workflow:read` and agent runs
+    `agent:read`; with only one, only that kind is listed.
+
+    Args:
+        workspace_id: The workspace ID.
+        trigger_id: The trigger ID, from `list_triggers`.
+        limit: Maximum number of runs to return.
+        cursor: `next_cursor` from a previous page.
+
+    Returns JSON with `items` (target_type `workflow` or `agent`,
+    target_name, wf_exec_id, workflow_id for a workflow run, session_id for an
+    agent run, status, start_time, close_time) and the cursor fields. Open a
+    workflow run with `get_workflow_execution`; an agent run is a turn of the
+    session `session_id`.
+    """
+    async with _triggers_service(
+        workspace_id, "list trigger runs", "trigger:read"
+    ) as svc:
+        page = await TriggerRunsService(svc.session, svc.role).list_runs(
+            _coerce_uuid_arg(trigger_id, "trigger_id"),
+            CursorPaginationParams(limit=_trigger_page_limit(limit), cursor=cursor),
+        )
+    return MCPPaginatedResponse(
+        items=page.items,
+        next_cursor=page.next_cursor,
+        prev_cursor=page.prev_cursor,
+        has_more=page.has_more,
+        has_previous=page.has_previous,
+    )
+
+
+@mcp.tool()
+async def list_trigger_stopped_events(
+    workspace_id: uuid.UUID,
+    trigger_id: uuid.UUID,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+) -> MCPPaginatedResponse[TriggerStoppedEventRead]:
+    """List events a trigger matched that stopped retrying, newest first.
+
+    An `object_storage` trigger's event is retried with backoff when a target
+    fails to start, and stops after 8 attempts. Other kinds list none. The
+    event itself is not returned. An event is shared by every trigger on the
+    same source whose key prefix matches it, so an error can name another
+    such trigger's targets. Needs `trigger:read`, `workflow:read` and
+    `agent:read`.
+
+    Args:
+        workspace_id: The workspace ID.
+        trigger_id: The trigger ID, from `list_triggers`.
+        limit: Maximum number of events to return.
+        cursor: `next_cursor` from a previous page.
+
+    Returns JSON with `items` (attempts, error with credentials redacted,
+    created_at) and the cursor fields.
+    """
+    async with _triggers_service(
+        workspace_id, "list trigger stopped events", "trigger:read"
+    ) as svc:
+        page = await TriggerRunsService(svc.session, svc.role).list_stopped_events(
+            _coerce_uuid_arg(trigger_id, "trigger_id"),
+            CursorPaginationParams(limit=_trigger_page_limit(limit), cursor=cursor),
+        )
+    return MCPPaginatedResponse(
+        items=page.items,
+        next_cursor=page.next_cursor,
+        has_more=page.has_more,
+    )
+
+
+@mcp.tool()
+async def get_trigger_run_origin(
+    workspace_id: uuid.UUID,
+    wf_exec_id: str | None = None,
+    session_id: uuid.UUID | None = None,
+) -> TriggerRunOrigin | None:
+    """Get the trigger that started a workflow run or an agent session.
+
+    Needs `trigger:read`, and the trigger kind's read scope to name it
+    (`schedule:read` for schedules, `workflow:read` for webhooks and case
+    triggers). Give exactly one of `wf_exec_id` (also needs `workflow:read`)
+    and `session_id` (also needs `agent:read`). A child run answers with its root run's trigger.
+
+    Args:
+        workspace_id: The workspace ID.
+        wf_exec_id: A workflow execution ID.
+        session_id: An agent session ID.
+
+    Returns JSON with trigger_id, name and kind (both null if the trigger was
+    deleted since), or null when no trigger started it.
+    """
+    async with _triggers_service(
+        workspace_id, "get trigger run origin", "trigger:read"
+    ) as svc:
+        return await TriggerRunsService(svc.session, svc.role).run_origin(
+            wf_exec_id=wf_exec_id,
+            session_id=_coerce_uuid_arg(session_id, "session_id")
+            if session_id is not None
+            else None,
+        )
+
+
+@mcp.tool()
 async def create_trigger(
     workspace_id: uuid.UUID,
     name: str,
@@ -7163,20 +7332,31 @@ async def create_trigger(
     is a trigger. Its target is fixed too. Manage its API key with the
     workflow's webhook.
 
+    For `{"kind": "case_trigger", "workflow_id": ...}` (plus optional
+    `event_types` and `tag_filters`), this makes the workflow's existing case
+    trigger a trigger, bound to that workflow, the same way: settings you
+    leave out keep their saved values, and its status stays unless you pass
+    `status`. Online needs at least one event type and a published workflow.
+    Tag filters must name existing case tags. It needs `workflow:update`,
+    `workflow:execute` and the `case_addons` plan feature, and fails if the
+    case trigger already is a trigger or the workflow is managed. Its target
+    is fixed too.
+
     Args:
         workspace_id: The workspace ID.
         name: A display name.
         config: The trigger kind and its settings.
         status: `"online"` fires; `"offline"` does not. Omit it for the
-            default: offline, except a webhook keeps its current status.
+            default: offline, except a webhook or case trigger keeps its
+            current status.
 
     Returns the new trigger as JSON, in the same shape as `get_trigger`.
     """
     async with _triggers_service(
         workspace_id, "create trigger", "trigger:create"
     ) as svc:
-        # Omitted stays out of the request, so a live webhook is not turned
-        # off by the default.
+        # Omitted stays out of the request, so a live webhook or case trigger
+        # is not turned off by the default.
         params = (
             TriggerCreate(name=name, config=config, status=TriggerStatus(status))
             if status is not None
@@ -7206,7 +7386,11 @@ async def update_trigger(
     status are written through its webhook (as `update_webhook` does), so
     any change needs `workflow:update` on top of `trigger:update`; a config
     sets the methods, allowlisted_cidrs and include_headers it names (the
-    rest keep their values), and its `workflow_id` must stay the same.
+    rest keep their values), and its `workflow_id` must stay the same. A
+    `case_trigger` trigger is written through its case trigger (as
+    `update_case_trigger` does) the same way, with `event_types` and
+    `tag_filters`; any change needs `workflow:update` on top of
+    `trigger:update`, and the `case_addons` plan feature.
 
     Args:
         workspace_id: The workspace ID.
@@ -7245,8 +7429,9 @@ async def create_trigger_binding(
     `{"type": "agent", "agent_preset_id": ..., "instruction": "..."}` starts a
     new session of the preset's current version with the instruction; the
     event is added to the first message as data. Needs `agent:execute`.
-    A trigger can be bound to the same target only once. A `schedule` or
-    `webhook` trigger's one target is its own workflow; it takes no other.
+    A trigger can be bound to the same target only once. A `schedule`,
+    `webhook` or `case_trigger` trigger's one target is its own workflow; it
+    takes no other.
 
     Args:
         workspace_id: The workspace ID.
@@ -7280,9 +7465,9 @@ async def update_trigger_binding(
     There is no delete tool: take a binding offline instead. Turning a binding
     online or changing its instruction needs `workflow:execute` or
     `agent:execute` for its target, as creating it does. The target
-    cannot change; add a new binding for another target. A `schedule` or
-    `webhook` trigger's binding cannot change: take the trigger offline
-    instead.
+    cannot change; add a new binding for another target. A `schedule`,
+    `webhook` or `case_trigger` trigger's binding cannot change: take the
+    trigger offline instead.
 
     Args:
         workspace_id: The workspace ID.

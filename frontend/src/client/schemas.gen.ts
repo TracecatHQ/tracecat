@@ -11743,6 +11743,113 @@ export const $CaseEventRead = {
   },
 } as const
 
+export const $CaseEventTriggerConfig = {
+  properties: {
+    kind: {
+      type: "string",
+      const: "case_trigger",
+      title: "Kind",
+    },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}",
+        },
+      ],
+      title: "Workflow Id",
+      description:
+        "The workflow whose case trigger this is. Fixed after create.",
+    },
+    event_types: {
+      items: {
+        $ref: "#/components/schemas/CaseEventType",
+      },
+      type: "array",
+      title: "Event Types",
+      description:
+        "Case event types that run the workflow. Must not be empty while the trigger is online.",
+    },
+    tag_filters: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Tag Filters",
+      description:
+        "Case tag refs. When set, only events on cases with one of these tags run the workflow. Empty matches every case.",
+    },
+  },
+  type: "object",
+  required: ["kind", "workflow_id"],
+  title: "CaseEventTriggerConfig",
+  description: `Run a workflow for each case event of the chosen types.
+
+The settings of the workflow's case trigger
+(\`\`/workflows/{id}/case-trigger\`\`), which the trigger shows and edits.
+Every workflow has one case trigger; it becomes a trigger when it is
+turned on, or when it is created as one here (it may stay offline).
+Deleting the trigger turns the case trigger off and keeps it. Until case triggers start their targets through bindings, the
+trigger's one target is this workflow and cannot change. Settings left out
+of a create or update keep the case trigger's saved values. Needs the
+\`\`case_addons\`\` plan feature.`,
+} as const
+
+export const $CaseEventTriggerConfigRead = {
+  properties: {
+    kind: {
+      type: "string",
+      const: "case_trigger",
+      title: "Kind",
+    },
+    workflow_id: {
+      type: "string",
+      title: "Workflow Id",
+      description: "The workflow the case trigger runs",
+    },
+    case_trigger_id: {
+      type: "string",
+      format: "uuid",
+      title: "Case Trigger Id",
+      description: "The case trigger's ID, which does not change",
+    },
+    event_types: {
+      items: {
+        $ref: "#/components/schemas/CaseEventType",
+      },
+      type: "array",
+      title: "Event Types",
+      description: "Case event types that run the workflow",
+    },
+    tag_filters: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Tag Filters",
+      description:
+        "Case tag refs that limit which cases match. Empty matches all.",
+    },
+  },
+  type: "object",
+  required: [
+    "kind",
+    "workflow_id",
+    "case_trigger_id",
+    "event_types",
+    "tag_filters",
+  ],
+  title: "CaseEventTriggerConfigRead",
+  description: `The case trigger as \`\`/workflows/{id}/case-trigger\`\` shows it.
+
+Readable only with \`\`workflow:read\`\` and the \`\`case_addons\`\` plan
+feature, as on the workflow page.`,
+} as const
+
 export const $CaseEventType = {
   type: "string",
   enum: [
@@ -45575,11 +45682,15 @@ export const $TriggerCreate = {
         {
           $ref: "#/components/schemas/WebhookTriggerConfig",
         },
+        {
+          $ref: "#/components/schemas/CaseEventTriggerConfig",
+        },
       ],
       title: "Config",
       discriminator: {
         propertyName: "kind",
         mapping: {
+          case_trigger: "#/components/schemas/CaseEventTriggerConfig",
           object_storage: "#/components/schemas/ObjectStorageTriggerConfig",
           schedule: "#/components/schemas/ScheduleTriggerConfig",
           webhook: "#/components/schemas/WebhookTriggerConfig",
@@ -45589,7 +45700,7 @@ export const $TriggerCreate = {
     status: {
       $ref: "#/components/schemas/TriggerStatus",
       description:
-        "Offline when omitted, except for a webhook: its webhook already exists and keeps its current status unless this is given.",
+        "Offline when omitted, except for a webhook or a case trigger: it already exists and keeps its current status unless this is given.",
       default: "offline",
     },
   },
@@ -45600,7 +45711,7 @@ export const $TriggerCreate = {
 
 export const $TriggerKind = {
   type: "string",
-  enum: ["object_storage", "schedule", "webhook"],
+  enum: ["object_storage", "schedule", "webhook", "case_trigger"],
   title: "TriggerKind",
   description:
     "What a trigger listens to. Each kind has its own source and config.",
@@ -45706,11 +45817,15 @@ export const $TriggerRead = {
         {
           $ref: "#/components/schemas/WebhookTriggerConfigRead",
         },
+        {
+          $ref: "#/components/schemas/CaseEventTriggerConfigRead",
+        },
       ],
       title: "Config",
       discriminator: {
         propertyName: "kind",
         mapping: {
+          case_trigger: "#/components/schemas/CaseEventTriggerConfigRead",
           object_storage: "#/components/schemas/ObjectStorageTriggerConfigRead",
           schedule: "#/components/schemas/ScheduleTriggerConfigRead",
           webhook: "#/components/schemas/WebhookTriggerConfigRead",
@@ -45749,11 +45864,315 @@ export const $TriggerRead = {
   title: "TriggerRead",
 } as const
 
+export const $TriggerRunOrigin = {
+  properties: {
+    trigger_id: {
+      type: "string",
+      format: "uuid",
+      title: "Trigger Id",
+    },
+    name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+      description: "Null if the trigger was deleted since",
+    },
+    kind: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/TriggerKind",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["trigger_id"],
+  title: "TriggerRunOrigin",
+  description: "The trigger that started a run or an agent session.",
+} as const
+
+export const $TriggerRunRead = {
+  properties: {
+    target_type: {
+      $ref: "#/components/schemas/TriggerTargetType",
+    },
+    target_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Target Name",
+      description:
+        "The workflow's title (null if it was deleted), or for an agent run the agent preset's name, falling back to the session's title if the preset was deleted (null if the session was too)",
+    },
+    wf_exec_id: {
+      type: "string",
+      title: "Wf Exec Id",
+      description: "The run's Temporal workflow ID",
+    },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Id",
+      description: "The workflow, for a workflow run",
+    },
+    session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Session Id",
+      description: "The agent session, for an agent run",
+    },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description: "The session's agent preset, for an agent run",
+    },
+    status: {
+      type: "string",
+      enum: [
+        "RUNNING",
+        "COMPLETED",
+        "FAILED",
+        "CANCELED",
+        "TERMINATED",
+        "CONTINUED_AS_NEW",
+        "TIMED_OUT",
+      ],
+      title: "Status",
+    },
+    start_time: {
+      type: "string",
+      format: "date-time",
+      title: "Start Time",
+    },
+    close_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Close Time",
+    },
+  },
+  type: "object",
+  required: ["target_type", "wf_exec_id", "status", "start_time"],
+  title: "TriggerRunRead",
+  description:
+    "One run a trigger started: a workflow run or an agent session's turn.",
+} as const
+
+export const $TriggerRunsPage = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/TriggerRunRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "TriggerRunsPage",
+  description:
+    "A page of a trigger's runs, open runs first, then by close time.",
+} as const
+
 export const $TriggerStatus = {
   type: "string",
   enum: ["online", "offline"],
   title: "TriggerStatus",
   description: "Whether a source, trigger or binding takes part in dispatch.",
+} as const
+
+export const $TriggerStoppedEventRead = {
+  properties: {
+    attempts: {
+      type: "integer",
+      title: "Attempts",
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+      description: "The last attempt's error, credentials redacted",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "When the event was received",
+    },
+  },
+  type: "object",
+  required: ["attempts", "created_at"],
+  title: "TriggerStoppedEventRead",
+  description: `An event that stopped retrying after the attempt cap. The event itself
+is not returned.`,
+} as const
+
+export const $TriggerStoppedEventsPage = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/TriggerStoppedEventRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "TriggerStoppedEventsPage",
+  description: "A page of a trigger's stopped events, newest first.",
 } as const
 
 export const $TriggerTargetType = {
@@ -45798,10 +46217,14 @@ export const $TriggerUpdate = {
             {
               $ref: "#/components/schemas/WebhookTriggerConfig",
             },
+            {
+              $ref: "#/components/schemas/CaseEventTriggerConfig",
+            },
           ],
           discriminator: {
             propertyName: "kind",
             mapping: {
+              case_trigger: "#/components/schemas/CaseEventTriggerConfig",
               object_storage: "#/components/schemas/ObjectStorageTriggerConfig",
               schedule: "#/components/schemas/ScheduleTriggerConfig",
               webhook: "#/components/schemas/WebhookTriggerConfig",
