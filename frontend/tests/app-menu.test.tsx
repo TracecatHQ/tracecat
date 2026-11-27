@@ -160,6 +160,10 @@ jest.mock("@/hooks/use-organization", () => ({
   useOrganizationMemberships: () => ({ organizations: [] }),
 }))
 
+jest.mock("@/hooks/use-branding", () => ({
+  useAppVersion: () => ({ version: "1.2.3" }),
+}))
+
 jest.mock("@/lib/hooks", () => ({
   useWorkspaceManager: () => ({
     workspaces: mockWorkspaces,
@@ -213,6 +217,12 @@ describe("AppMenu workspace creation", () => {
     expect(
       screen.queryByRole("button", { name: "Create workspace" })
     ).not.toBeInTheDocument()
+  })
+
+  it("shows the app version below Watchtower", () => {
+    renderAppMenu()
+
+    expect(screen.getByText("Tracecat v1.2.3")).toBeInTheDocument()
   })
 
   it("keeps all existing workspace links when creation is unavailable", () => {

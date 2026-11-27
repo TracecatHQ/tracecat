@@ -38,6 +38,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
+import { useAppVersion } from "@/hooks/use-branding"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import {
   useOrganization,
@@ -60,6 +61,8 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
     hasEntitlementData,
     isLoading: entitlementsLoading,
   } = useEntitlements()
+  const [menuOpen, setMenuOpen] = useState(false)
+  const { version: appVersion } = useAppVersion({ enabled: menuOpen })
   const [dialogOpen, setDialogOpen] = useState(false)
   const [workspaceName, setWorkspaceName] = useState("")
   const [isCreating, setIsCreating] = useState(false)
@@ -126,7 +129,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
   return (
     <SidebarMenu>
       <SidebarMenuItem>
-        <DropdownMenu>
+        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton
               size="default"
@@ -285,6 +288,11 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
                   <span>Watchtower</span>
                 </Link>
               </DropdownMenuItem>
+            )}
+            {appVersion && (
+              <div className="px-2 pb-1 pt-0.5 text-[11px] text-muted-foreground">
+                Tracecat v{appVersion}
+              </div>
             )}
           </DropdownMenuContent>
         </DropdownMenu>

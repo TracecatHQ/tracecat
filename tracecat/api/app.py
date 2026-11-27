@@ -111,6 +111,7 @@ from tracecat.api.extensions import (
 )
 from tracecat.api.lifespan import LifespanTaskSupervisor
 from tracecat.auth.credentials import (
+    AuthenticatedUserOnly,
     authenticated_user_only,
     require_superuser,
     require_superuser_step_up,
@@ -140,6 +141,8 @@ from tracecat.authz.rbac.router import (
 )
 from tracecat.authz.rbac.router import user_scopes_router
 from tracecat.authz.seeding import seed_all_system_data
+from tracecat.branding.router import public_router as public_branding_router
+from tracecat.branding.router import router as branding_router
 from tracecat.cases.attachments.router import router as case_attachments_router
 from tracecat.cases.dropdowns.router import definitions_router as case_dropdowns_router
 from tracecat.cases.dropdowns.router import values_router as case_dropdown_values_router
@@ -717,7 +720,6 @@ def root() -> HealthResponse:
 
 
 class AppInfo(BaseModel):
-    version: str
     public_app_url: str
     auth_allowed_types: list[AuthType]
     saml_enabled: bool
@@ -745,13 +747,22 @@ async def info(session: AsyncDBSessionBypass) -> AppInfo:
         else:
             keyvalues[key] = keyvalues.get(key, False)
     return AppInfo(
-        version=APP_VERSION,
         public_app_url=config.TRACECAT__PUBLIC_APP_URL,
         auth_allowed_types=list(config.TRACECAT__AUTH_TYPES),
         saml_enabled=keyvalues["saml_enabled"],
         saml_enforced=keyvalues["saml_enforced"],
         ee_multi_tenant=config.TRACECAT__EE_MULTI_TENANT,
     )
+
+
+class AppVersionRead(BaseModel):
+    version: str
+
+
+async def get_app_version(role: AuthenticatedUserOnly) -> AppVersionRead:
+    """Platform version, for signed-in users only."""
+    del role
+    return AppVersionRead(version=APP_VERSION)
 
 
 async def check_health() -> HealthResponse:
@@ -971,6 +982,8 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(saml_router)
     app.include_router(mfa_router)
     app.include_router(auth_discovery_router)
+    app.include_router(public_branding_router)
+    app.include_router(branding_router)
 
     if AuthType.BASIC not in config.TRACECAT__AUTH_TYPES:
         # Need basic auth router for `logout` endpoint
@@ -984,6 +997,7 @@ def create_app(**kwargs) -> FastAPI:
     app.add_api_route("/", root, methods=["GET"], include_in_schema=False)
     app.add_api_route("/info", info, methods=["GET"], include_in_schema=False)
     app.add_api_route("/health", check_health, methods=["GET"], tags=["public"])
+    app.add_api_route("/version", get_app_version, methods=["GET"], tags=["info"])
     include_api_extension_routers(app)
     get_channel_bot_admin()  # Fail startup on two installed channel bot admins.
 
