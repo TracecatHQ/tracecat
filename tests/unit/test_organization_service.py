@@ -21,11 +21,11 @@ from tests.support.membership import (
     seed_external_user,
 )
 from tracecat import config
+from tracecat.auth import users as users_mod
 from tracecat.auth.api_keys import ORG_API_KEY_PREFIX, generate_managed_api_key
 from tracecat.auth.enums import CredentialChangeErrorCode
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
-from tracecat.auth.users import CredentialChangeError
 from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.authz.membership import ensure_member
 from tracecat.authz.scopes import ORG_ADMIN_SCOPES, ORG_MEMBER_SCOPES, ORG_OWNER_SCOPES
@@ -3000,7 +3000,8 @@ class TestChangeMemberEmail:
         await session.commit()
         service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
 
-        with pytest.raises(CredentialChangeError) as exc_info:
+        # Resolve via the module: other tests reload tracecat.auth.users.
+        with pytest.raises(users_mod.CredentialChangeError) as exc_info:
             await service.change_member_email(user_in_org1.id, "renamed@example.com")
 
         assert (
