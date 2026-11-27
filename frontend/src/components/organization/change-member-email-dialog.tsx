@@ -35,7 +35,10 @@ import { getApiErrorDetail, type TracecatApiError } from "@/lib/errors"
 import { useMutation, useQueryClient } from "@/lib/query"
 
 const FORM_ID = "change-member-email-form"
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+// Excludes display-name syntax such as "<a@b.com>", which the API would
+// normalize to a bare address.
+const EMAIL_PATTERN =
+  /^[^\s@<>()[\],;:"]+@[^\s@<>()[\],;:"]+\.[^\s@<>()[\],;:"]+$/
 
 function validateEmail(value: string, currentEmail: string): string | null {
   const email = value.trim()
