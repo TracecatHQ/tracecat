@@ -45,6 +45,10 @@ export function WebhookTriggerForm({
   const [includeHeaders, setIncludeHeaders] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [loadingWebhook, setLoadingWebhook] = useState(false)
+  // The last rejected allowlist entry. The input drops it, so the first
+  // Create after a rejection stops and says so: the webhook would otherwise
+  // be created without the restriction the user meant to add.
+  const [cidrError, setCidrError] = useState<string | null>(null)
   // The workflow whose saved settings the fields hold. A create replaces
   // every setting, so it waits until they are this workflow's.
   const [loadedFor, setLoadedFor] = useState("")
@@ -102,10 +106,10 @@ export function WebhookTriggerForm({
   function handleCidrsChange(tags: Tag[]) {
     const result = normalizeCidrTags(tags)
     if ("error" in result) {
-      setFormError(result.error)
+      setCidrError(result.error)
       return
     }
-    setFormError(null)
+    setCidrError(null)
     setCidrs(result.tags)
   }
 
@@ -127,6 +131,13 @@ export function WebhookTriggerForm({
     }
     if (methods.length === 0) {
       setFormError("Allow at least one HTTP method.")
+      return
+    }
+    if (cidrError) {
+      setFormError(
+        `An IP allowlist entry was rejected and not added (${cidrError}). Add a valid entry, or click Create again to continue without it.`
+      )
+      setCidrError(null)
       return
     }
     try {
@@ -192,6 +203,9 @@ export function WebhookTriggerForm({
             onTagsChange={handleCidrsChange}
             disabled={locked}
           />
+          {cidrError ? (
+            <p className="text-xs text-destructive">{cidrError}</p>
+          ) : null}
           <p className="text-xs text-muted-foreground">
             <WebhookAllowlistHint />
           </p>

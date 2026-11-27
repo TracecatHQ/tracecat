@@ -83,8 +83,10 @@ DROP_SYNC_TRIGGER_SQL = f"DROP TRIGGER IF EXISTS {_SYNC_TRIGGER} ON public.webho
 # workflow (the binding insert needs one). Writers take these two rows in
 # different orders (a workflow delete removes the webhook first; an import
 # locks the workflow first), so the backfill never waits: a pair another
-# transaction holds is skipped and retried on a later pass. Holding nothing
-# while it waits, it cannot be part of a deadlock.
+# transaction holds is skipped and retried on a later pass. Never waiting, it
+# cannot be part of a deadlock. Postgres may keep the lock it did get on a
+# skipped pair until the pass commits, so another writer can wait for one
+# short pass, never longer.
 LOCK_WEBHOOKS_SQL = """
 SELECT h.id
 FROM webhook h

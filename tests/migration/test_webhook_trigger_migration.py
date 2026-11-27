@@ -220,8 +220,9 @@ def test_backfill_skips_rows_others_hold_and_never_waits(
     db_url: str, engine: Engine, held_row: str
 ) -> None:
     """Thermos r5-r7, codex: writers lock a webhook and its workflow in
-    either order, so the backfill takes neither lock if it has to wait: it
-    skips the pair, never deadlocks, and a later pass links it."""
+    either order, so the backfill never waits for either lock: it skips the
+    pair (no lock timeout below), so it cannot deadlock, and a later pass
+    links it."""
     ws = _workspace(engine)
     held = _workflow(engine, ws, "Held", "online")
     free = _workflow(engine, ws, "Free", "online")

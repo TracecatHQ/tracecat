@@ -165,7 +165,8 @@ async def add_webhook_trigger(
             Workflow.workspace_id == webhook.workspace_id,
             Workflow.id == webhook.workflow_id,
         )
-        .with_for_update(key_share=True, skip_locked=True)
+        # read=True makes it FOR KEY SHARE; key_share alone is NO KEY UPDATE.
+        .with_for_update(read=True, key_share=True, skip_locked=True)
     )
     if workflow_free is None:
         raise TracecatConflictError(

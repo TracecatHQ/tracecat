@@ -990,6 +990,45 @@ describe("Webhook triggers", () => {
     )
   })
 
+  it("won't create while an allowlist entry is invalid", async () => {
+    const user = userEvent.setup()
+    workflows = [{ id: "wf_alert", title: "Alert intake", version: null }]
+    jest.mocked(triggersGetWebhook).mockResolvedValue({
+      id: "webhook-1",
+      secret: "synthetic-secret",
+      status: "offline",
+      methods: ["POST"],
+      allowlisted_cidrs: [],
+      include_headers: false,
+      workflow_id: "wf_alert",
+      url: WEBHOOK_URL,
+    })
+
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
+
+    await user.click(screen.getByRole("button", { name: /Webhook/ }))
+    await user.type(screen.getByLabelText("Name"), "Alert intake webhook")
+    await user.click(screen.getByRole("combobox", { name: "Workflow" }))
+    await user.click(
+      await screen.findByRole("option", { name: "Alert intake" })
+    )
+    await user.type(
+      await screen.findByRole("textbox", { name: "IP allowlist" }),
+      "10.0.0.0/33{Enter}"
+    )
+    await user.click(screen.getByRole("button", { name: "Create trigger" }))
+
+    expect(
+      await screen.findByText(/An IP allowlist entry was rejected/)
+    ).toBeInTheDocument()
+    expect(triggersCreateTrigger).not.toHaveBeenCalled()
+
+    // A second Create is the user choosing to go on without it.
+    jest.mocked(triggersCreateTrigger).mockResolvedValue(WEBHOOK_TRIGGER)
+    await user.click(screen.getByRole("button", { name: "Create trigger" }))
+    await waitFor(() => expect(triggersCreateTrigger).toHaveBeenCalledTimes(1))
+  })
+
   it("ignores a late read of a workflow picked again", async () => {
     const user = userEvent.setup()
     workflows = [
