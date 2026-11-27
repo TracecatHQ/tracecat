@@ -29,6 +29,7 @@ The downgrade deletes the ``webhook`` trigger rows and drops what the upgrade
 added. Webhooks themselves are untouched either way.
 """
 
+import time
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -102,9 +103,10 @@ FOR UPDATE OF w
 # another transaction holds are skipped, not waited for: the previous release
 # deletes a workflow's webhook before the workflow, so waiting on that webhook
 # while holding the workflow lock could deadlock. A skipped webhook gets its
-# trigger row when it is next turned on, or from a later rerun. The name is
-# the workflow title plus " webhook", cut to fit the 255-character column. The trigger row keeps the webhook's created_at so the
-# Triggers tab lists webhooks by age.
+# trigger row on a later pass of the upgrade, when it is next turned on, or
+# from a later rerun. The name is the workflow title plus " webhook", cut to
+# fit the 255-character column. The trigger row keeps the webhook's
+# created_at so the Triggers tab lists webhooks by age.
 BACKFILL_SQL = """
 WITH pending AS (
     SELECT
@@ -145,6 +147,21 @@ SET trigger_id = p.trigger_id
 FROM pending p
 WHERE h.id = p.webhook_id
 """
+
+
+# Online webhooks still without a trigger row, such as ones the backfill
+# skipped because another transaction held them.
+PENDING_SQL = """
+SELECT EXISTS (
+    SELECT 1 FROM webhook
+    WHERE trigger_id IS NULL AND status = 'online' AND workflow_id IS NOT NULL
+)
+"""
+# A skipped webhook is usually held for one short write; later passes pick it
+# up. Whatever is left after the last pass is linked when it is next turned on
+# or when a later release reruns ``backfill``.
+_BACKFILL_PASSES = 5
+_BACKFILL_RETRY_SECONDS = 1.0
 
 
 def backfill(conn: sa.Connection) -> None:
@@ -189,10 +206,18 @@ def upgrade() -> None:
     with op.get_context().autocommit_block():
         # Outside the DDL transaction the backfill takes only row locks, so
         # the previous release keeps reading and writing webhooks meanwhile.
-        # Its own transaction, workflows locked first (LOCK_WORKFLOWS_SQL).
-        op.execute("BEGIN")
-        backfill(op.get_bind())
-        op.execute("COMMIT")
+        # Each pass in its own transaction, workflows locked first
+        # (LOCK_WORKFLOWS_SQL); webhooks held by others are skipped, so
+        # retry a few times for them.
+        conn = op.get_bind()
+        for attempt in range(_BACKFILL_PASSES):
+            op.execute("BEGIN")
+            backfill(conn)
+            op.execute("COMMIT")
+            if not conn.execute(sa.text(PENDING_SQL)).scalar():
+                break
+            if attempt + 1 < _BACKFILL_PASSES:
+                time.sleep(_BACKFILL_RETRY_SECONDS)
         # VALIDATE takes SHARE UPDATE EXCLUSIVE here: no blocking of reads or
         # writes during its scan.
         op.execute(f'ALTER TABLE webhook VALIDATE CONSTRAINT "{_FK}"')
