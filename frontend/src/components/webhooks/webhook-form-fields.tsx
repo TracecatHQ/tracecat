@@ -237,26 +237,36 @@ export const WebhookMethodsSelect = forwardRef<
 
 /**
  * The IP allowlist entries. Hands back the raw tags; callers normalize.
- * Other props (such as a `FormControl`'s `id` and `aria-*`) go to the input.
+ * A `FormControl`'s `id` and `aria-*` go to the text input; the input is
+ * named "IP allowlist" unless the caller names it.
  */
 export function WebhookAllowlistInput({
   tags,
   onTagsChange,
   disabled,
-  ...inputProps
+  id,
+  "aria-label": ariaLabel = "IP allowlist",
+  "aria-describedby": ariaDescribedBy,
+  "aria-invalid": ariaInvalid,
 }: {
   tags: Tag[]
   onTagsChange: (tags: Tag[]) => void
   disabled?: boolean
-} & Omit<
-  ComponentProps<typeof CustomTagInput>,
-  "tags" | "setTags" | "disabled"
->) {
+  id?: string
+  "aria-label"?: string
+  "aria-describedby"?: string
+  "aria-invalid"?: boolean | "true" | "false"
+}) {
   return (
     <CustomTagInput
-      aria-label="IP allowlist"
+      id={id}
+      // Emblor puts only `id` and `inputProps` on its <input>.
+      inputProps={{
+        "aria-label": ariaLabel,
+        "aria-describedby": ariaDescribedBy,
+        "aria-invalid": ariaInvalid,
+      }}
       placeholder="Enter an IP address or CIDR. Allow all IPs by default."
-      {...inputProps}
       tags={tags}
       disabled={disabled}
       setTags={(next) => {

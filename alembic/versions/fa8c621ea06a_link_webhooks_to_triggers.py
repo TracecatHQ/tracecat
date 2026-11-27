@@ -98,10 +98,12 @@ FOR UPDATE OF w
 # among the webhooks whose workflow ``LOCK_WORKFLOWS_SQL`` locked. A webhook
 # turned on after that lock waits for the app or the next run. Offline
 # webhooks get none (decision 5A: only used webhooks become triggers). Safe to
-# run again: it only picks webhooks whose trigger_id is still null, and locks
-# them, so a concurrent status change or delete waits and the status is read
-# after it. The name is the workflow title plus " webhook", cut to fit the
-# 255-character column. The trigger row keeps the webhook's created_at so the
+# run again: it only picks webhooks whose trigger_id is still null. Webhooks
+# another transaction holds are skipped, not waited for: the previous release
+# deletes a workflow's webhook before the workflow, so waiting on that webhook
+# while holding the workflow lock could deadlock. A skipped webhook gets its
+# trigger row when it is next turned on, or from a later rerun. The name is
+# the workflow title plus " webhook", cut to fit the 255-character column. The trigger row keeps the webhook's created_at so the
 # Triggers tab lists webhooks by age.
 BACKFILL_SQL = """
 WITH pending AS (
@@ -122,7 +124,7 @@ WITH pending AS (
     WHERE h.trigger_id IS NULL
         AND h.status = 'online'
         AND h.workflow_id = ANY(CAST(:workflow_ids AS uuid[]))
-    FOR UPDATE OF h
+    FOR UPDATE OF h SKIP LOCKED
 ),
 new_triggers AS (
     INSERT INTO "trigger" (id, workspace_id, kind, name, status, created_at)

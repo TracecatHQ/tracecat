@@ -207,6 +207,37 @@ def test_backfill_links_online_webhooks_only(db_url: str, engine: Engine) -> Non
     assert (_count(engine, "trigger"), _count(engine, "trigger_binding")) == (3, 3)
 
 
+def test_backfill_skips_a_webhook_another_transaction_holds(
+    db_url: str, engine: Engine
+) -> None:
+    """Thermos r5: the previous release deletes a workflow's webhook before
+    the workflow. Waiting on that webhook while holding the workflow lock
+    could deadlock, so the backfill skips it and a rerun picks it up."""
+    ws = _workspace(engine)
+    held = _workflow(engine, ws, "Held", "online")
+    free = _workflow(engine, ws, "Free", "online")
+    _alembic(db_url, "upgrade", MIGRATION_REVISION)
+    _run(engine, 'DELETE FROM "trigger"')
+    assert _count(engine, "trigger") == 0
+
+    with engine.connect() as holder:
+        transaction = holder.begin()
+        holder.execute(
+            text("SELECT id FROM webhook WHERE workflow_id = :wf FOR UPDATE"),
+            {"wf": held},
+        )
+        with engine.begin() as conn:
+            conn.execute(text("SET LOCAL lock_timeout = '2s'"))
+            _migration().backfill(conn)
+        transaction.rollback()
+
+    linked = _linked(engine)
+    assert linked[held][0] is None
+    assert linked[free][:3] == ("webhook", "Free webhook", "online")
+    _backfill(engine)
+    assert _linked(engine)[held][:3] == ("webhook", "Held webhook", "online")
+
+
 def test_the_trigger_row_follows_its_webhook(db_url: str, engine: Engine) -> None:
     ws = _workspace(engine)
     workflow = _workflow(engine, ws, "Report", "online")

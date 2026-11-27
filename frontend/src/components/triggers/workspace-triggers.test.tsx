@@ -1078,6 +1078,9 @@ describe("Webhook triggers", () => {
       workspaceId: "workspace-1",
       workflowId: "wf_alert",
     })
+    expect(
+      screen.getByRole("textbox", { name: "IP allowlist" })
+    ).toBeInTheDocument()
     expect(triggersCreateTrigger).toHaveBeenCalledWith({
       workspaceId: "workspace-1",
       requestBody: {
