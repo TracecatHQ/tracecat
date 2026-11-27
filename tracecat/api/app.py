@@ -200,6 +200,7 @@ from tracecat.invitations.router import router as invitations_router
 from tracecat.logger import logger
 from tracecat.logger.redaction import (
     install_uvicorn_url_secret_redaction,
+    redact_query_string,
     redact_url_secrets,
 )
 from tracecat.managed_resources.guard import (
@@ -216,6 +217,7 @@ from tracecat.middleware import (
 )
 from tracecat.middleware.disconnect import CancelOnDisconnectMiddleware
 from tracecat.middleware.security import SecurityHeadersMiddleware
+from tracecat.middleware.url_secret_errors import URLSecretErrorMiddleware
 from tracecat.observability.otel import (
     TRACE_ID_HEADER,
     TRACE_SAMPLED_HEADER,
@@ -528,7 +530,7 @@ def fastapi_users_auth_exception_handler(request: Request, exc: Exception) -> Re
         "Handling FastAPI Users exception",
         msg=msg,
         role=ctx_role.get(),
-        params=redact_url_secrets(str(request.query_params)),
+        params=redact_query_string(str(request.query_params)),
         path=redact_url_secrets(request.url.path),
     )
     match exc:
@@ -1078,6 +1080,9 @@ def create_app(**kwargs) -> FastAPI:
     app.add_middleware(
         CancelOnDisconnectMiddleware, path_suffixes=CASE_SEARCH_PATH_SUFFIXES
     )
+    # Outermost of the app's middleware, so it catches errors on secret-bearing
+    # URLs before Starlette's server-error layer re-raises them to uvicorn.
+    app.add_middleware(URLSecretErrorMiddleware)
     instrument_fastapi_app(app, service_name="tracecat-api")
 
     logger.info(

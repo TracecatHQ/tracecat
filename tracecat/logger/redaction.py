@@ -3,15 +3,18 @@
 Incoming webhooks, SNS ingest endpoints, agent channel endpoints, channel
 links and invitation links authenticate the caller with a secret path
 segment, and OAuth-style callbacks carry codes and signed state in the query
-string. Anything that logs a request path, query string or request line passes
-it through ``redact_url_secrets`` first. A new route with a secret in its path
-adds one pattern to ``_URL_SECRET_PATTERNS``.
+string. Anything that logs a request path or request line passes it through
+``redact_url_secrets`` first, and a bare query string through
+``redact_query_string``. A new route with a secret in its path adds one
+pattern to ``_URL_SECRET_PATTERNS``.
 """
 
 from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Mapping
+from urllib.parse import unquote_plus
 
 REDACTED_URL_SECRET = "[redacted]"
 
@@ -31,13 +34,16 @@ _URL_SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(rf"(/agent/channels/{_SEGMENT}/)(?!oauth/callback\b){_SEGMENT}"),
     # /agent/channel-links/{token}/sign-in
     re.compile(rf"(/agent/channel-links/){_SEGMENT}(?=/sign-in\b)"),
-    # Query parameters that carry a credential: OAuth codes and state (the
-    # channel-link state embeds the link token), and bearer tokens.
-    re.compile(
-        r"((?:^|[?&])(?:code|state|token|access_token|id_token|refresh_token)=)"
-        r"[^&#\s\"']+"
-    ),
 )
+
+# Query parameters that carry a credential: OAuth codes and state (the
+# channel-link state embeds the link token), and bearer tokens. Names are
+# compared after URL-decoding, as the app binds them.
+_SECRET_QUERY_KEYS = frozenset(
+    {"code", "state", "token", "access_token", "id_token", "refresh_token"}
+)
+# The query part of a URL or request line: up to a fragment, quote or space.
+_QUERY = re.compile(r"\?([^#\s\"']*)")
 
 UVICORN_LOGGER_NAMES = ("uvicorn.access", "uvicorn.error")
 
@@ -54,7 +60,25 @@ def redact_url_secrets(text: str) -> str:
     """
     for pattern in _URL_SECRET_PATTERNS:
         text = pattern.sub(rf"\g<1>{REDACTED_URL_SECRET}", text)
-    return text
+    return _QUERY.sub(lambda match: f"?{redact_query_string(match[1])}", text)
+
+
+def redact_query_string(query: str) -> str:
+    """Replace the value of every credential query parameter with ``[redacted]``.
+
+    Args:
+        query: A query string without the leading ``?``, raw or decoded.
+
+    Returns:
+        The query string with credential values replaced, in the same order.
+    """
+    pairs: list[str] = []
+    for pair in query.split("&"):
+        name, sep, _value = pair.partition("=")
+        if sep and unquote_plus(name) in _SECRET_QUERY_KEYS:
+            pair = f"{name}={REDACTED_URL_SECRET}"
+        pairs.append(pair)
+    return "&".join(pairs)
 
 
 class URLSecretRedactionFilter(logging.Filter):
@@ -74,6 +98,12 @@ class URLSecretRedactionFilter(logging.Filter):
                 redact_url_secrets(arg) if isinstance(arg, str) else arg
                 for arg in record.args
             )
+        elif isinstance(record.args, Mapping):
+            # A single mapping argument is kept as the mapping itself.
+            record.args = {
+                key: redact_url_secrets(value) if isinstance(value, str) else value
+                for key, value in record.args.items()
+            }
         if record.exc_info and not record.exc_text:
             record.exc_text = logging.Formatter().formatException(record.exc_info)
         if record.exc_text:

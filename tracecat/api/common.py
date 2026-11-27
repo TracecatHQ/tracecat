@@ -33,7 +33,7 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatException
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
-from tracecat.logger.redaction import redact_url_secrets
+from tracecat.logger.redaction import redact_query_string, redact_url_secrets
 from tracecat.observability.sentry import (
     capture_api_exception,
     capture_auth_pool_exhaustion,
@@ -119,22 +119,13 @@ async def database_exception_handler(request: Request, exc: Exception) -> Respon
 
 
 async def generic_exception_handler(request: Request, exc: Exception) -> Response:
-    path = redact_url_secrets(request.url.path)
-    params = redact_url_secrets(str(request.query_params))
-    if path != request.url.path or params != str(request.query_params):
-        # The exception text can echo the URL secret, for example a failed
-        # lookup that bound it as a query parameter, so log the type only.
-        logger.error(
-            "Unexpected error",
-            error_type=type(exc).__name__,
-            role=ctx_role.get(),
-            params=params,
-            path=path,
-        )
-    else:
-        logger.exception(
-            "Unexpected error", exc=exc, role=ctx_role.get(), params=params, path=path
-        )
+    logger.exception(
+        "Unexpected error",
+        exc=exc,
+        role=ctx_role.get(),
+        params=redact_query_string(str(request.query_params)),
+        path=redact_url_secrets(request.url.path),
+    )
     return ORJSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"message": "An unexpected error occurred. Please try again later."},
@@ -291,7 +282,7 @@ def tracecat_exception_handler(request: Request, exc: Exception) -> Response:
         "{}",
         msg,
         role=ctx_role.get(),
-        params=redact_url_secrets(str(request.query_params)),
+        params=redact_query_string(str(request.query_params)),
         path=redact_url_secrets(request.url.path),
         detail=tracecat_exc.detail,
     )

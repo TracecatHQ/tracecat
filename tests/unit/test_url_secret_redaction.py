@@ -28,6 +28,7 @@ from tracecat.logger.redaction import (
     UVICORN_LOGGER_NAMES,
     URLSecretRedactionFilter,
     install_uvicorn_url_secret_redaction,
+    redact_query_string,
     redact_url_secrets,
 )
 from tracecat.triggers.ingest.aws_sns import router as sns_router
@@ -141,9 +142,10 @@ def _captured_loguru() -> Generator[list[str]]:
             id="callback-query",
         ),
         pytest.param(
-            "page=2&token=synthetic-token",
-            f"page=2&token={REDACTED_URL_SECRET}",
-            id="query-string",
+            f"/agent/channel-links/callback?co%64e=synthetic-code&st%61te={STATE_VALUE}",
+            "/agent/channel-links/callback"
+            f"?co%64e={REDACTED_URL_SECRET}&st%61te={REDACTED_URL_SECRET}",
+            id="encoded-query-names",
         ),
         pytest.param(
             "/cases?postcode=12345", "/cases?postcode=12345", id="query-other"
@@ -171,6 +173,26 @@ def _route_paths(routes: Sequence[object]) -> Generator[str]:
                     yield candidate.path
         elif isinstance(route, APIRoute):
             yield route.path
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        pytest.param(
+            "page=2&token=synthetic-token",
+            f"page=2&token={REDACTED_URL_SECRET}",
+            id="token",
+        ),
+        pytest.param(
+            "id_token=synthetic&x=1&refresh%5Ftoken=synthetic",
+            f"id_token={REDACTED_URL_SECRET}&x=1&refresh%5Ftoken={REDACTED_URL_SECRET}",
+            id="encoded-name",
+        ),
+        pytest.param("page=2&postcode=1&code", "page=2&postcode=1&code", id="other"),
+    ],
+)
+def test_redact_query_string(query: str, expected: str) -> None:
+    assert redact_query_string(query) == expected
 
 
 def test_every_secret_route_is_redacted() -> None:
@@ -286,13 +308,14 @@ class _ListHandler(logging.Handler):
 async def test_uvicorn_access_log_omits_url_secrets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def not_found(**_kwargs: object) -> None:
-        raise IngestError(IngestErrorCode.SOURCE_NOT_FOUND, "Not found")
+    async def lookup_fails(**_kwargs: object) -> None:
+        # A failed lookup echoes its bound parameters in the error text.
+        raise RuntimeError(f"connection lost [parameters: ('{INGEST_TOKEN}',)]")
 
     async def unauthorized() -> None:
         raise HTTPException(401, "Unauthorized")
 
-    monkeypatch.setattr(sns_router, "handle_sns_message", not_found)
+    monkeypatch.setattr(sns_router, "handle_sns_message", lookup_fails)
     monkeypatch.setattr(uvicorn.Server, "capture_signals", _no_signal_capture)
     app.dependency_overrides[validate_incoming_webhook] = unauthorized
     # uvicorn.Config runs logging.config.dictConfig after the app is imported;
@@ -312,8 +335,10 @@ async def test_uvicorn_access_log_omits_url_secrets(
         async with httpx.AsyncClient(
             base_url=f"http://127.0.0.1:{port}", timeout=10
         ) as http:
-            assert (await http.post(INGEST_PATH, content=b"{}")).status_code == 404
+            assert (await http.post(INGEST_PATH, content=b"{}")).status_code == 500
             assert (await http.post(WEBHOOK_PATH, json={})).status_code == 401
+            response = await http.get(f"/unknown?st%61te={STATE_VALUE}")
+            assert response.status_code == 404
     finally:
         uv_server.should_exit = True
         await serve_task
@@ -322,9 +347,41 @@ async def test_uvicorn_access_log_omits_url_secrets(
         app.dependency_overrides.clear()
 
     access_lines = [line for line in handler.lines if "HTTP/1.1" in line]
-    assert len(access_lines) == 2, handler.lines
+    assert len(access_lines) == 3, handler.lines
     _assert_no_secret(handler.lines)
     assert all(REDACTED_URL_SECRET in line for line in access_lines)
+
+
+def test_secret_url_errors_do_not_escape_the_app(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def lookup_fails(**_kwargs: object) -> None:
+        raise RuntimeError(f"connection lost [parameters: ('{INGEST_TOKEN}',)]")
+
+    monkeypatch.setattr(sns_router, "handle_sns_message", lookup_fails)
+    # raise_server_exceptions=True fails the test if the error is re-raised
+    # to the server, where uvicorn and OTel would record its text.
+    with _captured_loguru() as lines:
+        response = TestClient(app).post(INGEST_PATH, content=b"{}")
+    assert response.status_code == 500
+    assert response.json() == {
+        "message": "An unexpected error occurred. Please try again later."
+    }
+    _assert_no_secret(lines)
+
+
+def test_filter_redacts_mapping_args() -> None:
+    record = logging.LogRecord(
+        "uvicorn.error",
+        logging.ERROR,
+        __file__,
+        1,
+        "%(path)s",
+        ({"path": f"/ingest/sns/{INGEST_TOKEN}"},),
+        None,
+    )
+    URLSecretRedactionFilter().filter(record)
+    assert record.getMessage() == f"/ingest/sns/{REDACTED_URL_SECRET}"
 
 
 def test_filter_redacts_traceback_text() -> None:
