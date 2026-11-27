@@ -8,6 +8,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from tracecat import config
 from tracecat.contexts import RequestAuditContext, ctx_request_audit
+from tracecat.logger.redaction import redact_url_secrets
 
 # === Client IP resolution === #
 
@@ -157,7 +158,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 method=request.method,
                 scheme=request.url.scheme,
                 hostname=request.url.hostname,
-                path=request.url.path,
+                path=redact_url_secrets(request.url.path),
                 params=request_params,
                 client_ip=client_ip,
             )

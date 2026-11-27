@@ -198,6 +198,10 @@ from tracecat.integrations.router import (
 from tracecat.invitations.consumer import start_invitation_email_consumer
 from tracecat.invitations.router import router as invitations_router
 from tracecat.logger import logger
+from tracecat.logger.redaction import (
+    install_uvicorn_url_secret_redaction,
+    redact_url_secrets,
+)
 from tracecat.managed_resources.guard import (
     LOCKED_MESSAGE,
     ManagedResourceLockedError,
@@ -467,7 +471,7 @@ def _install_scim_exception_handlers(app: FastAPI) -> None:
             "Unexpected SCIM error",
             error_type=type(exc).__name__,
             role=ctx_role.get(),
-            path=request.url.path,
+            path=redact_url_secrets(request.url.path),
         )
         return scim_error_response(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -512,7 +516,7 @@ def validation_exception_handler(request: Request, exc: Exception) -> Response:
     logger.error(
         "API Model Validation error",
         method=request.method,
-        path=request.url.path,
+        path=redact_url_secrets(request.url.path),
         errors=without_inputs(ser_errors),
     )
     return response
@@ -525,7 +529,7 @@ def fastapi_users_auth_exception_handler(request: Request, exc: Exception) -> Re
         msg=msg,
         role=ctx_role.get(),
         params=request.query_params,
-        path=request.url.path,
+        path=redact_url_secrets(request.url.path),
     )
     match exc:
         case InvalidEmailException():
@@ -545,7 +549,7 @@ def entitlement_exception_handler(request: Request, exc: Exception) -> Response:
     logger.warning(
         "Entitlement required",
         entitlement=exc.entitlement,
-        path=request.url.path,
+        path=redact_url_secrets(request.url.path),
     )
     return ORJSONResponse(
         status_code=status.HTTP_403_FORBIDDEN,
@@ -572,7 +576,7 @@ def authorization_exception_handler(request: Request, exc: Exception) -> Respons
     """
     logger.warning(
         "Authorization denied",
-        path=request.url.path,
+        path=redact_url_secrets(request.url.path),
         role=ctx_role.get(),
         exception_type=type(exc).__name__,
         detail=exc.detail if isinstance(exc, TracecatException) else None,
@@ -591,7 +595,11 @@ def approver_not_allowed_exception_handler(
     The messages are fixed text naming no ids, matching the fixed-body rule.
     """
     message = str(exc) if isinstance(exc, ApproverNotAllowedError) else "Forbidden"
-    logger.info("Refused approval decision", path=request.url.path, role=ctx_role.get())
+    logger.info(
+        "Refused approval decision",
+        path=redact_url_secrets(request.url.path),
+        role=ctx_role.get(),
+    )
     return ORJSONResponse(
         status_code=status.HTTP_403_FORBIDDEN,
         content=ApproverNotAllowedResponse(
@@ -614,7 +622,7 @@ def managed_resource_locked_exception_handler(
     )
     logger.info(
         "Refused change to managed resource",
-        path=request.url.path,
+        path=redact_url_secrets(request.url.path),
         role=ctx_role.get(),
         resource_type=resource_type,
     )
@@ -649,7 +657,7 @@ def scope_denied_exception_handler(request: Request, exc: Exception) -> Response
         "Scope denied",
         required_scopes=exc.required_scopes,
         missing_scopes=exc.missing_scopes,
-        path=request.url.path,
+        path=redact_url_secrets(request.url.path),
         role=ctx_role.get(),
     )
     return ORJSONResponse(
@@ -779,6 +787,9 @@ async def check_health() -> HealthResponse:
 
 
 def create_app(**kwargs) -> FastAPI:
+    # uvicorn's access log writes the raw request path, which carries the
+    # secret segment of webhook and ingest URLs.
+    install_uvicorn_url_secret_redaction()
     if config.TRACECAT__ALLOW_ORIGINS is not None:
         allow_origins = config.TRACECAT__ALLOW_ORIGINS.split(",")
     else:

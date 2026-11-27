@@ -33,6 +33,7 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatException
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
+from tracecat.logger.redaction import redact_url_secrets
 from tracecat.observability.sentry import (
     capture_api_exception,
     capture_auth_pool_exhaustion,
@@ -109,7 +110,7 @@ async def database_exception_handler(request: Request, exc: Exception) -> Respon
     logger.warning(
         "Database rejected request data",
         error_type=type(exc).__name__,
-        path=request.url.path,
+        path=redact_url_secrets(request.url.path),
     )
     return ORJSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -123,7 +124,7 @@ async def generic_exception_handler(request: Request, exc: Exception) -> Respons
         exc=exc,
         role=ctx_role.get(),
         params=request.query_params,
-        path=request.url.path,
+        path=redact_url_secrets(request.url.path),
     )
     return ORJSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -142,7 +143,7 @@ async def http_exception_handler(request: Request, exc: Exception) -> Response:
         "HTTP error",
         status_code=http_exc.status_code,
         detail=http_exc.detail,
-        path=request.url.path,
+        path=redact_url_secrets(request.url.path),
         method=request.method,
         role=role,
     )
@@ -164,7 +165,7 @@ def auth_pool_exhausted_exception_handler(
     logger.error(
         "Authentication database pool exhausted",
         exc=auth_exc,
-        path=request.url.path,
+        path=redact_url_secrets(request.url.path),
         method=request.method,
         role=ctx_role.get(),
     )
@@ -282,7 +283,7 @@ def tracecat_exception_handler(request: Request, exc: Exception) -> Response:
         msg,
         role=ctx_role.get(),
         params=request.query_params,
-        path=request.url.path,
+        path=redact_url_secrets(request.url.path),
         detail=tracecat_exc.detail,
     )
     return ORJSONResponse(
@@ -319,7 +320,7 @@ def _query_exception_response(
         "Query execution rejected",
         status_code=status_code,
         exception_type=type(exc).__name__,
-        path=request.url.path,
+        path=redact_url_secrets(request.url.path),
         role=ctx_role.get(),
         detail=exc.detail,
     )
