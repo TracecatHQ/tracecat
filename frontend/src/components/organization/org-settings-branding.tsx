@@ -16,7 +16,6 @@ import {
   FormField,
   FormItem,
   FormLabel,
-  FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
@@ -34,10 +33,13 @@ const LOGO_TYPES = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"]
 
 const hexColor = z
   .string()
-  .trim()
-  .refine((value) => value === "" || HEX_COLOR_PATTERN.test(value), {
-    message: "Use a hex color like #5E6AD2",
-  })
+  .refine((value) => value === "" || HEX_COLOR_PATTERN.test(value))
+
+/** Keep up to six hex digits and store them with a leading `#`. */
+function normalizeHexInput(raw: string): string {
+  const digits = raw.replace(/[^0-9a-fA-F]/g, "").slice(0, 6)
+  return digits ? `#${digits}` : ""
+}
 
 const brandingFormSchema = z.object({
   branding_logo: z.string().nullable(),
@@ -70,9 +72,8 @@ function ColorField({
       render={({ field }) => (
         <FormItem className="flex flex-row items-center justify-between gap-6 px-4 py-3">
           <div className="space-y-0.5">
-            <FormLabel>{label}</FormLabel>
+            <FormLabel className="text-foreground">{label}</FormLabel>
             <FormDescription>{description}</FormDescription>
-            <FormMessage />
           </div>
           <div className="flex items-center gap-2">
             <span
@@ -80,15 +81,25 @@ function ColorField({
               style={{ backgroundColor: previewColor(field.value) }}
               aria-hidden
             />
-            <FormControl>
-              <Input
-                {...field}
-                placeholder={DEFAULT_PRIMARY_COLOR}
-                spellCheck={false}
-                autoComplete="off"
-                className="h-8 w-28 font-mono text-xs"
-              />
-            </FormControl>
+            <div className="flex h-8 w-28 items-center rounded-md border border-input pl-3 font-mono text-xs focus-within:ring-1 focus-within:ring-inset focus-within:ring-ring">
+              <span className="text-muted-foreground" aria-hidden>
+                #
+              </span>
+              <FormControl>
+                <Input
+                  {...field}
+                  value={field.value.replace(/^#/, "")}
+                  onChange={(event) =>
+                    field.onChange(normalizeHexInput(event.target.value))
+                  }
+                  maxLength={7}
+                  placeholder={DEFAULT_PRIMARY_COLOR.slice(1)}
+                  spellCheck={false}
+                  autoComplete="off"
+                  className="h-full border-0 pl-0.5 font-mono text-xs focus-visible:ring-0"
+                />
+              </FormControl>
+            </div>
           </div>
         </FormItem>
       )}
@@ -163,6 +174,7 @@ export function OrgSettingsBrandingForm() {
 
   const form = useForm<BrandingFormValues>({
     resolver: zodResolver(brandingFormSchema),
+    mode: "onChange",
     values: {
       branding_logo: brandingSettings?.branding_logo ?? null,
       branding_primary_color_light:
@@ -353,7 +365,11 @@ export function OrgSettingsBrandingForm() {
         <Button
           type="submit"
           size="sm"
-          disabled={updateBrandingSettingsIsPending || !form.formState.isDirty}
+          disabled={
+            updateBrandingSettingsIsPending ||
+            !form.formState.isDirty ||
+            !form.formState.isValid
+          }
         >
           {updateBrandingSettingsIsPending ? "Saving..." : "Save changes"}
         </Button>
