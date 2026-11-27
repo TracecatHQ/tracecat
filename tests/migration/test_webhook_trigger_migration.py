@@ -41,7 +41,7 @@ def workflow_bucket() -> Iterator[None]:
     yield
 
 
-def _alembic(db_url: str, *args: str) -> None:
+def _alembic(db_url: str, *args: str) -> str:
     result = subprocess.run(
         [sys.executable, "-m", "alembic", *args],
         env={**os.environ, "TRACECAT__DB_URI": db_url},
@@ -52,6 +52,7 @@ def _alembic(db_url: str, *args: str) -> None:
     assert result.returncode == 0, (
         f"alembic {' '.join(args)} failed:\n{result.stdout}\n{result.stderr}"
     )
+    return result.stdout + result.stderr
 
 
 @pytest.fixture
@@ -166,7 +167,10 @@ def test_backfill_links_online_webhooks_only(db_url: str, engine: Engine) -> Non
     untitled = _workflow(engine, ws, "  ", "online")
     unused = _workflow(engine, ws, "Never used", "offline")
 
-    _alembic(db_url, "upgrade", MIGRATION_REVISION)
+    output = _alembic(db_url, "upgrade", MIGRATION_REVISION)
+
+    # The accepted gap is counted in the log, never silent (and no IDs).
+    assert "0 online webhooks still unlinked" in output
 
     expected = {
         report: (

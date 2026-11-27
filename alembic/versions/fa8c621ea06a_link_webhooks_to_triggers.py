@@ -29,12 +29,15 @@ The downgrade deletes the ``webhook`` trigger rows and drops what the upgrade
 added. Webhooks themselves are untouched either way.
 """
 
+import logging
 import time
 from collections.abc import Sequence
 
 import sqlalchemy as sa
 
 from alembic import op
+
+logger = logging.getLogger("alembic.runtime.migration")
 
 revision: str = "fa8c621ea06a"
 down_revision: str | None = "61ebd010e726"
@@ -148,10 +151,8 @@ WHERE h.id = p.webhook_id
 
 # Online webhooks still without a trigger row, such as ones a pass skipped.
 PENDING_SQL = """
-SELECT EXISTS (
-    SELECT 1 FROM webhook
-    WHERE trigger_id IS NULL AND status = 'online' AND workflow_id IS NOT NULL
-)
+SELECT count(*) FROM webhook
+WHERE trigger_id IS NULL AND status = 'online' AND workflow_id IS NOT NULL
 """
 # A skipped pair is usually held for one short write. Passes repeat about
 # once a second for up to this long; a webhook held for all of it is linked
@@ -211,11 +212,17 @@ def upgrade() -> None:
             op.execute("BEGIN")
             backfill(conn)
             op.execute("COMMIT")
-            if not conn.execute(sa.text(PENDING_SQL)).scalar():
-                break
-            if time.monotonic() >= deadline:
+            pending = conn.execute(sa.text(PENDING_SQL)).scalar() or 0
+            if not pending or time.monotonic() >= deadline:
                 break
             time.sleep(_BACKFILL_RETRY_SECONDS)
+        # Accepted gap: these keep running but are not listed in the Triggers
+        # tab until they are next turned on or ``backfill`` is rerun. Count
+        # only, so no webhook IDs or URLs reach the logs.
+        logger.info(
+            "Webhook trigger backfill done; %d online webhooks still unlinked",
+            pending,
+        )
         # VALIDATE takes SHARE UPDATE EXCLUSIVE here: no blocking of reads or
         # writes during its scan.
         op.execute(f'ALTER TABLE webhook VALIDATE CONSTRAINT "{_FK}"')
