@@ -28,14 +28,27 @@ import type { CaseBadgeProps } from "@/components/cases/case-badge"
 
 const palette = {
   gray: "bg-muted/50 text-muted-foreground",
-  yellow: "bg-yellow-500/10 text-yellow-700",
-  orange: "bg-orange-500/10 text-orange-700",
-  red: "bg-red-500/10 text-red-700",
-  fuchsia: "bg-fuchsia-500/10 text-fuchsia-700",
-  emerald: "bg-green-500/10 text-green-700",
-  sky: "bg-blue-500/10 text-blue-700",
-  violet: "bg-violet-500/10 text-violet-700",
+  yellow: "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400",
+  orange: "bg-orange-500/10 text-orange-700 dark:text-orange-400",
+  red: "bg-red-500/10 text-red-700 dark:text-red-400",
+  fuchsia: "bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-400",
+  emerald: "bg-green-500/10 text-green-700 dark:text-green-400",
+  sky: "bg-blue-500/10 text-blue-700 dark:text-blue-400",
+  violet: "bg-violet-500/10 text-violet-700 dark:text-violet-400",
   slate: "bg-muted text-muted-foreground",
+}
+
+/**
+ * Returns the text color classes of a category color, for tinting an icon or
+ * label without the badge background.
+ */
+export function getCategoryTextClass(color?: string): string {
+  const tokens = color
+    ?.split(" ")
+    .filter(
+      (token) => token.startsWith("text-") || token.startsWith("dark:text-")
+    )
+  return tokens?.length ? tokens.join(" ") : "text-muted-foreground"
 }
 
 export const STATUSES: Record<CaseStatus, CaseBadgeProps<CaseStatus>> = {

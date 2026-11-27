@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { CaseDurationEventFilters } from "@/client"
 import {
+  getCategoryTextClass,
   PRIORITIES,
   SEVERITIES,
   STATUSES,
@@ -101,10 +102,6 @@ const getFilterLabel = (
   }
   return null
 }
-
-const getOptionIconClass = (color?: string) =>
-  color?.split(" ").find((token) => token.startsWith("text-")) ||
-  "text-muted-foreground"
 
 const formSchema = z
   .object({
@@ -251,7 +248,7 @@ const buildFilterOptions = (
         value: option.value,
         label: option.label,
         icon: category?.icon,
-        iconClassName: getOptionIconClass(category?.color),
+        iconClassName: getCategoryTextClass(category?.color),
       }
     })
   }

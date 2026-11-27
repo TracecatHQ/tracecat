@@ -59,6 +59,7 @@ import { AddCaseTag } from "@/components/cases/add-case-tag"
 import { AddCustomField } from "@/components/cases/add-custom-field"
 import { CaseAgentRunsAction } from "@/components/cases/case-agent-runs-action"
 import {
+  getCategoryTextClass,
   PRIORITIES,
   SEVERITIES,
   STATUSES,
@@ -1344,7 +1345,10 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
                   >
                     {status.icon && (
                       <status.icon
-                        className="size-3 text-muted-foreground"
+                        className={cn(
+                          "size-3",
+                          getCategoryTextClass(status.color)
+                        )}
                         aria-hidden
                       />
                     )}
@@ -1384,7 +1388,10 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
                   >
                     {priority.icon && (
                       <priority.icon
-                        className="size-3 text-muted-foreground"
+                        className={cn(
+                          "size-3",
+                          getCategoryTextClass(priority.color)
+                        )}
                         aria-hidden
                       />
                     )}
@@ -1421,7 +1428,10 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
                   >
                     {severity.icon && (
                       <severity.icon
-                        className="size-3 text-muted-foreground"
+                        className={cn(
+                          "size-3",
+                          getCategoryTextClass(severity.color)
+                        )}
                         aria-hidden
                       />
                     )}

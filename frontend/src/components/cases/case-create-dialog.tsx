@@ -13,6 +13,7 @@ import type {
 } from "@/client"
 import { ApiError } from "@/client"
 import {
+  getCategoryTextClass,
   PRIORITIES,
   SEVERITIES,
   STATUSES,
@@ -48,6 +49,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { caseHref } from "@/lib/cases/urls"
 import { useCreateCase } from "@/lib/hooks"
+import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const createCaseSchema = z.object({
@@ -201,7 +203,12 @@ export function CreateCaseDialog({
                                 value={status.value}
                               >
                                 <div className="flex items-center gap-2">
-                                  <status.icon className="h-3 w-3" />
+                                  <status.icon
+                                    className={cn(
+                                      "h-3 w-3",
+                                      getCategoryTextClass(status.color)
+                                    )}
+                                  />
                                   {status.label}
                                 </div>
                               </SelectItem>
@@ -235,7 +242,12 @@ export function CreateCaseDialog({
                                 value={priority.value}
                               >
                                 <div className="flex items-center gap-2">
-                                  <priority.icon className="h-3 w-3" />
+                                  <priority.icon
+                                    className={cn(
+                                      "h-3 w-3",
+                                      getCategoryTextClass(priority.color)
+                                    )}
+                                  />
                                   {priority.label}
                                 </div>
                               </SelectItem>
@@ -269,7 +281,12 @@ export function CreateCaseDialog({
                                 value={severity.value}
                               >
                                 <div className="flex items-center gap-2">
-                                  <severity.icon className="h-3 w-3" />
+                                  <severity.icon
+                                    className={cn(
+                                      "h-3 w-3",
+                                      getCategoryTextClass(severity.color)
+                                    )}
+                                  />
                                   {severity.label}
                                 </div>
                               </SelectItem>
@@ -308,7 +325,12 @@ export function CreateCaseDialog({
                                 value={verdict.value}
                               >
                                 <div className="flex items-center gap-2">
-                                  <verdict.icon className="h-3 w-3" />
+                                  <verdict.icon
+                                    className={cn(
+                                      "h-3 w-3",
+                                      getCategoryTextClass(verdict.color)
+                                    )}
+                                  />
                                   {verdict.label}
                                 </div>
                               </SelectItem>

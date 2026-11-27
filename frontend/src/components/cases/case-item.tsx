@@ -44,6 +44,7 @@ import {
   tintColor,
 } from "@/components/cases/case-badge"
 import {
+  getCategoryTextClass,
   PRIORITIES,
   SEVERITIES,
   STATUSES,
@@ -759,7 +760,12 @@ export function CaseItem({
                     className="text-xs"
                     onClick={() => handleStatusChange(status.value)}
                   >
-                    <StatusIcon className="mr-2 size-3.5" />
+                    <StatusIcon
+                      className={cn(
+                        "mr-2 size-3.5",
+                        getCategoryTextClass(status.color)
+                      )}
+                    />
                     {status.label}
                   </ContextMenuRadioItem>
                 )
@@ -785,7 +791,12 @@ export function CaseItem({
                     className="text-xs"
                     onClick={() => handlePriorityChange(priority.value)}
                   >
-                    <PriorityIcon className="mr-2 size-3.5" />
+                    <PriorityIcon
+                      className={cn(
+                        "mr-2 size-3.5",
+                        getCategoryTextClass(priority.color)
+                      )}
+                    />
                     {priority.label}
                   </ContextMenuRadioItem>
                 )
@@ -811,7 +822,12 @@ export function CaseItem({
                     className="text-xs"
                     onClick={() => handleSeverityChange(severity.value)}
                   >
-                    <SeverityIcon className="mr-2 size-3.5" />
+                    <SeverityIcon
+                      className={cn(
+                        "mr-2 size-3.5",
+                        getCategoryTextClass(severity.color)
+                      )}
+                    />
                     {severity.label}
                   </ContextMenuRadioItem>
                 )
@@ -833,7 +849,7 @@ export function CaseItem({
                 className="text-xs"
                 onClick={() => handleVerdictChange(null)}
               >
-                <CircleDashedIcon className="mr-2 size-3.5" />
+                <CircleDashedIcon className="mr-2 size-3.5 text-muted-foreground" />
                 No verdict
               </ContextMenuRadioItem>
               {Object.values(VERDICTS).map((verdict) => {
@@ -845,7 +861,12 @@ export function CaseItem({
                     className="text-xs"
                     onClick={() => handleVerdictChange(verdict.value)}
                   >
-                    <VerdictIcon className="mr-2 size-3.5" />
+                    <VerdictIcon
+                      className={cn(
+                        "mr-2 size-3.5",
+                        getCategoryTextClass(verdict.color)
+                      )}
+                    />
                     {verdict.label}
                   </ContextMenuRadioItem>
                 )

@@ -17,6 +17,7 @@ import type {
   WorkspaceMember,
 } from "@/client"
 import {
+  getCategoryTextClass,
   PRIORITIES,
   SEVERITIES,
   STATUSES,
@@ -59,59 +60,6 @@ export interface AssigneeInfo {
   last_name?: string | null
 }
 
-// Color mappings for Linear-style display
-function getPriorityColor(priority: CasePriority): string {
-  switch (priority) {
-    case "high":
-    case "critical":
-      return "text-red-600"
-    case "medium":
-      return "text-orange-600"
-    case "low":
-      return "text-muted-foreground"
-    default:
-      return "text-muted-foreground"
-  }
-}
-
-function getSeverityColor(severity: CaseSeverity): string {
-  switch (severity) {
-    case "high":
-    case "critical":
-    case "fatal":
-      return "text-red-600"
-    case "informational":
-      return "text-blue-600"
-    case "medium":
-      return "text-orange-600"
-    case "low":
-      return "text-muted-foreground"
-    case "other":
-      return "text-muted-foreground"
-    default:
-      return "text-muted-foreground"
-  }
-}
-
-function getStatusColor(status: CaseStatus): string {
-  switch (status) {
-    case "new":
-      return "text-yellow-600"
-    case "in_progress":
-      return "text-blue-600"
-    case "on_hold":
-      return "text-orange-600"
-    case "resolved":
-      return "text-green-600"
-    case "closed":
-      return "text-violet-600"
-    case "other":
-      return "text-muted-foreground"
-    default:
-      return "text-muted-foreground"
-  }
-}
-
 interface StatusSelectProps {
   status: CaseStatus
   onValueChange: (status: CaseStatus) => void
@@ -151,7 +99,7 @@ export function StatusSelect({
             <CaseValueDisplay
               icon={currentStatus.icon}
               label={currentStatus.label}
-              color={getStatusColor(currentStatus.value)}
+              color={getCategoryTextClass(currentStatus.color)}
               labelClassName={valueClassName}
             />
           </div>
@@ -163,7 +111,7 @@ export function StatusSelect({
             <CaseValueDisplay
               icon={props.icon}
               label={props.label}
-              color={getStatusColor(props.value)}
+              color={getCategoryTextClass(props.color)}
             />
           </SelectItem>
         ))}
@@ -211,7 +159,7 @@ export function PrioritySelect({
             <CaseValueDisplay
               icon={currentPriority.icon}
               label={currentPriority.label}
-              color={getPriorityColor(currentPriority.value)}
+              color={getCategoryTextClass(currentPriority.color)}
               labelClassName={valueClassName}
             />
           </div>
@@ -223,7 +171,7 @@ export function PrioritySelect({
             <CaseValueDisplay
               icon={props.icon}
               label={props.label}
-              color={getPriorityColor(props.value)}
+              color={getCategoryTextClass(props.color)}
             />
           </SelectItem>
         ))}
@@ -271,7 +219,7 @@ export function SeveritySelect({
             <CaseValueDisplay
               icon={currentSeverity.icon}
               label={currentSeverity.label}
-              color={getSeverityColor(currentSeverity.value)}
+              color={getCategoryTextClass(currentSeverity.color)}
               labelClassName={valueClassName}
             />
           </div>
@@ -283,30 +231,13 @@ export function SeveritySelect({
             <CaseValueDisplay
               icon={props.icon}
               label={props.label}
-              color={getSeverityColor(props.value)}
+              color={getCategoryTextClass(props.color)}
             />
           </SelectItem>
         ))}
       </SelectContent>
     </Select>
   )
-}
-
-function getVerdictColor(verdict: CaseVerdict): string {
-  switch (verdict) {
-    case "true_positive":
-      return "text-red-600"
-    case "suspicious":
-      return "text-orange-600"
-    case "false_positive":
-      return "text-green-600"
-    case "benign":
-      return "text-blue-600"
-    case "test":
-      return "text-violet-600"
-    default:
-      return "text-muted-foreground"
-  }
 }
 
 /** Select value used for a case without a verdict. */
@@ -357,7 +288,7 @@ export function VerdictSelect({
               <CaseValueDisplay
                 icon={currentVerdict.icon}
                 label={currentVerdict.label}
-                color={getVerdictColor(currentVerdict.value)}
+                color={getCategoryTextClass(currentVerdict.color)}
                 labelClassName={valueClassName}
               />
             ) : (
@@ -384,7 +315,7 @@ export function VerdictSelect({
             <CaseValueDisplay
               icon={props.icon}
               label={props.label}
-              color={getVerdictColor(props.value)}
+              color={getCategoryTextClass(props.color)}
             />
           </SelectItem>
         ))}

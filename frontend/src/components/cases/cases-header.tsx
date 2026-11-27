@@ -31,6 +31,7 @@ import type {
 } from "@/client"
 
 import {
+  getCategoryTextClass,
   PRIORITIES,
   SEVERITIES,
   STATUSES,
@@ -82,10 +83,6 @@ import {
 } from "@/lib/case-query"
 import { formatCaseCount } from "@/lib/cases/case-count"
 import { cn } from "@/lib/utils"
-
-const getIconTextClass = (color?: string) =>
-  color?.split(" ").find((token) => token.startsWith("text-")) ||
-  "text-muted-foreground"
 
 const CASE_SORT_OPTIONS: Array<{
   value: CaseSortField
@@ -373,7 +370,7 @@ export function CasesHeader({
       value: status.value,
       label: status.label,
       icon: status.icon,
-      iconClassName: getIconTextClass(status.color),
+      iconClassName: getCategoryTextClass(status.color),
     }))
   }, [])
 
@@ -382,7 +379,7 @@ export function CasesHeader({
       value: priority.value,
       label: priority.label,
       icon: priority.icon,
-      iconClassName: getIconTextClass(priority.color),
+      iconClassName: getCategoryTextClass(priority.color),
     }))
   }, [])
 
@@ -391,7 +388,7 @@ export function CasesHeader({
       value: severity.value,
       label: severity.label,
       icon: severity.icon,
-      iconClassName: getIconTextClass(severity.color),
+      iconClassName: getCategoryTextClass(severity.color),
     }))
   }, [])
 
