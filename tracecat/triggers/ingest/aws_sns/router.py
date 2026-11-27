@@ -24,7 +24,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Header, Request, Response, status
-from fastapi.responses import ORJSONResponse
+from fastapi.responses import JSONResponse
 from starlette.requests import ClientDisconnect
 
 from tracecat.exceptions import TracecatException
@@ -103,7 +103,7 @@ def _error_response(error: IngestError) -> Response:
     if error.retry_after_seconds is not None:
         headers["Retry-After"] = str(error.retry_after_seconds)
     status_code, message = _RESPONSE_BY_CODE[error.code]
-    return ORJSONResponse(
+    return JSONResponse(
         status_code=status_code,
         content={"detail": {"code": error.code.value, "message": message}},
         headers=headers,
@@ -164,11 +164,11 @@ async def ingest_sns_message(
         # The app-wide handler would echo the exception text to this public,
         # unauthenticated caller; answer a fixed body instead.
         logger.error("SNS ingest failed", error_type=type(e).__name__)
-        return ORJSONResponse(
+        return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"detail": {"code": "internal_error", "message": "Internal error"}},
         )
-    return ORJSONResponse(
+    return JSONResponse(
         status_code=status.HTTP_200_OK,
         content={
             "queued": result.queued,
