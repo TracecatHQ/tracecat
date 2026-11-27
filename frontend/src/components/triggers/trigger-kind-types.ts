@@ -40,6 +40,11 @@ export interface TriggerKindDefinition {
   icon: LucideIcon
   /** The plan feature the kind needs, or `null` for every plan. */
   entitlement: EntitlementKey | null
+  /**
+   * Scopes the kind needs on top of `trigger:create`, `trigger:update` and
+   * `trigger:delete`. Only names `useHasScopes` covers.
+   */
+  scopes: { create: string[]; update: string[]; delete: string[] }
   /** Placeholder for the create dialog's name field. */
   namePlaceholder: string
   /** The toast line after create: what to do next. */

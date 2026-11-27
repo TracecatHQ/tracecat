@@ -181,6 +181,10 @@ beforeEach(() => {
     "trigger:create": true,
     "trigger:update": true,
     "trigger:delete": true,
+    "schedule:create": true,
+    "schedule:read": true,
+    "schedule:update": true,
+    "schedule:delete": true,
   }
 })
 
@@ -292,6 +296,7 @@ describe("WorkspaceTriggers", () => {
 describe("CreateTriggerDialog kind picker", () => {
   it("marks the kinds the plan lacks and keeps the others open", () => {
     entitled = false
+    scopes = { ...scopes, "workflow:execute": true }
 
     renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
 
@@ -303,6 +308,7 @@ describe("CreateTriggerDialog kind picker", () => {
 
   it("says the plan is unknown rather than locked when the check fails", () => {
     entitlementsFailed = true
+    scopes = { ...scopes, "workflow:execute": true }
 
     renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
 
@@ -669,6 +675,17 @@ describe("event source providers", () => {
   })
 })
 
+describe("CreateTriggerDialog kind scopes", () => {
+  it("marks Schedule when the caller lacks a scope creating one needs", () => {
+    // Has trigger:create and the schedule scopes, but not workflow:execute.
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
+
+    const schedule = screen.getByRole("button", { name: /Schedule/ })
+    expect(schedule).toBeDisabled()
+    expect(schedule).toHaveTextContent("No permission")
+  })
+})
+
 describe("CreateTriggerDialog provider picker", () => {
   it("describes object storage without a provider and starts a new source with the provider picker", async () => {
     const user = userEvent.setup()
@@ -707,6 +724,28 @@ describe("EventSourcePanel for an unknown provider", () => {
       await screen.findByText(/can't show setup steps for gcs_pubsub sources/)
     ).toBeInTheDocument()
     expect(screen.getByText("gcs_pubsub")).toBeInTheDocument()
+  })
+})
+
+describe("TriggerDetail for a schedule without the schedule scopes", () => {
+  it("hides delete and locks the switch", async () => {
+    scopes = {
+      ...scopes,
+      "schedule:update": false,
+      "schedule:delete": false,
+    }
+    jest.mocked(triggersGetTrigger).mockResolvedValue(SCHEDULE_TRIGGER)
+
+    renderWithClient(<TriggerDetail triggerId="trigger-2" />)
+
+    expect(
+      await screen.findByRole("switch", {
+        name: "Nightly report schedule online",
+      })
+    ).toBeDisabled()
+    expect(
+      screen.queryByRole("button", { name: /Delete/ })
+    ).not.toBeInTheDocument()
   })
 })
 

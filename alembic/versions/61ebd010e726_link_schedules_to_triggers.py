@@ -88,8 +88,10 @@ FOR UPDATE OF w
 """
 
 # One trigger row and one workflow binding per schedule that has none, among
-# the schedules whose workflow ``LOCK_WORKFLOWS_SQL`` locked (or that have no
-# workflow). A schedule created after that lock waits for the next run. Safe to
+# the schedules whose workflow ``LOCK_WORKFLOWS_SQL`` locked. A schedule
+# created after that lock waits for the next run. A schedule with no workflow
+# (legacy; it cannot run) gets no trigger: a trigger needs its one workflow
+# target. The contract release must remove such rows before NOT NULL. Safe to
 # run again: it only picks schedules whose trigger_id is still null, and locks
 # them so a concurrent delete waits. The name is the workflow title plus
 # " schedule", cut to fit the 255-character column. The trigger row keeps the
@@ -111,10 +113,7 @@ WITH pending AS (
     LEFT JOIN workflow w
         ON w.id = s.workflow_id AND w.workspace_id = s.workspace_id
     WHERE s.trigger_id IS NULL
-        AND (
-            s.workflow_id IS NULL
-            OR s.workflow_id = ANY(CAST(:workflow_ids AS uuid[]))
-        )
+        AND s.workflow_id = ANY(CAST(:workflow_ids AS uuid[]))
     FOR UPDATE OF s
 ),
 new_triggers AS (

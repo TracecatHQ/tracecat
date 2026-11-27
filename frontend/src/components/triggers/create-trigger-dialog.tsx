@@ -11,6 +11,7 @@ import {
   TRIGGER_KIND_LIST,
   TRIGGER_KINDS,
 } from "@/components/triggers/trigger-kinds"
+import { useHasScopes } from "@/components/triggers/trigger-target-scopes"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -81,6 +82,7 @@ export function CreateTriggerDialog({
   const router = useRouter()
   const { createTrigger } = useTriggerMutations(workspaceId)
   const kindAccess = useTriggerKindAccess()
+  const hasScopes = useHasScopes()
   const [kind, setKind] = useState<TriggerKind | null>(null)
   const [name, setName] = useState("")
   const [submitting, setSubmitting] = useState(false)
@@ -167,12 +169,20 @@ export function CreateTriggerDialog({
             <div className="space-y-2">
               {TRIGGER_KIND_LIST.map((option) => {
                 const access = kindAccess(option.entitlement)
-                const note = KIND_ACCESS_NOTE[access]
+                const permitted = hasScopes(option.scopes.create) === true
+                const note =
+                  KIND_ACCESS_NOTE[access] ??
+                  (permitted ? null : "No permission")
                 return (
                   <button
                     key={option.kind}
                     type="button"
-                    disabled={access !== "enabled"}
+                    disabled={access !== "enabled" || !permitted}
+                    title={
+                      permitted
+                        ? undefined
+                        : `Needs ${option.scopes.create.join(", ")}`
+                    }
                     className="flex w-full items-center gap-3 rounded-md border px-3 py-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
                     onClick={() => setKind(option.kind)}
                   >

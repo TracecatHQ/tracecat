@@ -147,8 +147,8 @@ async def create_trigger(
 
     An ``object_storage`` trigger starts with no bindings. A ``schedule``
     trigger creates the workflow's schedule (as ``POST /schedules`` does) and
-    comes bound to that workflow; it also needs ``schedule:create`` and
-    ``workflow:execute``.
+    comes bound to that workflow; it also needs ``schedule:create``,
+    ``schedule:read`` and ``workflow:execute``.
     """
     service = TriggersService(session, role)
     trigger = await service.create_trigger(params)

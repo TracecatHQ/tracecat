@@ -7141,8 +7141,8 @@ async def create_trigger(
     `"every": "PT1H"` instead of `cron`, plus optional `offset`, `start_at`,
     `end_at`, `timeout` seconds and `inputs`), this creates the workflow's
     schedule, bound to that workflow; the workflow must have been saved. It
-    needs `schedule:create` and `workflow:execute`. A schedule's target is
-    fixed: `create_trigger_binding` refuses one.
+    needs `schedule:create`, `schedule:read` and `workflow:execute`. A
+    schedule's target is fixed: `create_trigger_binding` refuses one.
 
     Args:
         workspace_id: The workspace ID.
@@ -7172,9 +7172,10 @@ async def update_trigger(
 
     There is no delete tool: take a trigger offline instead. Turning a trigger
     online or changing an online trigger's config also needs `workflow:execute`
-    or `agent:execute` for the targets of its online bindings. For a
-    `schedule` trigger the config and status change its schedule and need
-    `schedule:update`; a config replaces every schedule setting, and its
+    or `agent:execute` for the targets of its online bindings. A `schedule`
+    trigger's name, config and status are written through its schedule, so
+    any change to one also needs `schedule:update` (which grants
+    `schedule:read`); a config replaces every schedule setting, and its
     `workflow_id` must stay the same.
 
     Args:

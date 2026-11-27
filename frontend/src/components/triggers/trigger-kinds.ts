@@ -21,6 +21,13 @@ export const TRIGGER_KINDS: Record<TriggerKind, TriggerKindDefinition> = {
     description: "Runs a workflow on a cron expression or a fixed interval.",
     icon: CalendarClockIcon,
     entitlement: null,
+    // As the API checks them: creating reads the schedule back and binds the
+    // workflow, so it also needs schedule:read and workflow:execute.
+    scopes: {
+      create: ["schedule:create", "schedule:read", "workflow:execute"],
+      update: ["schedule:update"],
+      delete: ["schedule:delete"],
+    },
     namePlaceholder: "Nightly report",
     createdHint: "Put it online to start running the workflow.",
     deleteDescription:
@@ -37,6 +44,7 @@ export const TRIGGER_KINDS: Record<TriggerKind, TriggerKindDefinition> = {
     description: "Runs when a new object lands in a storage bucket.",
     icon: DatabaseIcon,
     entitlement: "object_triggers",
+    scopes: { create: [], update: [], delete: [] },
     namePlaceholder: "New uploads",
     createdHint: "Add a target, then put the trigger online.",
     deleteDescription:

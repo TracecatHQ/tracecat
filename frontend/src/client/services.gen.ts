@@ -14671,8 +14671,8 @@ export const triggersListTriggers = (
  *
  * An ``object_storage`` trigger starts with no bindings. A ``schedule``
  * trigger creates the workflow's schedule (as ``POST /schedules`` does) and
- * comes bound to that workflow; it also needs ``schedule:create`` and
- * ``workflow:execute``.
+ * comes bound to that workflow; it also needs ``schedule:create``,
+ * ``schedule:read`` and ``workflow:execute``.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody

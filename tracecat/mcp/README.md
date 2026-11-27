@@ -176,9 +176,11 @@ delete tools: take a source, trigger or binding offline instead. The API
 deletes triggers and bindings.
 
 A `schedule` trigger is the same schedule a workflow's `schedules` holds, so a
-schedule made either way shows in both. Creating one needs `schedule:create`
-and `workflow:execute` and binds it to its workflow; updating its config or
-status needs `schedule:update`, and a config replaces every schedule setting.
+schedule made either way shows in both. Creating one needs `schedule:create`,
+`schedule:read` and `workflow:execute` and binds it to its workflow. Renaming
+it or updating its config or status needs `schedule:update` (which grants
+`schedule:read`) on top of `trigger:update`, and a config replaces every
+schedule setting.
 Its one binding is fixed: `create_trigger_binding` and `update_trigger_binding`
 refuse it.
 

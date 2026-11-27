@@ -579,9 +579,10 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         *,
         trigger_name: str | None = None,
     ) -> AuditEventDetails:
-        return AuditEventDetails(
-            data={"changed_fields": sorted(params.model_fields_set)}
-        )
+        changed = set(params.model_fields_set)
+        if trigger_name is not None:
+            changed.add("name")
+        return AuditEventDetails(data={"changed_fields": sorted(changed)})
 
     @require_scope("schedule:update")
     @audit_log(

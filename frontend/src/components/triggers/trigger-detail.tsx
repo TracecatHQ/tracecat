@@ -21,6 +21,7 @@ import { TriggerStatusLabel } from "@/components/triggers/trigger-status"
 import {
   RUN_ACTION_BY_TARGET,
   useCanRunTarget,
+  useHasScopes,
 } from "@/components/triggers/trigger-target-scopes"
 import {
   AlertDialog,
@@ -88,12 +89,20 @@ function TriggerDetailBody({
   trigger: TriggerRead
 }) {
   const router = useRouter()
-  const canUpdate = useScopeCheck("trigger:update")
-  const canDelete = useScopeCheck("trigger:delete")
+  const canUpdateTriggers = useScopeCheck("trigger:update")
+  const canDeleteTriggers = useScopeCheck("trigger:delete")
+  const hasScopes = useHasScopes()
   const { updateTrigger, deleteTrigger } = useTriggerMutations(workspaceId)
   const [addTargetOpen, setAddTargetOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const definition = getTriggerKind(trigger)
+  // The kind may need its own scopes too, such as schedule:update.
+  const canUpdate =
+    canUpdateTriggers === true &&
+    hasScopes(definition?.scopes.update ?? []) === true
+  const canDelete =
+    canDeleteTriggers === true &&
+    hasScopes(definition?.scopes.delete ?? []) === true
   const Icon = definition?.icon ?? ZapIcon
   const canRunTarget = useCanRunTarget()
   // Putting the trigger online makes every online target live, so the API

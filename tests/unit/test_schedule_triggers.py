@@ -267,6 +267,15 @@ async def test_the_trigger_reads_back_its_schedule(
     assert binding.target_name == "Nightly report"
 
 
+def test_a_blank_cron_is_no_cron() -> None:
+    with pytest.raises(ValueError, match="Either cron or every"):
+        ScheduleTriggerConfig(
+            kind=TriggerKind.SCHEDULE,
+            workflow_id=WorkflowUUID.new_uuid4(),
+            cron="  ",
+        )
+
+
 def test_default_name_comes_from_the_workflow_title() -> None:
     assert default_trigger_name("Nightly report") == "Nightly report schedule"
     assert default_trigger_name("  ") == "Schedule"
@@ -566,12 +575,15 @@ async def test_deleting_the_workflow_deletes_its_schedule_triggers(
         TriggerCreate(name="s", config=_config(workflow))
     )
     created_id = created.id
+    _, _, schedule = await _rows(session, created_id)
+    schedule_id = schedule.id
 
     await WorkflowsManagementService(session, role=svc_role).delete_workflow(
         WorkflowUUID.new(workflow.id)
     )
 
     assert await _trigger_count(session, created_id) == 0
+    assert schedule_id in temporal.deleted
     page = await triggers.list_triggers(PageParams(limit=10))
     assert page.items == []
 

@@ -282,13 +282,13 @@
 
   For `{"kind": "object_storage", "source_id": ..., "key_prefix": "..."}`, the source must be an event source of this workspace that delivers object events (kind `aws_sns`). An empty `key_prefix` matches every key. A workflow that writes under the prefix it watches triggers itself. Needs the `object_triggers` plan feature.
 
-  For `{"kind": "schedule", "workflow_id": ..., "cron": "0 9 * * *"}` (or `"every": "PT1H"` instead of `cron`, plus optional `offset`, `start_at`, `end_at`, `timeout` seconds and `inputs`), this creates the workflow's schedule, bound to that workflow; the workflow must have been saved. It needs `schedule:create` and `workflow:execute`. A schedule's target is fixed: `create_trigger_binding` refuses one.
+  For `{"kind": "schedule", "workflow_id": ..., "cron": "0 9 * * *"}` (or `"every": "PT1H"` instead of `cron`, plus optional `offset`, `start_at`, `end_at`, `timeout` seconds and `inputs`), this creates the workflow's schedule, bound to that workflow; the workflow must have been saved. It needs `schedule:create`, `schedule:read` and `workflow:execute`. A schedule's target is fixed: `create_trigger_binding` refuses one.
 </ResponseField>
 
 <ResponseField name="update_trigger" type="tool">
   Rename a trigger, replace its config, or take it online or offline.
 
-  There is no delete tool: take a trigger offline instead. Turning a trigger online or changing an online trigger's config also needs `workflow:execute` or `agent:execute` for the targets of its online bindings. For a `schedule` trigger the config and status change its schedule and need `schedule:update`; a config replaces every schedule setting, and its `workflow_id` must stay the same.
+  There is no delete tool: take a trigger offline instead. Turning a trigger online or changing an online trigger's config also needs `workflow:execute` or `agent:execute` for the targets of its online bindings. A `schedule` trigger's name, config and status are written through its schedule, so any change to one also needs `schedule:update` (which grants `schedule:read`); a config replaces every schedule setting, and its `workflow_id` must stay the same.
 </ResponseField>
 
 <ResponseField name="create_trigger_binding" type="tool">

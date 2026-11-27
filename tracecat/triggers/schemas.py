@@ -184,6 +184,9 @@ class ScheduleTriggerConfig(_ScheduleSettings):
     @field_validator("cron")
     @classmethod
     def _valid_cron(cls, cron: str | None) -> str | None:
+        # A blank cron is no cron, so the one-spec check below catches it.
+        if cron is not None and not cron.strip():
+            return None
         return check_cron(cron)
 
     @model_validator(mode="after")
