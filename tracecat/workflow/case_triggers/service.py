@@ -9,12 +9,14 @@ transaction; it keeps the row when it goes offline. A database trigger on
 change to it, so writers outside this service (the dispatcher turning an
 invalid trigger off, an import clearing one) keep it in step too.
 
-Locks: every write here locks the workflow (``FOR UPDATE``) and then its case
-trigger row, the order its write always had (the row lock is taken at the
-read now, not at the flush, so the row compared is the row written). The
-trigger row and binding are new rows, and the binding's key-share lock on the
-workflow is already held, so turning a case trigger into a trigger adds no
-lock wait. The migration backfill never waits for either row.
+Locks: every write here locks the workflow (``FOR UPDATE``), resolves its tag
+filters (which may insert missing tags), and then locks its case trigger row,
+the order its write always had. The row lock is taken at the read, not at the
+flush, so the row compared is the row written; it comes after the tags, since
+a tag rename holds its new ref while it waits to rewrite case triggers'
+filters. The trigger row and binding are new rows, and the binding's key-share
+lock on the workflow is already held, so turning a case trigger into a
+trigger adds no lock wait. The migration backfill never waits for either row.
 """
 
 from __future__ import annotations
@@ -381,11 +383,28 @@ class CaseTriggersService(BaseWorkspaceService):
         that has a row gets its status, name and timestamp written with it.
         """
         title = await self._lock_workflow(workflow_id)
+        updates = params.model_dump(exclude_unset=True)
+        # Tags first, before the case trigger row is locked: resolving can
+        # insert a missing tag, and a tag rename holds its new ref while it
+        # waits to rewrite case triggers' filters. Waiting on that insert
+        # while holding a case trigger row could close a cycle.
         # Not committed here, so the workflow lock holds until the write below.
+        current = await self._ensure_case_trigger_exists(workflow_id, commit=False)
+        tags_given = "tag_filters" in updates
+        tag_filters = updates["tag_filters"] if tags_given else current.tag_filters
+        if tag_filters is None:
+            resolved_tags = []
+        else:
+            resolved_tags = await self._resolve_tag_filters(
+                tag_filters, create_missing=create_missing_tags
+            )
         case_trigger = await self._ensure_case_trigger_exists(
             workflow_id, commit=False, lock=True
         )
-        updates = params.model_dump(exclude_unset=True)
+        if not tags_given:
+            # Kept as the locked row has them: a rename that committed while
+            # this waited rewrote them to its new refs.
+            resolved_tags = list(case_trigger.tag_filters or [])
 
         status = updates.get("status", case_trigger.status)
         event_types = updates.get("event_types", case_trigger.event_types)
@@ -399,14 +418,6 @@ class CaseTriggersService(BaseWorkspaceService):
             )
         if status == "online":
             await self._ensure_workflow_has_runnable_definition(workflow_id)
-
-        tag_filters = updates.get("tag_filters", case_trigger.tag_filters)
-        if tag_filters is None:
-            resolved_tags = []
-        else:
-            resolved_tags = await self._resolve_tag_filters(
-                tag_filters, create_missing=create_missing_tags
-            )
 
         case_trigger.status = status
         case_trigger.event_types = list(event_types) if event_types is not None else []
@@ -554,9 +565,9 @@ class CaseTriggersService(BaseWorkspaceService):
             local_id=WorkflowUUID.new(workflow_id),
         )
         await self._lock_workflow(workflow_id)
-        case_trigger = await self._ensure_case_trigger_exists(
-            workflow_id, commit=False, lock=True
-        )
+        # trigger_id changes only under the workflow lock, so a fresh read
+        # is current; the row itself is locked in ``_update_case_trigger``.
+        case_trigger = await self._ensure_case_trigger_exists(workflow_id, commit=False)
         if case_trigger.trigger_id is not None:
             raise TracecatConflictError(
                 "This workflow's case trigger is already a trigger. Open it in"
@@ -651,9 +662,9 @@ class CaseTriggersService(BaseWorkspaceService):
             local_id=workflow_id,
         )
         await self._lock_workflow(workflow_id)
-        case_trigger = await self._ensure_case_trigger_exists(
-            workflow_id, commit=False, lock=True
-        )
+        # trigger_id changes only under the workflow lock, so a fresh read
+        # is current. The row is locked by the write that follows.
+        case_trigger = await self._ensure_case_trigger_exists(workflow_id, commit=False)
         if case_trigger.trigger_id != trigger_id:
             raise TracecatNotFoundError(f"No case trigger for trigger {trigger_id}")
         return workflow_id

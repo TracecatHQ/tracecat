@@ -32,7 +32,11 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.dsl.common import DSLInput
-from tracecat.exceptions import EntitlementRequired, ScopeDeniedError
+from tracecat.exceptions import (
+    EntitlementRequired,
+    ScopeDeniedError,
+    TracecatNotFoundError,
+)
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.managed_resources.guard import ManagedResourceLockedError
 from tracecat.pagination import PageParams
@@ -572,6 +576,44 @@ async def test_a_config_sets_only_the_settings_it_names(
         "case_created",
         "case_closed",
     ]
+
+
+async def test_an_update_without_tags_keeps_the_row_filters(
+    session: AsyncSession, svc_role: Role, workflow: SimpleNamespace
+) -> None:
+    """Tags resolve before the case trigger row is locked (a tag rename holds
+    its new ref while it rewrites case triggers), and an update that names no
+    tags keeps the filters the locked row has."""
+    session.add(
+        CaseTag(
+            workspace_id=workflow.workspace_id,
+            name="phishing",
+            ref="phishing",
+            color=None,
+        )
+    )
+    await session.commit()
+    case_triggers = _case_triggers(session, svc_role)
+    await case_triggers.update_case_trigger(
+        WorkflowUUID.new(workflow.id),
+        CaseTriggerUpdate(event_types=_CLOSED, tag_filters=["phishing"]),
+    )
+
+    await case_triggers.update_case_trigger(
+        WorkflowUUID.new(workflow.id), CaseTriggerUpdate(status="online")
+    )
+    row = await _case_trigger(session, workflow)
+    assert (row.status, row.tag_filters) == ("online", ["phishing"])
+
+    # A missing tag still refuses, and nothing is written.
+    with pytest.raises(TracecatNotFoundError, match="nope"):
+        await case_triggers.update_case_trigger(
+            WorkflowUUID.new(workflow.id),
+            CaseTriggerUpdate(status="offline", tag_filters=["nope"]),
+        )
+    await session.rollback()
+    row = await _case_trigger(session, workflow)
+    assert (row.status, row.tag_filters) == ("online", ["phishing"])
 
 
 async def test_a_case_trigger_cannot_move_to_another_workflow(
