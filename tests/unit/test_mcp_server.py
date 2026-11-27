@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import yaml
 from fastmcp import Client, FastMCP
-from fastmcp.exceptions import ToolError
+from fastmcp.exceptions import AuthorizationError, ToolError
 from fastmcp.server.middleware.middleware import MiddlewareContext
 from fastmcp.tools import ToolResult
 from mcp import McpError
@@ -5216,7 +5216,8 @@ class _Records(logging.Handler):
 @pytest.mark.anyio
 async def test_a_tool_refusal_logs_no_error_through_the_whole_pipeline() -> None:
     """Every emitter in a real call (FastMCP's own tool log, the logging and
-    error middlewares) logs a refusal below ERROR; a fault still logs ERROR.
+    error middlewares) logs a refusal below ERROR. A fault, and a FastMCP
+    error that is not a ``ToolError``, still log ERROR.
 
     The FastMCP filter comes from importing ``tracecat.mcp.server``.
     """
@@ -5227,9 +5228,13 @@ async def test_a_tool_refusal_logs_no_error_through_the_whole_pipeline() -> None
     def fail() -> str:
         raise RuntimeError("boom")
 
+    def deny() -> str:
+        raise AuthorizationError("denied")
+
     server = FastMCP("refusal-logging")
     server.tool(refuse)
     server.tool(fail)
+    server.tool(deny)
     server.add_middleware(
         MCPErrorHandlingMiddleware(include_traceback=False, transform_errors=True)
     )
@@ -5244,12 +5249,16 @@ async def test_a_tool_refusal_logs_no_error_through_the_whole_pipeline() -> None
             records.records.clear()
             await client.call_tool("fail", {}, raise_on_error=False)
             fault = list(records.records)
+            records.records.clear()
+            await client.call_tool("deny", {}, raise_on_error=False)
+            other_fastmcp_error = list(records.records)
     finally:
         fastmcp_logger.removeHandler(records)
 
     assert refusal, "the refusal was not logged at all"
     assert max(record.levelno for record in refusal) == logging.WARNING
     assert max(record.levelno for record in fault) == logging.ERROR
+    assert max(record.levelno for record in other_fastmcp_error) == logging.ERROR
 
 
 @pytest.mark.anyio

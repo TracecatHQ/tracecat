@@ -35,11 +35,17 @@ export function TriggerWorkflowSelect({
   const { workflows, workflowsLoading } = useWorkflowManager(undefined, {
     listEnabled: canReadWorkflows === true,
   })
-  const triggered = useTriggeredWorkflowIds(workspaceId, kind)
+  // Marking needs the trigger list; without `trigger:read` the picker is
+  // unmarked and the create's 409 still refuses a duplicate.
+  const canReadTriggers = useScopeCheck("trigger:read")
+  const triggered = useTriggeredWorkflowIds(workspaceId, kind, {
+    enabled: canReadTriggers === true,
+  })
 
   const listed = workflows ?? []
   let placeholder = "Select a workflow"
-  if (workflowsLoading) {
+  // `undefined` while the scope check loads.
+  if (workflowsLoading || canReadWorkflows === undefined) {
     placeholder = "Loading workflows…"
   } else if (canReadWorkflows !== true) {
     placeholder = "You can't list workflows"

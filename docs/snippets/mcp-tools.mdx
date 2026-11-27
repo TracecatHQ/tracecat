@@ -222,7 +222,7 @@
 <ResponseField name="update_case_trigger" type="tool">
   Update an existing case trigger for a workflow.
 
-  Only the arguments you pass change; the rest keep their saved values. A status-only call turns the trigger on or off and keeps its `event_types` and `tag_filters`. Pass an empty list to clear `event_types` or `tag_filters`.
+  Only the arguments you pass change; the rest keep their saved values. A status-only call keeps the saved `event_types` and `tag_filters`: `"offline"` always works, and `"online"` works when the saved event types are non-empty and the workflow is published. Pass an empty list to clear `event_types` or `tag_filters`.
 
   Valid `event_types` values: case_created, case_updated, case_closed, case_reopened, case_viewed, priority_changed, severity_changed, verdict_changed, status_changed, fields_changed, assignee_changed, attachment_created, attachment_deleted, tag_added, tag_removed, payload_changed, task_created, task_deleted, task_status_changed, task_priority_changed, task_workflow_changed, task_assignee_changed, dropdown_value_changed, table_row_linked, table_row_unlinked, comment_created, comment_updated, comment_deleted, comment_reply_created, comment_reply_updated, comment_reply_deleted, parent_changed, sub_cases_added, sub_cases_removed.
 </ResponseField>

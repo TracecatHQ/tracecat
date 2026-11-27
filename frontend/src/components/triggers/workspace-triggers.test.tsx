@@ -1283,6 +1283,49 @@ describe("CreateTriggerDialog for a webhook already a trigger", () => {
     )
   })
 
+  it("marks workflows from every page of triggers", async () => {
+    const user = userEvent.setup()
+    workflows = [
+      { id: "wf_first", title: "First page", version: 1 },
+      { id: "wf_second", title: "Second page", version: 1 },
+    ]
+    const listedOn = (workflowId: string, id: string): TriggerRead =>
+      ({
+        ...WEBHOOK_TRIGGER,
+        id,
+        config: { ...WEBHOOK_TRIGGER.config, workflow_id: workflowId },
+      }) as TriggerRead
+    jest
+      .mocked(triggersListTriggers)
+      .mockResolvedValueOnce({
+        items: [listedOn("wf_first", "trigger-a")],
+        has_more: true,
+        next_cursor: "page-2",
+        locked: [],
+      })
+      .mockResolvedValueOnce({
+        items: [listedOn("wf_second", "trigger-b")],
+        has_more: false,
+        locked: [],
+      })
+
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
+
+    await user.click(screen.getByRole("button", { name: /Webhook/ }))
+    await user.click(screen.getByRole("combobox", { name: "Workflow" }))
+
+    for (const title of ["First page", "Second page"]) {
+      expect(
+        await screen.findByRole("option", {
+          name: new RegExp(`${title}.*Already a trigger`),
+        })
+      ).toHaveAttribute("aria-disabled", "true")
+    }
+    expect(triggersListTriggers).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kind: "webhook", cursor: "page-2" })
+    )
+  })
+
   it("brings a refused create's message into view", async () => {
     const user = userEvent.setup()
     // jest.setup.js stubs scrollIntoView, which jsdom lacks.

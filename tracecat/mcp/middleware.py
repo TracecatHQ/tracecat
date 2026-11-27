@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 import time
 import uuid
 from collections.abc import Mapping
@@ -108,21 +109,18 @@ class MCPLoggingMiddleware(LoggingMiddleware):
 
 
 class ToolRefusalLogFilter(logging.Filter):
-    """Log FastMCP's "Error calling tool" line for a refusal at WARNING.
+    """Log FastMCP's own record of a tool's ``ToolError`` at WARNING.
 
     FastMCP logs an error a tool raises inside the call, before any
-    middleware sees it: a ``FastMCPError`` such as ``ToolError`` at its
-    ``log_level`` (ERROR by default) without a traceback, and any other
-    exception with ``logger.exception``. Only the first is an expected
-    answer; it is lowered to WARNING. Add this to FastMCP's server logger.
+    middleware sees it, at the error's ``log_level`` (ERROR by default). The
+    filter runs inside FastMCP's ``except`` block, so the exception being
+    handled is the tool's: a ``ToolError`` is an expected answer and is
+    lowered to WARNING; any other exception keeps its level. Add this to
+    FastMCP's server logger.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
-        if (
-            record.levelno == logging.ERROR
-            and not record.exc_info
-            and record.getMessage().startswith("Error calling tool ")
-        ):
+        if record.levelno == logging.ERROR and isinstance(sys.exception(), ToolError):
             record.levelno = logging.WARNING
             record.levelname = logging.getLevelName(logging.WARNING)
         return True

@@ -327,6 +327,12 @@ describe("Case trigger triggers", () => {
 })
 
 describe("CreateTriggerDialog for a case trigger already a trigger", () => {
+  // jsdom lacks the pointer capture API that Radix Select calls on open.
+  beforeAll(() => {
+    Element.prototype.hasPointerCapture = () => false
+    Element.prototype.releasePointerCapture = () => {}
+  })
+
   it("marks workflows whose case trigger is already a trigger", async () => {
     const user = userEvent.setup()
     workflows = [

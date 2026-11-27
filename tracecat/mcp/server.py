@@ -32,6 +32,7 @@ from typing import (
     Any,
     Literal,
     NamedTuple,
+    NotRequired,
     TypedDict,
     cast,
     get_args,
@@ -6678,14 +6679,28 @@ async def get_case_trigger(
         raise ToolError(f"Failed to get case trigger: {e}") from None
 
 
+class _CaseTriggerUpdateArgs(TypedDict):
+    """The `update_case_trigger` arguments the caller passed.
+
+    A key is present only when its argument was given: the service reads the
+    update with `exclude_unset`, so a key set to `None` would clear it.
+    """
+
+    status: NotRequired[Literal["online", "offline"]]
+    event_types: NotRequired[list[CaseEventType]]
+    tag_filters: NotRequired[list[str]]
+
+
 # Plain literal so `scripts/generate_mcp_docs.py` can resolve it statically. The
 # live `CaseEventType` values are appended at decoration time, below, rather
 # than interpolated here - that keeps this the single source of the prose.
 _UPDATE_CASE_TRIGGER_DESCRIPTION = """Update an existing case trigger for a workflow.
 
 Only the arguments you pass change; the rest keep their saved values. A
-status-only call turns the trigger on or off and keeps its `event_types` and
-`tag_filters`. Pass an empty list to clear `event_types` or `tag_filters`.
+status-only call keeps the saved `event_types` and `tag_filters`: `"offline"`
+always works, and `"online"` works when the saved event types are non-empty
+and the workflow is published. Pass an empty list to clear `event_types` or
+`tag_filters`.
 
 Valid `event_types` values: {_CASE_EVENT_TYPE_VALUES_CSV}.
 
@@ -6731,16 +6746,14 @@ async def update_case_trigger(
         if status is not None and status not in {"online", "offline"}:
             raise ToolError("status must be 'online' or 'offline'")
 
-        # Only the arguments given count as set: the service reads the update
-        # with `exclude_unset`, so a `None` default would clear the field.
-        update_kwargs: dict[str, Any] = {}
+        update_args: _CaseTriggerUpdateArgs = {}
         if status is not None:
-            update_kwargs["status"] = status
+            update_args["status"] = cast(Literal["online", "offline"], status)
         if event_types is not None:
-            update_kwargs["event_types"] = event_types
+            update_args["event_types"] = event_types
         if tag_filters is not None:
-            update_kwargs["tag_filters"] = tag_filters
-        update_params = CaseTriggerUpdate(**update_kwargs)
+            update_args["tag_filters"] = tag_filters
+        update_params = CaseTriggerUpdate(**update_args)
 
         async with CaseTriggersService.with_session(role=role) as svc:
             await svc.update_case_trigger(
