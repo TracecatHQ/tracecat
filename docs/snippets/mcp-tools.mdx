@@ -270,7 +270,7 @@
 <ResponseField name="list_triggers" type="tool">
   List triggers newest first, each with its config and bindings.
 
-  A trigger is a rule over events; its bindings start a Workflow or an Agent for each matching event. Kind `object_storage` fires once per object created in its source whose key starts with `config.key_prefix`.
+  A trigger is a rule over events; its bindings start a Workflow or an Agent for each matching event. Kind `object_storage` fires once per object created in its source whose key starts with `config.key_prefix`. Kind `schedule` is a workflow schedule (the same one a workflow's `schedules` holds): it runs its one bound workflow on `config.cron` or `config.every`.
 </ResponseField>
 
 <ResponseField name="get_trigger" type="tool">
@@ -280,25 +280,27 @@
 <ResponseField name="create_trigger" type="tool">
   Create a trigger. Add targets with `create_trigger_binding`.
 
-  For `{"kind": "object_storage", "source_id": ..., "key_prefix": "..."}`, the source must be an event source of this workspace that delivers object events (kind `aws_sns`). An empty `key_prefix` matches every key. A workflow that writes under the prefix it watches triggers itself.
+  For `{"kind": "object_storage", "source_id": ..., "key_prefix": "..."}`, the source must be an event source of this workspace that delivers object events (kind `aws_sns`). An empty `key_prefix` matches every key. A workflow that writes under the prefix it watches triggers itself. Needs the `object_triggers` plan feature.
+
+  For `{"kind": "schedule", "workflow_id": ..., "cron": "0 9 * * *"}` (or `"every": "PT1H"` instead of `cron`, plus optional `offset`, `start_at`, `end_at`, `timeout` seconds and `inputs`), this creates the workflow's schedule, bound to that workflow; the workflow must have been saved. It needs `schedule:create` and `workflow:execute`. A schedule's target is fixed: `create_trigger_binding` refuses one.
 </ResponseField>
 
 <ResponseField name="update_trigger" type="tool">
   Rename a trigger, replace its config, or take it online or offline.
 
-  There is no delete tool: take a trigger offline instead. Turning a trigger online or changing an online trigger's config also needs `workflow:execute` or `agent:execute` for the targets of its online bindings.
+  There is no delete tool: take a trigger offline instead. Turning a trigger online or changing an online trigger's config also needs `workflow:execute` or `agent:execute` for the targets of its online bindings. For a `schedule` trigger the config and status change its schedule and need `schedule:update`; a config replaces every schedule setting, and its `workflow_id` must stay the same.
 </ResponseField>
 
 <ResponseField name="create_trigger_binding" type="tool">
   Bind a trigger to a Workflow or an Agent, so each event starts it.
 
-  `{"type": "workflow", "workflow_id": ...}` runs the workflow's published definition with the event as its trigger input. Needs `workflow:execute`. `{"type": "agent", "agent_preset_id": ..., "instruction": "..."}` starts a new session of the preset's current version with the instruction; the event is added to the first message as data. Needs `agent:execute`. A trigger can be bound to the same target only once.
+  `{"type": "workflow", "workflow_id": ...}` runs the workflow's published definition with the event as its trigger input. Needs `workflow:execute`. `{"type": "agent", "agent_preset_id": ..., "instruction": "..."}` starts a new session of the preset's current version with the instruction; the event is added to the first message as data. Needs `agent:execute`. A trigger can be bound to the same target only once. A `schedule` trigger's one target is its schedule's workflow; it takes no other.
 </ResponseField>
 
 <ResponseField name="update_trigger_binding" type="tool">
   Take a binding online or offline, or change an agent binding's instruction.
 
-  There is no delete tool: take a binding offline instead. Turning a binding online or changing its instruction needs `workflow:execute` or `agent:execute` for its target, as creating it does. The target cannot change; add a new binding for another target.
+  There is no delete tool: take a binding offline instead. Turning a binding online or changing its instruction needs `workflow:execute` or `agent:execute` for its target, as creating it does. The target cannot change; add a new binding for another target. A `schedule` trigger's binding cannot change: take the trigger offline instead.
 </ResponseField>
 
 <ResponseField name="list_workflow_tags" type="tool">

@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react"
 import type { ComponentType } from "react"
 import type { TriggerCreate, TriggerKind, TriggerRead } from "@/client"
+import type { EntitlementKey } from "@/hooks/use-entitlements"
 
 /** The config of a new trigger, a union over trigger kinds. */
 export type TriggerConfig = TriggerCreate["config"]
@@ -37,6 +38,19 @@ export interface TriggerKindDefinition {
   /** One line for the kind picker. */
   description: string
   icon: LucideIcon
+  /** The plan feature the kind needs, or `null` for every plan. */
+  entitlement: EntitlementKey | null
+  /** Placeholder for the create dialog's name field. */
+  namePlaceholder: string
+  /** The toast line after create: what to do next. */
+  createdHint: string
+  /** What the delete confirmation says happens. */
+  deleteDescription: string
+  /**
+   * Set when the kind's targets are fixed: why. The detail page then shows
+   * this instead of the controls to add, switch or remove targets.
+   */
+  fixedTargets?: string
   /** Where events come from, for the list's "Source" column. */
   describeSource: (trigger: TriggerRead) => string
   CreateForm: ComponentType<TriggerKindFormProps>

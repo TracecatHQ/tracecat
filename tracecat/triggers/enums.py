@@ -13,6 +13,7 @@ class TriggerKind(StrEnum):
     """What a trigger listens to. Each kind has its own source and config."""
 
     OBJECT_STORAGE = "object_storage"
+    SCHEDULE = "schedule"
 
 
 class TriggerStatus(StrEnum):

@@ -1,15 +1,9 @@
 "use client"
 
-import {
-  ArrowUpRight,
-  MousePointerClickIcon,
-  WorkflowIcon,
-  ZapIcon,
-} from "lucide-react"
+import { MousePointerClickIcon, WorkflowIcon, ZapIcon } from "lucide-react"
 import Link from "next/link"
 import type { TriggerBindingRead, TriggerRead } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
-import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { describeTriggerError } from "@/components/triggers/trigger-errors"
 import { getTriggerKind } from "@/components/triggers/trigger-kinds"
@@ -23,66 +17,13 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { useTriggers } from "@/hooks/use-triggers"
-import {
-  type TriggersAccess,
-  useTriggersAccess,
-} from "@/hooks/use-triggers-access"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const MAX_TARGETS_SHOWN = 3
 
-/** Shown instead of a Triggers page when the plan lacks the feature. */
-export function TriggersLockedState({ access }: { access: TriggersAccess }) {
-  if (access === "loading") {
-    return <CenteredSpinner />
-  }
-  if (access === "unknown") {
-    return (
-      <div className="flex h-full p-6">
-        <EntitlementRequiredEmptyState
-          title="Unable to check plan access"
-          description="Reload the page to try again."
-        >
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => window.location.reload()}
-          >
-            Reload
-          </Button>
-        </EntitlementRequiredEmptyState>
-      </div>
-    )
-  }
-  return (
-    <div className="flex h-full p-6">
-      <EntitlementRequiredEmptyState
-        title="Upgrade required"
-        description="Triggers are unavailable on your current plan."
-      >
-        <Button
-          variant="link"
-          asChild
-          className="text-muted-foreground"
-          size="sm"
-        >
-          <a
-            href="https://tracecat.com"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Learn more <ArrowUpRight className="size-4" />
-          </a>
-        </Button>
-      </EntitlementRequiredEmptyState>
-    </div>
-  )
-}
-
 /** Every trigger in the workspace, with its kind, source, targets and status. */
 export function WorkspaceTriggers() {
   const workspaceId = useWorkspaceId()
-  const access = useTriggersAccess()
   const canCreate = useScopeCheck("trigger:create")
   const {
     triggers,
@@ -91,11 +32,7 @@ export function WorkspaceTriggers() {
     hasNextPage,
     isFetchingNextPage,
     fetchNextPage,
-  } = useTriggers(workspaceId, { enabled: access === "enabled" })
-
-  if (access !== "enabled") {
-    return <TriggersLockedState access={access} />
-  }
+  } = useTriggers(workspaceId)
 
   let body: React.ReactNode
   if (error && triggers.length === 0) {
@@ -116,8 +53,8 @@ export function WorkspaceTriggers() {
             </EmptyMedia>
             <EmptyTitle>No triggers yet</EmptyTitle>
             <EmptyDescription>
-              A trigger listens for outside events, such as a new file in an S3
-              bucket, and starts the workflows and agents you attach to it.
+              A trigger starts workflows and agents: on a schedule, or when an
+              outside event arrives, such as a new file in an S3 bucket.
               {canCreate === true ? " Create one with Create trigger." : ""}
             </EmptyDescription>
           </EmptyHeader>

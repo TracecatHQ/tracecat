@@ -123,6 +123,35 @@ const TRIGGER: TriggerRead = {
   updated_at: "2026-11-27T00:00:00Z",
 }
 
+const SCHEDULE_TRIGGER: TriggerRead = {
+  id: "trigger-2",
+  kind: "schedule",
+  name: "Nightly report schedule",
+  status: "online",
+  config: {
+    kind: "schedule",
+    workflow_id: "wf_3nF1fBrbY6AIX7Mr2qhEpR",
+    schedule_id: "sch_1",
+    cron: "0 9 * * *",
+    timeout: 0,
+  },
+  bindings: [
+    {
+      id: "binding-3",
+      trigger_id: "trigger-2",
+      target_type: "workflow",
+      target_id: "6f1c2a7e-3b4d-4e5f-9a1b-2c3d4e5f6a7b",
+      target_name: "Nightly report",
+      instruction: null,
+      status: "online",
+      created_at: "2026-11-27T00:00:00Z",
+      updated_at: "2026-11-27T00:00:00Z",
+    },
+  ],
+  created_at: "2026-11-27T00:00:00Z",
+  updated_at: "2026-11-27T00:00:00Z",
+}
+
 function renderWithClient(ui: ReactNode) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -178,7 +207,7 @@ describe("WorkspaceTriggers", () => {
 
     expect(await screen.findByText("No triggers yet")).toBeInTheDocument()
     expect(
-      screen.getByText(/A trigger listens for outside events/)
+      screen.getByText(/A trigger starts workflows and agents/)
     ).toBeInTheDocument()
   })
 
@@ -209,13 +238,19 @@ describe("WorkspaceTriggers", () => {
     ).not.toBeInTheDocument()
   })
 
-  it("offers a reload when the plan can't be checked", () => {
-    entitlementsFailed = true
+  it("lists triggers on every plan", async () => {
+    entitled = false
+    jest
+      .mocked(triggersListTriggers)
+      .mockResolvedValue({ items: [SCHEDULE_TRIGGER], has_more: false })
 
     renderWithClient(<WorkspaceTriggers />)
 
-    expect(screen.getByText("Unable to check plan access")).toBeInTheDocument()
-    expect(triggersListTriggers).not.toHaveBeenCalled()
+    expect(
+      await screen.findByRole("link", { name: /Nightly report schedule/ })
+    ).toBeInTheDocument()
+    expect(screen.getByText("0 9 * * *")).toBeInTheDocument()
+    expect(screen.getByText("Schedule")).toBeInTheDocument()
   })
 
   it("keeps the list when a later page fails", async () => {
@@ -246,14 +281,29 @@ describe("WorkspaceTriggers", () => {
       screen.getByRole("link", { name: /New uploads/ })
     ).toBeInTheDocument()
   })
+})
 
-  it("shows the upgrade state and fetches nothing without the entitlement", () => {
+describe("CreateTriggerDialog kind picker", () => {
+  it("marks the kinds the plan lacks and keeps the others open", () => {
     entitled = false
 
-    renderWithClient(<WorkspaceTriggers />)
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
 
-    expect(screen.getByText("Upgrade required")).toBeInTheDocument()
-    expect(triggersListTriggers).not.toHaveBeenCalled()
+    const objectStorage = screen.getByRole("button", { name: /Object storage/ })
+    expect(objectStorage).toBeDisabled()
+    expect(objectStorage).toHaveTextContent("Upgrade required")
+    expect(screen.getByRole("button", { name: /Schedule/ })).toBeEnabled()
+  })
+
+  it("says the plan is unknown rather than locked when the check fails", () => {
+    entitlementsFailed = true
+
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
+
+    expect(
+      screen.getByRole("button", { name: /Object storage/ })
+    ).toHaveTextContent("Plan unknown")
+    expect(screen.getByRole("button", { name: /Schedule/ })).toBeEnabled()
   })
 })
 
@@ -545,6 +595,42 @@ describe("TriggerDetail", () => {
     expect(
       screen.getByRole("switch", { name: "New uploads online" })
     ).toBeDisabled()
+  })
+})
+
+describe("TriggerDetail for a schedule", () => {
+  it("shows the schedule and keeps its one target fixed", async () => {
+    jest.mocked(triggersGetTrigger).mockResolvedValue(SCHEDULE_TRIGGER)
+
+    renderWithClient(<TriggerDetail triggerId="trigger-2" />)
+
+    expect(
+      (await screen.findAllByRole("link", { name: "Nightly report" }))[0]
+    ).toHaveAttribute(
+      "href",
+      "/workspaces/workspace-1/workflows/wf_3nF1fBrbY6AIX7Mr2qhEpR"
+    )
+    expect(screen.getByText("0 9 * * *")).toBeInTheDocument()
+    expect(screen.getByText("sch_1")).toBeInTheDocument()
+    expect(
+      screen.getByText(/A schedule runs the workflow it was created for/)
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Add target" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /Remove/ })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("switch", { name: "Nightly report online" })
+    ).not.toBeInTheDocument()
+    // The trigger itself still goes online and offline, and can be deleted.
+    expect(
+      screen.getByRole("switch", { name: "Nightly report schedule online" })
+    ).toBeEnabled()
+    expect(
+      screen.getByRole("button", { name: "Delete Nightly report schedule" })
+    ).toBeInTheDocument()
   })
 })
 

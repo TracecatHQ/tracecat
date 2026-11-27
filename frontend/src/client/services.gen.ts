@@ -14667,7 +14667,12 @@ export const triggersListTriggers = (
 
 /**
  * Create Trigger
- * Create a trigger. It has no bindings yet.
+ * Create a trigger.
+ *
+ * An ``object_storage`` trigger starts with no bindings. A ``schedule``
+ * trigger creates the workflow's schedule (as ``POST /schedules`` does) and
+ * comes bound to that workflow; it also needs ``schedule:create`` and
+ * ``workflow:execute``.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
@@ -14688,6 +14693,7 @@ export const triggersCreateTrigger = (
     errors: {
       400: "See detail.code",
       404: "See detail.code",
+      409: "See detail.code",
       422: "Validation Error",
     },
   })
@@ -14752,6 +14758,9 @@ export const triggersUpdateTrigger = (
 /**
  * Delete Trigger
  * Delete a trigger and its bindings.
+ *
+ * For a ``schedule`` trigger this deletes the schedule, and needs
+ * ``schedule:delete``.
  * @param data The data for the request.
  * @param data.triggerId
  * @param data.workspaceId
@@ -14801,6 +14810,7 @@ export const triggersCreateTriggerBinding = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      400: "See detail.code",
       404: "See detail.code",
       409: "See detail.code",
       422: "Validation Error",
@@ -14865,6 +14875,7 @@ export const triggersDeleteTriggerBinding = (
       workspace_id: data.workspaceId,
     },
     errors: {
+      400: "See detail.code",
       404: "See detail.code",
       422: "Validation Error",
     },

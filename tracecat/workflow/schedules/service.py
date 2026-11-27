@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import NoResultFound
 from temporalio import activity
 
 from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.authz.controls import require_scope
-from tracecat.db.models import Schedule, Workflow
+from tracecat.db.models import Schedule, Trigger, TriggerBinding, Workflow
 from tracecat.db.session_events import AfterCommitQueue
 from tracecat.exceptions import TracecatConflictError, TracecatNotFoundError
 from tracecat.identifiers import ScheduleUUID, WorkflowID
@@ -24,6 +25,7 @@ from tracecat.runtime.errors import (
 from tracecat.service import BaseWorkspaceService
 from tracecat.storage.object import InlineObject
 from tracecat.temporal.errors import raise_application_error_from_classification
+from tracecat.triggers.enums import TriggerKind, TriggerStatus, TriggerTargetType
 from tracecat.workflow.schedules import bridge
 from tracecat.workflow.schedules.reconciliation import ScheduleChanges
 from tracecat.workflow.schedules.schemas import (
@@ -32,9 +34,30 @@ from tracecat.workflow.schedules.schemas import (
     ScheduleUpdate,
 )
 
+# The trigger name column is 255 characters; leave room for the suffix.
+_TITLE_IN_NAME_MAX = 255 - len(" schedule")
+
+
+def default_trigger_name(workflow_title: str | None) -> str:
+    """The name a schedule's trigger gets when none is given.
+
+    The workflow title plus " schedule", or "Schedule" for an untitled
+    workflow. The migration backfill uses the same rule.
+    """
+    title = (workflow_title or "").strip()
+    if not title:
+        return "Schedule"
+    return f"{title[:_TITLE_IN_NAME_MAX]} schedule"
+
 
 class WorkflowSchedulesService(BaseWorkspaceService):
-    """Manages schedules for Workflows."""
+    """Manages schedules for Workflows.
+
+    Each schedule also has a ``schedule`` trigger row with one workflow binding,
+    so it shows in the Triggers tab. This service writes them with the schedule
+    in one transaction. Deleting a schedule deletes its trigger row through a
+    database trigger, which also covers a cascade from the workflow.
+    """
 
     service_name = "workflow_schedules"
 
@@ -59,18 +82,57 @@ class WorkflowSchedulesService(BaseWorkspaceService):
             return AuditEventDetails(emit=False)
         return AuditEventDetails()
 
-    async def _lock_workflow(self, workflow_id: AnyWorkflowID | uuid.UUID) -> None:
+    async def _lock_workflow(self, workflow_id: AnyWorkflowID | uuid.UUID) -> str:
+        """Lock the workflow row until commit and return its title."""
         workflow_uuid = WorkflowUUID.new(workflow_id)
         stmt = (
-            select(Workflow.id)
+            select(Workflow.id, Workflow.title)
             .where(
                 Workflow.workspace_id == self.workspace_id,
                 Workflow.id == workflow_uuid,
             )
             .with_for_update()
         )
-        if await self.session.scalar(stmt) is None:
+        row = (await self.session.execute(stmt)).one_or_none()
+        if row is None:
             raise TracecatNotFoundError(f"Workflow {workflow_id} not found")
+        return row.title
+
+    async def _add_trigger(
+        self,
+        *,
+        workflow_id: uuid.UUID,
+        status: str,
+        name: str,
+        created_at: datetime | None = None,
+    ) -> uuid.UUID:
+        """Add a ``schedule`` trigger row and its workflow binding.
+
+        The binding is the schedule's workflow, the only target a schedule
+        runs until schedules start their targets through bindings.
+        """
+        trigger = Trigger(
+            id=uuid.uuid4(),
+            workspace_id=self.workspace_id,
+            kind=TriggerKind.SCHEDULE.value,
+            name=name,
+            status=status,
+        )
+        if created_at is not None:
+            trigger.created_at = created_at
+        self.session.add(trigger)
+        # The binding's and the schedule's foreign keys need the row first.
+        await self.session.flush()
+        self.session.add(
+            TriggerBinding(
+                workspace_id=self.workspace_id,
+                trigger_id=trigger.id,
+                target_type=TriggerTargetType.WORKFLOW.value,
+                workflow_id=workflow_id,
+                status=TriggerStatus.ONLINE.value,
+            )
+        )
+        return trigger.id
 
     async def _require_published_workflow(
         self, workflow_id: AnyWorkflowID | uuid.UUID
@@ -148,7 +210,11 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         return await self._create_schedule_impl(params, commit=commit)
 
     async def _create_schedule_impl(
-        self, params: ScheduleCreate, commit: bool = True
+        self,
+        params: ScheduleCreate,
+        commit: bool = True,
+        *,
+        trigger_name: str | None = None,
     ) -> Schedule:
         """Implement schedule creation for an authorized caller.
 
@@ -161,14 +227,23 @@ class WorkflowSchedulesService(BaseWorkspaceService):
             commit: Whether to commit immediately. When ``False``, the method
                 flushes the row and leaves the transaction and registered
                 Temporal callback to the caller.
+            trigger_name: Name of the schedule's trigger row. Defaults to
+                ``default_trigger_name`` of the workflow title.
 
         Returns:
             The newly created schedule.
         """
-        await self._lock_workflow(params.workflow_id)
+        title = await self._lock_workflow(params.workflow_id)
+        workflow_uuid = WorkflowUUID.new(params.workflow_id)
+        trigger_id = await self._add_trigger(
+            workflow_id=workflow_uuid,
+            status=params.status,
+            name=trigger_name or default_trigger_name(title),
+        )
         schedule = Schedule(
             workspace_id=self.workspace_id,
-            workflow_id=WorkflowUUID.new(params.workflow_id),
+            workflow_id=workflow_uuid,
+            trigger_id=trigger_id,
             inputs=params.inputs or {},
             every=params.every,
             offset=params.offset,
@@ -319,13 +394,50 @@ class WorkflowSchedulesService(BaseWorkspaceService):
             If there is an error updating the schedule.
         """
         schedule = await self._get_schedule_with_workflow_lock(schedule_id)
+        await self._update_schedule_impl(schedule, params)
+        await self.session.commit()
+        await self.session.refresh(schedule)
+        return schedule
 
-        # Update the schedule in DB first
+    async def _update_schedule_impl(
+        self, schedule: Schedule, params: ScheduleUpdate
+    ) -> None:
+        """Apply ``params`` to a schedule whose workflow the caller locked.
+
+        Writes the schedule's trigger row in the same transaction: its status
+        and timestamp, or a new row for a schedule the previous release made
+        without one. Leaves the commit, and the Temporal update it triggers,
+        to the caller.
+        """
+        schedule_id = schedule.id
         for key, value in params.model_dump(exclude_unset=True).items():
             # Safety: params have been validated
             setattr(schedule, key, value)
-
         self.session.add(schedule)
+
+        if schedule.trigger_id is None:
+            title = await self.session.scalar(
+                select(Workflow.title).where(
+                    Workflow.workspace_id == self.workspace_id,
+                    Workflow.id == schedule.workflow_id,
+                )
+            )
+            schedule.trigger_id = await self._add_trigger(
+                workflow_id=schedule.workflow_id,
+                status=schedule.status,
+                name=default_trigger_name(title),
+                created_at=schedule.created_at,
+            )
+        else:
+            # The header's timestamp covers its settings too.
+            await self.session.execute(
+                update(Trigger)
+                .where(
+                    Trigger.workspace_id == self.workspace_id,
+                    Trigger.id == schedule.trigger_id,
+                )
+                .values(status=schedule.status, updated_at=func.now())
+            )
 
         # After-commit callback to update Temporal schedule
         async def _update_schedule():
@@ -343,10 +455,6 @@ class WorkflowSchedulesService(BaseWorkspaceService):
                 )
 
         AfterCommitQueue.of(self.session).add(_update_schedule)
-
-        await self.session.commit()
-        await self.session.refresh(schedule)
-        return schedule
 
     @require_scope("schedule:delete")
     @audit_log(
@@ -389,6 +497,7 @@ class WorkflowSchedulesService(BaseWorkspaceService):
                 Temporal callback to the caller.
         """
         schedule = await self._get_schedule_with_workflow_lock(schedule_id)
+        # The database trigger on schedule deletes its trigger row and binding.
         await self.session.delete(schedule)
         logger.info("Deleted schedule", schedule_id=schedule_id)
 
@@ -416,6 +525,66 @@ class WorkflowSchedulesService(BaseWorkspaceService):
             await self.session.commit()
         else:
             await self.session.flush()
+
+    # ----- Entry points for the Triggers tab -----
+    # The triggers service calls these inside its own transaction and audit
+    # record, so they neither commit nor audit. Each still needs its schedule
+    # scope: the Triggers tab is another way in, not a way around it.
+
+    @require_scope("schedule:create")
+    async def create_trigger_schedule(
+        self, params: ScheduleCreate, *, trigger_name: str
+    ) -> Schedule:
+        """Create a schedule and its trigger row, as ``create_schedule`` does.
+
+        Raises:
+            TracecatNotFoundError: If the workflow is not in the workspace.
+            TracecatConflictError: If the workflow was never saved.
+        """
+        await self._require_published_workflow(params.workflow_id)
+        return await self._create_schedule_impl(
+            params, commit=False, trigger_name=trigger_name
+        )
+
+    @require_scope("schedule:update")
+    async def update_trigger_schedule(
+        self, trigger_id: uuid.UUID, params: ScheduleUpdate
+    ) -> Schedule:
+        """Update the schedule behind a ``schedule`` trigger.
+
+        Raises:
+            TracecatNotFoundError: If no schedule belongs to the trigger.
+        """
+        schedule = await self._get_trigger_schedule(trigger_id)
+        await self._update_schedule_impl(schedule, params)
+        await self.session.flush()
+        return schedule
+
+    @require_scope("schedule:delete")
+    async def delete_trigger_schedule(self, trigger_id: uuid.UUID) -> None:
+        """Delete the schedule behind a ``schedule`` trigger, and so the trigger.
+
+        Raises:
+            TracecatNotFoundError: If no schedule belongs to the trigger.
+        """
+        schedule = await self._get_trigger_schedule(trigger_id)
+        await self._delete_schedule_impl(schedule.id, commit=False)
+
+    async def _get_trigger_schedule(self, trigger_id: uuid.UUID) -> Schedule:
+        """The schedule of a trigger, with its workflow locked until commit."""
+        schedule = await self.session.scalar(
+            select(Schedule)
+            .join(Workflow, Workflow.id == Schedule.workflow_id)
+            .where(
+                Schedule.workspace_id == self.workspace_id,
+                Schedule.trigger_id == trigger_id,
+                Workflow.workspace_id == self.workspace_id,
+            )
+            .with_for_update(of=Workflow)
+        )
+        if schedule is None:
+            raise TracecatNotFoundError(f"No schedule for trigger {trigger_id}")
+        return schedule
 
     @require_scope("workflow:update")
     async def replace_schedules(

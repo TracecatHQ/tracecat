@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from tests._route_utils import EffectiveRoute, iter_effective_api_routes
 from tracecat.api.app import app as api_app
 from tracecat.auth.types import Role
+from tracecat.triggers.dependencies import require_event_sources_enabled
 from tracecat.triggers.enums import TriggerErrorCode
 from tracecat.triggers.exceptions import TriggerError, trigger_error_handler
 
@@ -48,24 +49,56 @@ def test_the_api_serves_the_trigger_routes() -> None:
     }
 
 
+SOURCE_ROUTES = [route for route in ROUTES if route.path.startswith(_PREFIXES[0])]
+TRIGGER_ROUTES = [route for route in ROUTES if route.path.startswith(_PREFIXES[1])]
+
+
+def _path(route: EffectiveRoute, role: Role) -> str:
+    path = route.path.replace("{workspace_id}", str(role.workspace_id))
+    return re.sub(r"\{[a-z_]+\}", str(uuid.uuid4()), path)
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    "route", ROUTES, ids=[f"{sorted(r.methods)} {r.path}" for r in ROUTES]
+    "route",
+    SOURCE_ROUTES,
+    ids=[f"{sorted(r.methods)} {r.path}" for r in SOURCE_ROUTES],
 )
-async def test_every_trigger_route_needs_the_entitlement(
+async def test_every_event_source_route_needs_the_entitlement(
     client: TestClient, test_admin_role: Role, route: EffectiveRoute
 ) -> None:
-    path = route.path.replace("{workspace_id}", str(test_admin_role.workspace_id))
-    path = re.sub(r"\{[a-z_]+\}", str(uuid.uuid4()), path)
     [method] = route.methods
     is_org_entitled = AsyncMock(return_value=False)
 
     with patch("tracecat.tiers.access.is_org_entitled", new=is_org_entitled):
-        response = client.request(method, path, json={})
+        response = client.request(method, _path(route, test_admin_role), json={})
 
     assert response.status_code == 403
     assert response.json()["type"] == "EntitlementRequired"
     is_org_entitled.assert_awaited()
+
+
+@pytest.mark.parametrize(
+    "route",
+    TRIGGER_ROUTES,
+    ids=[f"{sorted(r.methods)} {r.path}" for r in TRIGGER_ROUTES],
+)
+def test_trigger_routes_are_open_to_every_plan(route: EffectiveRoute) -> None:
+    """The service checks each trigger kind's entitlement, not the router."""
+    calls = {dep.call for dep in route.dependant.dependencies}
+
+    assert require_event_sources_enabled not in calls
+
+
+@pytest.mark.parametrize(
+    "route",
+    SOURCE_ROUTES,
+    ids=[f"{sorted(r.methods)} {r.path}" for r in SOURCE_ROUTES],
+)
+def test_event_source_routes_carry_the_gate(route: EffectiveRoute) -> None:
+    calls = {dep.call for dep in route.dependant.dependencies}
+
+    assert require_event_sources_enabled in calls
 
 
 @pytest.mark.anyio

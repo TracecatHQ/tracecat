@@ -11265,6 +11265,93 @@ export type ScheduleSearch = {
   agg?: string | null
 }
 
+/**
+ * Run a workflow on a cron expression or a fixed interval.
+ *
+ * The settings of the workflow's schedule (``/schedules``), which the
+ * trigger shows and edits. Until schedules start their targets through
+ * bindings, the trigger's one target is this workflow and cannot change.
+ */
+export type ScheduleTriggerConfig = {
+  /**
+   * A cron expression. Set this or `every`.
+   */
+  cron?: string | null
+  /**
+   * ISO 8601 interval. Set this or `cron`.
+   */
+  every?: string | null
+  /**
+   * ISO 8601 delay before the first interval run. Interval only.
+   */
+  offset?: string | null
+  /**
+   * ISO 8601 datetime before which it does not run
+   */
+  start_at?: string | null
+  /**
+   * ISO 8601 datetime after which it stops
+   */
+  end_at?: string | null
+  /**
+   * Most seconds each run may take. 0 means no timeout.
+   */
+  timeout?: number
+  /**
+   * The workflow's trigger inputs for each run
+   */
+  inputs?: {
+    [key: string]: unknown
+  } | null
+  kind: "schedule"
+  /**
+   * The workflow the schedule runs. Fixed after create.
+   */
+  workflow_id: string
+}
+
+export type ScheduleTriggerConfigRead = {
+  /**
+   * A cron expression. Set this or `every`.
+   */
+  cron?: string | null
+  /**
+   * ISO 8601 interval. Set this or `cron`.
+   */
+  every?: string | null
+  /**
+   * ISO 8601 delay before the first interval run. Interval only.
+   */
+  offset?: string | null
+  /**
+   * ISO 8601 datetime before which it does not run
+   */
+  start_at?: string | null
+  /**
+   * ISO 8601 datetime after which it stops
+   */
+  end_at?: string | null
+  /**
+   * Most seconds each run may take. 0 means no timeout.
+   */
+  timeout?: number
+  /**
+   * The workflow's trigger inputs for each run
+   */
+  inputs?: {
+    [key: string]: unknown
+  } | null
+  kind: "schedule"
+  /**
+   * The workflow the schedule runs
+   */
+  workflow_id: string
+  /**
+   * The schedule's ID in `/schedules`, which does not change
+   */
+  schedule_id: string
+}
+
 export type ScheduleUpdate = {
   inputs?: {
     [key: string]: unknown
@@ -13949,21 +14036,21 @@ export type TriggerBindingUpdate = {
 
 export type TriggerCreate = {
   name: string
-  config: ObjectStorageTriggerConfig
+  config: ObjectStorageTriggerConfig | ScheduleTriggerConfig
   status?: TriggerStatus
 }
 
 /**
  * What a trigger listens to. Each kind has its own source and config.
  */
-export type TriggerKind = "object_storage"
+export type TriggerKind = "object_storage" | "schedule"
 
 export type TriggerRead = {
   id: string
   kind: TriggerKind
   name: string
   status: TriggerStatus
-  config: ObjectStorageTriggerConfigRead
+  config: ObjectStorageTriggerConfigRead | ScheduleTriggerConfigRead
   bindings: Array<TriggerBindingRead>
   created_at: string
   updated_at: string
@@ -13995,7 +14082,7 @@ export type TriggerUpdate = {
   /**
    * Replaces the whole config. Its kind must be the trigger's kind, which never changes after create.
    */
-  config?: ObjectStorageTriggerConfig | null
+  config?: ObjectStorageTriggerConfig | ScheduleTriggerConfig | null
   status?: TriggerStatus | null
 }
 
@@ -29770,6 +29857,10 @@ export type $OpenApiTs = {
          */
         404: unknown
         /**
+         * See detail.code
+         */
+        409: unknown
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -29844,6 +29935,10 @@ export type $OpenApiTs = {
         /**
          * See detail.code
          */
+        400: unknown
+        /**
+         * See detail.code
+         */
         404: unknown
         /**
          * See detail.code
@@ -29885,6 +29980,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * See detail.code
+         */
+        400: unknown
         /**
          * See detail.code
          */
