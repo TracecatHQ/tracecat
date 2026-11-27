@@ -20,8 +20,8 @@ class TriggerRunRead(Schema):
     target_type: TriggerTargetType
     target_name: str | None = Field(
         default=None,
-        description="The workflow's title or the agent session's title; null if"
-        " it was deleted",
+        description="The workflow's title, or for an agent run the agent preset's"
+        " name; null if it was deleted",
     )
     wf_exec_id: str = Field(description="The run's Temporal workflow ID")
     workflow_id: AnyWorkflowID | None = Field(

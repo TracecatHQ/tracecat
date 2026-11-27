@@ -22,9 +22,16 @@ from temporalio.common import TypedSearchAttributes
 from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat.agent.backends.base import AgentBackend
+from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES
-from tracecat.db.models import EventOutbox, Workflow, Workspace
+from tracecat.db.models import (
+    AgentPreset,
+    AgentSession,
+    EventOutbox,
+    Workflow,
+    Workspace,
+)
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.exceptions import ScopeDeniedError
@@ -333,10 +340,27 @@ async def test_recent_runs_read_the_trigger_root_runs_with_names(
     workflow = Workflow(
         workspace_id=svc_workspace.id, title="On upload", description=""
     )
-    session.add(workflow)
+    preset = AgentPreset(
+        workspace_id=svc_workspace.id,
+        name="Triage",
+        slug=f"triage-{uuid.uuid4().hex[:8]}",
+        model_name="m",
+        model_provider="p",
+    )
+    session.add_all([workflow, preset])
+    await session.flush()
+    # A trigger's session is titled after the trigger; the run shows the preset.
+    agent_session = AgentSession(
+        workspace_id=svc_workspace.id,
+        title="Uploads",
+        entity_type=AgentSessionEntity.AGENT_PRESET.value,
+        entity_id=preset.id,
+        agent_preset_id=preset.id,
+    )
+    session.add(agent_session)
     await session.commit()
     wf_id = WorkflowUUID.new(workflow.id)
-    session_id = uuid.uuid4()
+    session_id = agent_session.id
     executions.items = [
         _execution(f"{wf_id.short()}/exec_{uuid.uuid4().hex[:22]}"),
         _execution(
@@ -365,7 +389,7 @@ async def test_recent_runs_read_the_trigger_root_runs_with_names(
     assert workflow_run.status == "COMPLETED"
     assert agent_run.target_type is TriggerTargetType.AGENT
     assert agent_run.session_id == session_id
-    assert agent_run.target_name is None  # No such session row.
+    assert (agent_run.target_name, agent_run.agent_preset_id) == ("Triage", preset.id)
     assert (page.next_cursor, page.has_more) == ("next", True)
 
 

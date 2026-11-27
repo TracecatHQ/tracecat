@@ -14127,7 +14127,7 @@ export type TriggerRunOrigin = {
 export type TriggerRunRead = {
   target_type: TriggerTargetType
   /**
-   * The workflow's title or the agent session's title; null if it was deleted
+   * The workflow's title, or for an agent run the agent preset's name; null if it was deleted
    */
   target_name?: string | null
   /**

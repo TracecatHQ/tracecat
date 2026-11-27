@@ -17,7 +17,7 @@ from typing import Any
 from sqlalchemy import and_, func, select
 
 from tracecat.authz.controls import check_scopes, has_scope
-from tracecat.db.models import AgentSession, EventOutbox, Workflow
+from tracecat.db.models import AgentPreset, AgentSession, EventOutbox, Workflow
 from tracecat.dsl.client import get_temporal_client
 from tracecat.identifiers.workflow import WorkflowExecutionID, exec_id_to_parts
 from tracecat.pagination import (
@@ -166,7 +166,8 @@ class TriggerRunsService(BaseWorkspaceService):
     ) -> list[TriggerRunRead]:
         """Fill each run's target: one query for workflows, one for sessions.
 
-        An agent run also gets its session's preset, which its link needs.
+        An agent run is named after its session's preset, and gets the
+        preset's ID, which its link needs.
         """
         workflow_ids = {
             uuid.UUID(str(i.workflow_id)) for i in items if i.workflow_id is not None
@@ -183,16 +184,29 @@ class TriggerRunsService(BaseWorkspaceService):
             )
             titles.update(rows.tuples().all())
         if session_ids:
+            # A trigger's session is titled after the trigger, so the agent
+            # preset's name says more; the title stands in if it was deleted.
             rows = await self.session.execute(
                 select(
-                    AgentSession.id, AgentSession.title, AgentSession.agent_preset_id
-                ).where(
+                    AgentSession.id,
+                    func.coalesce(AgentPreset.name, AgentSession.title),
+                    AgentSession.agent_preset_id,
+                )
+                .outerjoin(
+                    AgentPreset,
+                    and_(
+                        AgentPreset.id == AgentSession.agent_preset_id,
+                        AgentPreset.workspace_id == AgentSession.workspace_id,
+                        AgentPreset.deleted_at.is_(None),
+                    ),
+                )
+                .where(
                     AgentSession.workspace_id == self.workspace_id,
                     AgentSession.id.in_(session_ids),
                 )
             )
-            for session_id, title, preset_id in rows.tuples():
-                titles[session_id] = title
+            for session_id, name, preset_id in rows.tuples():
+                titles[session_id] = name
                 presets[session_id] = preset_id
         filled: list[TriggerRunRead] = []
         for item in items:
