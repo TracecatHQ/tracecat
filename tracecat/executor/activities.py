@@ -14,6 +14,7 @@ from typing import Any, Final
 from opentelemetry import metrics
 from temporalio import activity
 from temporalio.exceptions import ApplicationError, is_cancelled_exception
+from temporalio.service import RPCError, RPCStatusCode
 from tenacity import (
     AsyncRetrying,
     retry_if_exception_type,
@@ -24,8 +25,10 @@ from tenacity import (
 from tracecat import config
 from tracecat.admission import gate
 from tracecat.admission.gate import Lease, NotAdmittedError
+from tracecat.admission.leases import Waiter
 from tracecat.admission.types import (
     ADMISSION_ACK_SIGNAL,
+    ADMISSION_WAKE_SIGNAL,
     ConcurrencyResource,
     NotAdmitted,
 )
@@ -75,6 +78,12 @@ LEASE_RENEW_INTERVAL_SECONDS: Final = 30
 
 ADMISSION_ACK_TIMEOUT_SECONDS: Final = 2.0
 """Ceiling for the admission signal; the run falls back to probe completion."""
+
+ADMISSION_WAKE_TIMEOUT_SECONDS: Final = 2.0
+"""Ceiling for waking a blocked run; the run falls back to its backoff timer."""
+
+ADMISSION_WAKE_MAX_SKIPS: Final = 3
+"""Closed runs a wake skips, popping the next waiter each time, before giving up."""
 
 
 async def _heartbeat_loop(
@@ -142,6 +151,51 @@ async def _ack_admission(info: activity.Info) -> None:
         )
 
 
+def _waiter(info: activity.Info) -> Waiter | None:
+    """This attempt's run, to queue for a wake if it isn't admitted."""
+    if not info.workflow_id or not info.workflow_run_id:
+        return None
+    return Waiter(workflow_id=info.workflow_id, run_id=info.workflow_run_id)
+
+
+async def _wake_waiter(lease: Lease, waiter: Waiter) -> None:
+    """Signal a run blocked at the limit that this release freed units. Never raises.
+
+    A run that has closed is skipped for the next waiter. Any other failure
+    leaves the wake to the run's own backoff timer.
+    """
+    skips = 0
+    try:
+        async with asyncio.timeout(ADMISSION_WAKE_TIMEOUT_SECONDS):
+            while True:
+                handle = activity.client().get_workflow_handle(
+                    waiter.workflow_id, run_id=waiter.run_id
+                )
+                try:
+                    await handle.signal(ADMISSION_WAKE_SIGNAL)
+                    return
+                except RPCError as e:
+                    # Closed or missing runs are NOT_FOUND; anything else is ambiguous.
+                    if e.status is not RPCStatusCode.NOT_FOUND:
+                        raise
+                if skips >= ADMISSION_WAKE_MAX_SKIPS:
+                    return
+                skips += 1
+                next_waiter = await lease.store.pop_waiter(lease.org_id, lease.resource)
+                if next_waiter is None:
+                    return
+                waiter = next_waiter
+    except Exception as e:
+        logger.warning(
+            "concurrency.wake_failed",
+            org_id=str(lease.org_id),
+            resource=lease.resource.value,
+            workflow_id=waiter.workflow_id,
+            run_id=waiter.run_id,
+            error=str(e),
+        )
+
+
 def _for_each_width() -> int:
     return max(1, config.TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY)
 
@@ -149,7 +203,7 @@ def _for_each_width() -> int:
 async def _stop_heartbeat_and_release(
     heartbeat_task: asyncio.Task[None] | None, lease: Lease | None
 ) -> None:
-    """Stop heartbeats and renewal, then release the lease (never raises)."""
+    """Stop heartbeats and renewal, release the lease, and wake a waiter (never raises)."""
     if heartbeat_task is not None:
         heartbeat_task.cancel()
         try:
@@ -157,7 +211,8 @@ async def _stop_heartbeat_and_release(
         except asyncio.CancelledError:
             pass
     if lease is not None:
-        await lease.release()
+        if (waiter := await lease.release(pop_waiter=True)) is not None:
+            await _wake_waiter(lease, waiter)
 
 
 def _source_capture(
@@ -269,6 +324,10 @@ class ExecutorActivities:
                 if input.agent_session_id is None
                 else ConcurrencyResource.TOOL_CALLS
             )
+            # Only action dispatches from a run that handles the wake are queued.
+            wake_on_release = (
+                input.wake_on_release and resource is ConcurrencyResource.ACTIONS
+            )
             try:
                 lease = await gate.acquire(
                     org_id=role.organization_id,
@@ -276,6 +335,7 @@ class ExecutorActivities:
                     lease_id=_lease_id(act_info),
                     units=_for_each_width() if task.for_each else 1,
                     deadline=_lease_deadline(act_info),
+                    waiter=_waiter(act_info) if wake_on_release else None,
                 )
             except NotAdmittedError as e:
                 return NotAdmitted(

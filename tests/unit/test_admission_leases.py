@@ -10,7 +10,7 @@ from collections.abc import AsyncIterator
 import pytest
 import redis.asyncio as redis
 
-from tracecat.admission.leases import LeaseStore, lease_key
+from tracecat.admission.leases import LeaseStore, Waiter, lease_key, waiter_key
 from tracecat.admission.types import Admitted, Busy, ConcurrencyResource
 
 ACTIONS = ConcurrencyResource.ACTIONS
@@ -165,3 +165,118 @@ async def test_orgs_and_resources_are_separate(
 
     assert other == Admitted(in_use=1, limit=1)
     assert tools == Admitted(in_use=1, limit=1)
+
+
+def _waiter(name: str) -> Waiter:
+    return Waiter(workflow_id=f"wf_{name}/exec_{name}", run_id=str(uuid.uuid4()))
+
+
+async def _fill(store: LeaseStore, org_id: uuid.UUID, *lease_ids: str) -> None:
+    for lease_id in lease_ids:
+        await store.try_acquire(
+            org_id, ACTIONS, lease_id, units=1, limit=len(lease_ids), ttl_seconds=30
+        )
+
+
+@pytest.mark.anyio
+async def test_busy_registers_a_run_once_and_keeps_its_place(
+    store: LeaseStore, client: redis.Redis, org_id: uuid.UUID
+) -> None:
+    await _fill(store, org_id, "held")
+    first, second = _waiter("first"), _waiter("second")
+
+    for lease_id, waiter in [("a1", first), ("b1", second), ("a2", first)]:
+        assert await store.try_acquire(
+            org_id, ACTIONS, lease_id, units=1, limit=1, ttl_seconds=30, waiter=waiter
+        ) == Busy(in_use=1, limit=1)
+    # Refused without opting in, and admitted: neither touches the waiters.
+    await store.try_acquire(org_id, ACTIONS, "c", units=1, limit=1, ttl_seconds=30)
+
+    key = waiter_key(org_id, ACTIONS)
+    # One entry per run, in the order each run first joined.
+    assert await client.zrange(key, 0, -1) == [first.member(), second.member()]
+    assert await client.pttl(key) > 0
+
+
+@pytest.mark.anyio
+async def test_admission_leaves_a_queued_run_in_place(
+    store: LeaseStore, client: redis.Redis, org_id: uuid.UUID
+) -> None:
+    waiter = _waiter("w")
+    await _fill(store, org_id, "held")
+    await store.try_acquire(
+        org_id, ACTIONS, "probe", units=1, limit=1, ttl_seconds=30, waiter=waiter
+    )
+    await store.release(org_id, ACTIONS, "held", units=1)
+
+    admitted = await store.try_acquire(
+        org_id, ACTIONS, "probe-2", units=1, limit=1, ttl_seconds=30, waiter=waiter
+    )
+
+    assert admitted == Admitted(in_use=1, limit=1)
+    assert await client.zrange(waiter_key(org_id, ACTIONS), 0, -1) == [waiter.member()]
+
+
+@pytest.mark.anyio
+async def test_release_pops_the_oldest_waiter_only_when_it_freed_units(
+    store: LeaseStore, client: redis.Redis, org_id: uuid.UUID
+) -> None:
+    await _fill(store, org_id, "a", "b")
+    first, second = _waiter("first"), _waiter("second")
+    for lease_id, waiter in [("x", first), ("y", second)]:
+        await store.try_acquire(
+            org_id, ACTIONS, lease_id, units=1, limit=2, ttl_seconds=30, waiter=waiter
+        )
+
+    popped = await store.release_and_pop_waiter(org_id, ACTIONS, "a", units=1)
+    duplicate = await store.release_and_pop_waiter(org_id, ACTIONS, "a", units=1)
+    missing = await store.release_and_pop_waiter(org_id, ACTIONS, "nope", units=3)
+
+    assert popped == first
+    assert duplicate is None
+    assert missing is None
+    assert await client.zrange(waiter_key(org_id, ACTIONS), 0, -1) == [second.member()]
+    assert await client.zrange(lease_key(org_id, ACTIONS), 0, -1) == ["b#0"]
+    # The next release pops the next run; then nobody is left.
+    assert await store.release_and_pop_waiter(org_id, ACTIONS, "b", units=1) == second
+    assert await store.in_use(org_id, ACTIONS) == 0
+    assert await client.exists(waiter_key(org_id, ACTIONS)) == 0
+
+
+@pytest.mark.anyio
+async def test_plain_release_never_pops(
+    store: LeaseStore, client: redis.Redis, org_id: uuid.UUID
+) -> None:
+    waiter = _waiter("w")
+    await _fill(store, org_id, "held")
+    await store.try_acquire(
+        org_id, ACTIONS, "probe", units=1, limit=1, ttl_seconds=30, waiter=waiter
+    )
+
+    await store.release(org_id, ACTIONS, "held", units=1)
+
+    assert await client.zrange(waiter_key(org_id, ACTIONS), 0, -1) == [waiter.member()]
+
+
+@pytest.mark.anyio
+async def test_pop_waiter_takes_the_next_run(
+    store: LeaseStore, org_id: uuid.UUID
+) -> None:
+    await _fill(store, org_id, "held")
+    first, second = _waiter("first"), _waiter("second")
+    for lease_id, waiter in [("x", first), ("y", second)]:
+        await store.try_acquire(
+            org_id, ACTIONS, lease_id, units=1, limit=1, ttl_seconds=30, waiter=waiter
+        )
+
+    assert await store.pop_waiter(org_id, ACTIONS) == first
+    assert await store.pop_waiter(org_id, ACTIONS) == second
+    assert await store.pop_waiter(org_id, ACTIONS) is None
+
+
+def test_waiter_member_round_trips_a_workflow_id_with_colons() -> None:
+    waiter = Waiter(workflow_id="wf_a/exec_b:c", run_id=str(uuid.uuid4()))
+
+    assert Waiter.from_member(waiter.member()) == waiter
+    assert Waiter.from_member(waiter.member().encode()) == waiter
+    assert Waiter.from_member("no-separator") is None

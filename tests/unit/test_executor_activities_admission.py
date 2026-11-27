@@ -12,11 +12,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from temporalio.exceptions import ApplicationError
+from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat import config
 from tracecat.admission.gate import NotAdmittedError
+from tracecat.admission.leases import Waiter
 from tracecat.admission.types import (
     ADMISSION_ACK_SIGNAL,
+    ADMISSION_WAKE_SIGNAL,
     ConcurrencyResource,
     NotAdmitted,
 )
@@ -362,3 +365,161 @@ async def test_cancellation_during_admission_signal_releases_the_lease(
 
     lease.release.assert_awaited_once()
     mocks.dispatch.assert_not_awaited()
+
+
+def _wake_input(**kwargs: Any) -> RunActionInput:
+    return _run_input(**kwargs).model_copy(update={"wake_on_release": True})
+
+
+def _closed_run() -> RPCError:
+    return RPCError(
+        "workflow execution already completed", RPCStatusCode.NOT_FOUND, b""
+    )
+
+
+def _waiter(name: str) -> Waiter:
+    return Waiter(workflow_id=f"wf_{name}/exec_{name}", run_id=f"run-{name}")
+
+
+def _signal_handles(
+    mocks: SimpleNamespace, outcomes: dict[str, BaseException | None]
+) -> list[tuple[str, str]]:
+    """Signal each run with the given outcome; returns (run ID, signal) sent."""
+    sent: list[tuple[str, str]] = []
+
+    def get_handle(_workflow_id: str, *, run_id: str) -> MagicMock:
+        async def signal(name: str, *args: Any) -> None:
+            del args
+            sent.append((run_id, name))
+            if (error := outcomes.get(run_id)) is not None:
+                raise error
+
+        handle = MagicMock()
+        handle.signal = AsyncMock(side_effect=signal)
+        return handle
+
+    mocks.activity.client.return_value.get_workflow_handle.side_effect = get_handle
+    return sent
+
+
+@pytest.mark.anyio
+async def test_only_opted_in_action_dispatches_queue_their_run(
+    role: Role, mocks: SimpleNamespace
+) -> None:
+    mocks.acquire.side_effect = NotAdmittedError(
+        resource=ConcurrencyResource.ACTIONS, in_use=1, limit=1
+    )
+
+    await ExecutorActivities.execute_action_activity(_wake_input(), role)
+    opted_in = mocks.acquire.await_args.kwargs["waiter"]
+    await ExecutorActivities.execute_action_activity(_run_input(), role)
+    plain = mocks.acquire.await_args.kwargs["waiter"]
+    await ExecutorActivities.execute_action_activity(
+        _wake_input(agent_session_id=uuid.uuid4()), role
+    )
+    tool_call = mocks.acquire.await_args.kwargs["waiter"]
+
+    assert opted_in == Waiter(workflow_id="wf_x/exec_y", run_id="run-1")
+    assert plain is None
+    assert tool_call is None
+
+
+@pytest.mark.anyio
+async def test_release_that_frees_units_wakes_the_popped_run(
+    role: Role, mocks: SimpleNamespace
+) -> None:
+    lease = _lease()
+    lease.release.return_value = _waiter("blocked")
+    mocks.acquire.return_value = lease
+    sent = _signal_handles(mocks, {})
+
+    result = await ExecutorActivities.execute_action_activity(_run_input(), role)
+
+    assert not isinstance(result, NotAdmitted)
+    lease.release.assert_awaited_once_with(pop_waiter=True)
+    assert sent == [("run-blocked", ADMISSION_WAKE_SIGNAL)]
+
+
+@pytest.mark.anyio
+async def test_wake_skips_closed_runs_for_the_next_waiter(
+    role: Role, mocks: SimpleNamespace
+) -> None:
+    lease = _lease()
+    lease.release.return_value = _waiter("closed-1")
+    lease.store.pop_waiter = AsyncMock(
+        side_effect=[_waiter("closed-2"), _waiter("open")]
+    )
+    mocks.acquire.return_value = lease
+    sent = _signal_handles(
+        mocks, {"run-closed-1": _closed_run(), "run-closed-2": _closed_run()}
+    )
+
+    await ExecutorActivities.execute_action_activity(_run_input(), role)
+
+    assert [run_id for run_id, _ in sent] == [
+        "run-closed-1",
+        "run-closed-2",
+        "run-open",
+    ]
+
+
+@pytest.mark.anyio
+async def test_wake_gives_up_after_a_few_closed_runs(
+    role: Role, mocks: SimpleNamespace
+) -> None:
+    lease = _lease()
+    lease.release.return_value = _waiter("closed-0")
+    lease.store.pop_waiter = AsyncMock(
+        side_effect=[_waiter(f"closed-{i}") for i in range(1, 10)]
+    )
+    mocks.acquire.return_value = lease
+    sent = _signal_handles(mocks, {f"run-closed-{i}": _closed_run() for i in range(10)})
+
+    await ExecutorActivities.execute_action_activity(_run_input(), role)
+
+    assert len(sent) == 1 + executor_activities.ADMISSION_WAKE_MAX_SKIPS
+    assert (
+        lease.store.pop_waiter.await_count
+        == executor_activities.ADMISSION_WAKE_MAX_SKIPS
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "error",
+    [
+        RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b""),
+        RuntimeError("temporal unreachable"),
+        TimeoutError(),
+    ],
+)
+async def test_ambiguous_wake_failure_stops_and_never_fails_the_action(
+    role: Role, mocks: SimpleNamespace, error: Exception
+) -> None:
+    lease = _lease()
+    lease.release.return_value = _waiter("blocked")
+    lease.store.pop_waiter = AsyncMock()
+    mocks.acquire.return_value = lease
+    sent = _signal_handles(mocks, {"run-blocked": error})
+
+    result = await ExecutorActivities.execute_action_activity(_run_input(), role)
+
+    assert not isinstance(result, NotAdmitted)
+    assert sent == [("run-blocked", ADMISSION_WAKE_SIGNAL)]
+    lease.store.pop_waiter.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_failed_action_still_wakes_the_popped_run(
+    role: Role, mocks: SimpleNamespace
+) -> None:
+    lease = _lease()
+    lease.release.return_value = _waiter("blocked")
+    mocks.acquire.return_value = lease
+    mocks.dispatch.side_effect = RuntimeError("boom")
+    sent = _signal_handles(mocks, {})
+
+    with pytest.raises(ApplicationError):
+        await ExecutorActivities.execute_action_activity(_run_input(), role)
+
+    assert sent == [("run-blocked", ADMISSION_WAKE_SIGNAL)]

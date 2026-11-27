@@ -11145,6 +11145,7 @@ export type RunActionInput = {
   session_id?: string | null
   agent_session_id?: string | null
   ack_admission?: boolean
+  wake_on_release?: boolean
   registry_lock: RegistryLock
 }
 

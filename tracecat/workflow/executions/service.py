@@ -1610,7 +1610,12 @@ class WorkflowExecutionsService:
                 # === Workflow Execution Signal Events ===
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED:
                     attrs = event.workflow_execution_signaled_event_attributes
-                    result = await extract_first(attrs.input)
+                    # Some signals carry no payload (the admission wake).
+                    result = (
+                        await extract_first(attrs.input)
+                        if attrs.input.payloads
+                        else None
+                    )
                     events.append(
                         WorkflowExecutionEvent(
                             event_id=event.event_id,

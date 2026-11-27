@@ -13,6 +13,12 @@ executor signals the run when it admits it, so the token passes on then rather
 than when the action finishes. A lost signal costs only time: the token also
 passes on when the probe completes. When nobody is waiting, the run is unblocked.
 
+With ``wake_enabled``, a not-admitted dispatch also queues the run at the org's
+limit, once per run, and an executor that frees units signals the oldest queued
+run. The wake ends the token holder's backoff early so it probes now. A wake that
+lands while a dispatch is still in flight is kept for the backoff that follows;
+the timer stays as the fallback for a lost wake.
+
 There is no wait limit: accepted work never fails for capacity. Only the run's
 own timeout or a cancellation ends a wait.
 """
@@ -59,10 +65,13 @@ class RunAdmission:
         resource: ConcurrencyResource,
         logger: WorkflowRuntimeLogger,
         acks_enabled: bool = False,
+        wake_enabled: bool = False,
     ) -> None:
         self.resource = resource
         self.acks_enabled = acks_enabled
         """Whether probes ask for an admission signal (off for pre-patch histories)."""
+        self.wake_enabled = wake_enabled
+        """Whether a wake can end a backoff early (off for pre-patch histories)."""
         self._logger = logger
         self._in_flight_probes: set[str] = set()
         self._acked: set[str] = set()
@@ -72,6 +81,9 @@ class RunAdmission:
         self._waiters = 0
         self._needs_timer = False
         self._backoff_step = 0
+        self._active = 0
+        """Dispatches in ``execute``, admitted or not."""
+        self._woken = False
 
     def _next_backoff(self) -> timedelta:
         exponential = BACKOFF_BASE_SECONDS * (2 ** min(self._backoff_step, 10))
@@ -106,6 +118,8 @@ class RunAdmission:
 
     def _on_progress(self) -> None:
         """An attempt was admitted: the next waiter probes without a timer."""
+        # The hand-on probes at once, so an earlier wake has nothing left to cut.
+        self._woken = False
         self._needs_timer = False
         self._backoff_step = 0
         if self._waiters == 0:
@@ -118,23 +132,53 @@ class RunAdmission:
             self._backoff_step = 0
         self._needs_timer = True
 
-    @staticmethod
     async def _wait_backoff(
-        delay: timedelta, interrupt: Callable[[], bool] | None
+        self, delay: timedelta, interrupt: Callable[[], bool] | None
     ) -> bool:
-        """Wait out a backoff on a durable timer, or until ``interrupt`` is true.
+        """Wait out a backoff on a durable timer, until ``interrupt`` is true, or,
+        with ``wake_enabled``, until a wake.
 
         Returns:
             Whether ``interrupt`` ended the wait early.
         """
-        if interrupt is None:
-            await workflow.sleep(delay)
+        if not self.wake_enabled:
+            if interrupt is None:
+                await workflow.sleep(delay)
+                return False
+            try:
+                await workflow.wait_condition(interrupt, timeout=delay)
+            except TimeoutError:
+                return False
+            return True
+
+        if self._woken:
+            # Woken while the busy dispatch was in flight: probe without a timer.
+            self._woken = False
             return False
+        interrupted = False
+
+        def done() -> bool:
+            nonlocal interrupted
+            if interrupt is not None and interrupt():
+                interrupted = True
+            return interrupted or self._woken
+
         try:
-            await workflow.wait_condition(interrupt, timeout=delay)
+            await workflow.wait_condition(done, timeout=delay)
         except TimeoutError:
-            return False
-        return True
+            pass
+        # A wake in the same activation as the timer is spent on this one probe.
+        self._woken = False
+        return interrupted
+
+    def wake(self) -> None:
+        """A release at the org freed units: the waiting probe should go now.
+
+        Kept while any dispatch is in flight, so a wake that beats the busy
+        result still cuts the backoff that follows. Ignored when nothing waits.
+        """
+        if self._active > 0:
+            self._woken = True
 
     def acknowledge(self, activity_id: str) -> None:
         """Record an executor's admission signal for a probe still in flight."""
@@ -210,6 +254,23 @@ class RunAdmission:
         Raises:
             Whatever ``dispatch`` raises for an admitted attempt.
         """
+        self._active += 1
+        try:
+            return await self._execute(
+                dispatch, max_attempts=max_attempts, interrupt=interrupt
+            )
+        finally:
+            self._active -= 1
+            if self._active == 0:
+                self._woken = False
+
+    async def _execute(
+        self,
+        dispatch: Dispatch,
+        *,
+        max_attempts: int,
+        interrupt: Callable[[], bool] | None,
+    ) -> Any:
         remaining = max_attempts
         waited_since: datetime | None = None
         bounces = 0

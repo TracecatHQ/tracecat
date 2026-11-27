@@ -542,3 +542,179 @@ async def test_interrupt_ends_only_one_backoff(fake: FakeWorkflow) -> None:
 
     assert result == {"type": "inline"}
     assert len(fake.sleeps) == 2  # first backoff interrupted, the rest are timers
+
+
+def _waking_admission() -> RunAdmission:
+    return RunAdmission(
+        resource=ConcurrencyResource.ACTIONS,
+        logger=get_workflow_logger(),
+        acks_enabled=True,
+        wake_enabled=True,
+    )
+
+
+@pytest.mark.anyio
+async def test_wake_ends_the_sole_waiters_backoff(fake: FakeWorkflow) -> None:
+    admission = _waking_admission()
+    results: list[Any] = [_busy(), {"type": "inline"}]
+    started_at = fake.clock
+    polls = 0
+    real_wait_condition = fake.wait_condition
+
+    async def wait_condition(
+        fn: Callable[[], bool], *, timeout: timedelta | None = None
+    ) -> None:
+        def poll() -> bool:
+            nonlocal polls
+            polls += 1
+            if polls == 3:
+                admission.wake()  # the executor's signal, mid-wait
+            return fn()
+
+        await real_wait_condition(poll, timeout=timeout)
+
+    fake.wait_condition = wait_condition  # type: ignore[method-assign]
+
+    async def dispatch(_max_attempts: int, _probe_id: str | None) -> Any:
+        return results.pop(0)
+
+    result = await admission.execute(dispatch, max_attempts=1)
+
+    assert result == {"type": "inline"}
+    assert polls >= 3
+    assert fake.sleeps == []
+    assert fake.clock == started_at  # the backoff never ran out
+
+
+@pytest.mark.anyio
+async def test_wake_before_the_busy_result_is_kept(fake: FakeWorkflow) -> None:
+    """The release can wake the run before its busy result arrives."""
+    admission = _waking_admission()
+    results: list[Any] = [_busy(), {"type": "inline"}]
+    waits = 0
+    real_wait_condition = fake.wait_condition
+
+    async def counting_wait_condition(
+        fn: Callable[[], bool], *, timeout: timedelta | None = None
+    ) -> None:
+        nonlocal waits
+        if timeout is not None:
+            waits += 1
+        await real_wait_condition(fn, timeout=timeout)
+
+    fake.wait_condition = counting_wait_condition  # type: ignore[method-assign]
+
+    async def dispatch(_max_attempts: int, _probe_id: str | None) -> Any:
+        result = results.pop(0)
+        if parse_not_admitted(result) is not None:
+            admission.wake()  # lands while this dispatch is in flight
+        return result
+
+    result = await admission.execute(dispatch, max_attempts=1)
+
+    assert result == {"type": "inline"}
+    assert waits == 0  # no timer at all: the probe went at once
+    assert fake.sleeps == []
+
+
+@pytest.mark.anyio
+async def test_timer_and_wake_together_give_one_probe(fake: FakeWorkflow) -> None:
+    """A wake in the same activation as the timer is spent on that one probe."""
+    admission = _waking_admission()
+    results: list[Any] = [_busy(), _busy(), {"type": "inline"}]
+    dispatches = 0
+    timed_out = 0
+    real_wait_condition = fake.wait_condition
+
+    async def timer_fires_with_a_wake(
+        fn: Callable[[], bool], *, timeout: timedelta | None = None
+    ) -> None:
+        nonlocal timed_out
+        if timeout is None:  # a probe waiting for its admission signal
+            return await real_wait_condition(fn)
+        await asyncio.sleep(0)
+        if timed_out == 0:
+            admission.wake()
+        timed_out += 1
+        fake.clock += timeout
+        raise TimeoutError
+
+    fake.wait_condition = timer_fires_with_a_wake  # type: ignore[method-assign]
+
+    async def dispatch(_max_attempts: int, _probe_id: str | None) -> Any:
+        nonlocal dispatches
+        dispatches += 1
+        return results.pop(0)
+
+    result = await admission.execute(dispatch, max_attempts=1)
+
+    assert result == {"type": "inline"}
+    assert dispatches == 3  # first dispatch + one probe per backoff
+    assert timed_out == 2  # the second backoff waited its timer out
+
+
+@pytest.mark.anyio
+async def test_cancel_during_a_wake_wait_still_cancels(fake: FakeWorkflow) -> None:
+    admission = _waking_admission()
+    waiting_started = asyncio.Event()
+    real_wait_condition = fake.wait_condition
+
+    async def wait_condition(
+        fn: Callable[[], bool], *, timeout: timedelta | None = None
+    ) -> None:
+        waiting_started.set()
+        await asyncio.Event().wait()  # an unfired timer
+        await real_wait_condition(fn, timeout=timeout)
+
+    fake.wait_condition = wait_condition  # type: ignore[method-assign]
+
+    async def dispatch(_max_attempts: int, _probe_id: str | None) -> Any:
+        return _busy()
+
+    task = asyncio.create_task(admission.execute(dispatch, max_attempts=1))
+    await waiting_started.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    # Nothing waits any more, so a late wake is ignored.
+    admission.wake()
+    assert admission._woken is False  # pyright: ignore[reportPrivateUsage]
+
+
+def test_wake_with_nothing_in_flight_is_ignored() -> None:
+    admission = _waking_admission()
+
+    admission.wake()
+
+    assert admission._woken is False  # pyright: ignore[reportPrivateUsage]
+
+
+@pytest.mark.anyio
+async def test_admitted_probe_spends_an_earlier_wake(fake: FakeWorkflow) -> None:
+    """After an admitted probe the hand-on probes at once; a stale wake is dropped."""
+    admission = _waking_admission()
+    admission._active = 1  # pyright: ignore[reportPrivateUsage]
+    admission.wake()
+
+    admission._on_progress()  # pyright: ignore[reportPrivateUsage]
+
+    assert admission._woken is False  # pyright: ignore[reportPrivateUsage]
+
+
+@pytest.mark.anyio
+async def test_without_the_wake_the_backoff_is_a_plain_timer(
+    fake: FakeWorkflow,
+) -> None:
+    """Histories recorded before the wake keep ``workflow.sleep``; a wake is a no-op."""
+    admission = _admission()
+    results: list[Any] = [_busy(), {"type": "inline"}]
+
+    async def dispatch(_max_attempts: int, _probe_id: str | None) -> Any:
+        result = results.pop(0)
+        admission.wake()
+        return result
+
+    await admission.execute(dispatch, max_attempts=1)
+
+    assert len(fake.sleeps) == 1

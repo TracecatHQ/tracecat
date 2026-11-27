@@ -35802,6 +35802,11 @@ export const $RunActionInput = {
       title: "Ack Admission",
       default: false,
     },
+    wake_on_release: {
+      type: "boolean",
+      title: "Wake On Release",
+      default: false,
+    },
     registry_lock: {
       $ref: "#/components/schemas/RegistryLock",
     },
