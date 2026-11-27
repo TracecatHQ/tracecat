@@ -237,7 +237,8 @@ class TriggerRunsService(BaseWorkspaceService):
                 select(
                     AgentSession.id,
                     func.coalesce(AgentPreset.name, AgentSession.title),
-                    AgentSession.agent_preset_id,
+                    # Null for a deleted preset, so the run renders unlinked.
+                    AgentPreset.id,
                 )
                 .outerjoin(
                     AgentPreset,
@@ -282,13 +283,13 @@ class TriggerRunsService(BaseWorkspaceService):
 
         Raises:
             ScopeDeniedError: Without the trigger's read scopes, or without
-                ``workflow:read`` or ``agent:read``.
+                both ``workflow:read`` and ``agent:read``.
             TriggerError: ``not_found`` if the workspace has no such trigger.
             PaginationError: If the cursor is not one this list returned.
         """
-        # The errors describe failed workflow and agent starts, so they need
-        # a run read scope, as the runs do.
-        check_scopes(self.role, "workflow:read", "agent:read", require_all=False)
+        # An error can describe a failed workflow or agent start, and a row
+        # doesn't say which, so it needs both run read scopes.
+        check_scopes(self.role, "workflow:read", "agent:read")
         trigger = await TriggersService(self.session, self.role).get_trigger(trigger_id)
         config = trigger.config
         if trigger.kind != TriggerKind.OBJECT_STORAGE or not isinstance(

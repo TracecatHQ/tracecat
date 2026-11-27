@@ -182,7 +182,7 @@ webhooks and case triggers that have a trigger row. Schedules are not linked
 yet. `list_trigger_runs` reads those runs (root runs only); workflow runs also
 need `workflow:read` and agent runs `agent:read`. `list_trigger_stopped_events`
 lists an `object_storage` trigger's events that hit the attempt cap, with the
-redacted error and never the event; it also needs `workflow:read` or `agent:read`. `get_trigger_run_origin` goes the other
+redacted error and never the event; it also needs `workflow:read` and `agent:read`. `get_trigger_run_origin` goes the other
 way, from a run (`workflow:read`) or an agent session (`agent:read`) to its
 trigger.
 

@@ -149,7 +149,7 @@ function TriggerStoppedEvents({
       <PagedList
         list={events}
         empty="No stopped events."
-        forbidden="You need permission to view workflow runs or agents to see this trigger's stopped events."
+        forbidden="You need permission to view workflow runs and agents to see this trigger's stopped events."
         renderItem={(event) => (
           <div
             key={`${event.created_at}-${event.attempts}-${event.error ?? ""}`}

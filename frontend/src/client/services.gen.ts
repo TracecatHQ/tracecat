@@ -14959,7 +14959,7 @@ export const triggersListTriggerRuns = (
  * The trigger's events that stopped retrying, newest first.
  *
  * Only ``object_storage`` triggers queue events; other kinds list none.
- * Also needs ``workflow:read`` or ``agent:read``.
+ * Also needs ``workflow:read`` and ``agent:read``.
  * @param data The data for the request.
  * @param data.triggerId
  * @param data.workspaceId

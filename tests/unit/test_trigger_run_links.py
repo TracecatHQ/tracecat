@@ -425,6 +425,15 @@ async def test_recent_runs_read_the_trigger_root_runs_with_names(
     assert agent_run.target_type is TriggerTargetType.AGENT
     assert agent_run.session_id == session_id
     assert (agent_run.target_name, agent_run.agent_preset_id) == ("Triage", preset.id)
+
+    # A deleted preset leaves no link to a page that would 404.
+    preset.deleted_at = datetime.now(UTC)
+    await session.commit()
+    page = await TriggerRunsService(session, svc_role).list_runs(
+        trigger_id, CursorPaginationParams(limit=10)
+    )
+    (agent_run,) = [r for r in page.items if r.session_id == session_id]
+    assert (agent_run.target_name, agent_run.agent_preset_id) == ("Uploads", None)
     assert (page.next_cursor, page.has_more) == ("next", True)
 
 
@@ -621,19 +630,26 @@ async def test_stopped_events_page_newest_first(
         )
 
 
-async def test_stopped_events_need_a_run_read_scope(
+async def test_stopped_events_need_both_run_read_scopes(
     session: AsyncSession, svc_role: Role, svc_workspace: Workspace
 ) -> None:
+    """A row doesn't say whether a workflow or an agent failed to start."""
     trigger_id = await _object_trigger(TriggersService(session, svc_role))
-    role = _role(svc_workspace, frozenset({"trigger:read"}))
 
-    with pytest.raises(ScopeDeniedError):
-        await TriggerRunsService(session, role).list_stopped_events(
-            trigger_id, CursorPaginationParams(limit=10)
-        )
-    # Either run read scope is enough.
+    for scopes in (
+        {"trigger:read"},
+        {"trigger:read", "agent:read"},
+        {"trigger:read", "workflow:read"},
+    ):
+        with pytest.raises(ScopeDeniedError):
+            await TriggerRunsService(
+                session, _role(svc_workspace, frozenset(scopes))
+            ).list_stopped_events(trigger_id, CursorPaginationParams(limit=10))
     page = await TriggerRunsService(
-        session, _role(svc_workspace, frozenset({"trigger:read", "agent:read"}))
+        session,
+        _role(
+            svc_workspace, frozenset({"trigger:read", "workflow:read", "agent:read"})
+        ),
     ).list_stopped_events(trigger_id, CursorPaginationParams(limit=10))
     assert page.items == []
 

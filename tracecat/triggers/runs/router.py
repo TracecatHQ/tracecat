@@ -94,7 +94,7 @@ async def list_trigger_stopped_events(
     """The trigger's events that stopped retrying, newest first.
 
     Only ``object_storage`` triggers queue events; other kinds list none.
-    Also needs ``workflow:read`` or ``agent:read``.
+    Also needs ``workflow:read`` and ``agent:read``.
     """
     service = TriggerRunsService(session, role)
     try:

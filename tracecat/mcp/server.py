@@ -7199,7 +7199,7 @@ async def list_trigger_stopped_events(
     fails to start, and stops after 8 attempts. Other kinds list none. The
     event itself is not returned. An event is shared by every trigger on its
     source, so an error can name another trigger's targets. Needs
-    `workflow:read` or `agent:read`.
+    `workflow:read` and `agent:read`.
 
     Args:
         workspace_id: The workspace ID.
