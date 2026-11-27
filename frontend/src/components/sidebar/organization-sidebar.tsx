@@ -10,6 +10,7 @@ import {
   LogInIcon,
   LogsIcon,
   MousePointerClickIcon,
+  PaletteIcon,
   RadioTowerIcon,
   RefreshCwIcon,
   Settings2,
@@ -46,6 +47,7 @@ export function OrganizationSidebar({
   const serviceAccountsEnabled = hasEntitlement("service_accounts")
   const externalSecretStoresEnabled = hasEntitlement("external_secret_stores")
   const rbacAddonsEnabled = hasEntitlement("rbac_addons")
+  const customBrandingEnabled = hasEntitlement("custom_branding")
 
   // Scope checks for org sidebar items
   const canViewSecretStores = useScopeCheck("org:secret:read")
@@ -124,6 +126,14 @@ export function OrganizationSidebar({
       isActive: pathname?.includes("/organization/settings/app"),
       visible: canViewSettings === true,
       locked: false,
+    },
+    {
+      title: "Branding",
+      url: "/organization/settings/branding",
+      icon: PaletteIcon,
+      isActive: pathname?.includes("/organization/settings/branding"),
+      visible: canViewSettings === true,
+      locked: !customBrandingEnabled,
     },
     {
       title: "Audit Logs",

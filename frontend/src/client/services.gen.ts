@@ -391,6 +391,8 @@ import type {
   AuthDiscoverAuthMethodData,
   AuthDiscoverAuthMethodResponse,
   AuthGetMfaStatusResponse,
+  AuthGetPublicBrandingData,
+  AuthGetPublicBrandingResponse,
   AuthListCredentialsResponse,
   AuthOauthOidcDatabaseAuthorizeData,
   AuthOauthOidcDatabaseAuthorizeResponse,
@@ -662,6 +664,7 @@ import type {
   InboxGetPendingCountResponse,
   InboxListItemsData,
   InboxListItemsResponse,
+  InfoGetAppVersionResponse,
   IntegrationsConnectProviderData,
   IntegrationsConnectProviderResponse,
   IntegrationsDeleteIntegrationData,
@@ -742,6 +745,7 @@ import type {
   OrganizationDeleteSessionData,
   OrganizationDeleteSessionResponse,
   OrganizationGetCurrentOrgMemberResponse,
+  OrganizationGetOrganizationBrandingResponse,
   OrganizationGetOrganizationEntitlementsResponse,
   OrganizationGetOrganizationLimitsResponse,
   OrganizationGetOrganizationResponse,
@@ -1011,6 +1015,7 @@ import type {
   SettingsGetAgentSettingsResponse,
   SettingsGetAppSettingsResponse,
   SettingsGetAuditSettingsResponse,
+  SettingsGetBrandingSettingsResponse,
   SettingsGetGitSettingsResponse,
   SettingsGetMfaPolicyResponse,
   SettingsGetSamlSettingsResponse,
@@ -1025,6 +1030,8 @@ import type {
   SettingsUpdateAppSettingsResponse,
   SettingsUpdateAuditSettingsData,
   SettingsUpdateAuditSettingsResponse,
+  SettingsUpdateBrandingSettingsData,
+  SettingsUpdateBrandingSettingsResponse,
   SettingsUpdateGitSettingsData,
   SettingsUpdateGitSettingsResponse,
   SettingsUpdateMfaPolicyData,
@@ -12578,6 +12585,40 @@ export const settingsUpdateAppSettings = (
 }
 
 /**
+ * Get Branding Settings
+ * @returns BrandingSettingsRead Successful Response
+ * @throws ApiError
+ */
+export const settingsGetBrandingSettings =
+  (): CancelablePromise<SettingsGetBrandingSettingsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/settings/branding",
+    })
+  }
+
+/**
+ * Update Branding Settings
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const settingsUpdateBrandingSettings = (
+  data: SettingsUpdateBrandingSettingsData
+): CancelablePromise<SettingsUpdateBrandingSettingsResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/settings/branding",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Get Audit Settings
  * @returns AuditSettingsRead Successful Response
  * @throws ApiError
@@ -20089,6 +20130,46 @@ export const authDiscoverAuthMethod = (
 }
 
 /**
+ * Get Public Branding
+ * Branding for the sign-in and sign-up pages.
+ *
+ * Multi-tenant deployments only brand pages opened with ``?org=<slug>``;
+ * single-tenant deployments use the default organization.
+ * @param data The data for the request.
+ * @param data.org
+ * @returns BrandingRead Successful Response
+ * @throws ApiError
+ */
+export const authGetPublicBranding = (
+  data: AuthGetPublicBrandingData = {}
+): CancelablePromise<AuthGetPublicBrandingResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/auth/branding",
+    query: {
+      org: data.org,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Organization Branding
+ * Branding for the current organization, for any member.
+ * @returns BrandingRead Successful Response
+ * @throws ApiError
+ */
+export const organizationGetOrganizationBranding =
+  (): CancelablePromise<OrganizationGetOrganizationBrandingResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/branding",
+    })
+  }
+
+/**
  * Check Health
  * @returns HealthResponse Successful Response
  * @throws ApiError
@@ -20098,5 +20179,19 @@ export const publicCheckHealth =
     return __request(OpenAPI, {
       method: "GET",
       url: "/health",
+    })
+  }
+
+/**
+ * Get App Version
+ * Platform version, for signed-in users only.
+ * @returns AppVersionRead Successful Response
+ * @throws ApiError
+ */
+export const infoGetAppVersion =
+  (): CancelablePromise<InfoGetAppVersionResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/version",
     })
   }

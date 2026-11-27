@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation"
 import { Suspense } from "react"
 import { AuthGuard } from "@/components/auth/auth-guard"
+import { OrganizationBrandingStyle } from "@/components/branding/branding-style"
 import { CommandPalette } from "@/components/command-palette/command-palette"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { OrganizationSidebar } from "@/components/sidebar/organization-sidebar"
@@ -22,6 +23,7 @@ export default function OrganizationLayout({
         requireOrgAdmin
         orgAdminScope={isScimPage ? "org:scim:manage" : "org:update"}
       >
+        <OrganizationBrandingStyle />
         <SidebarProvider>
           <OrganizationSidebar />
           <SidebarInset>

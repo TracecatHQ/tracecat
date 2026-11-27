@@ -136,6 +136,14 @@ class EntitlementsDict(TypedDict, total=False):
             " SNS) may start workflows and agents",
         ),
     ]
+    custom_branding: Annotated[
+        bool,
+        Field(
+            title="Custom branding",
+            description="Whether the organization may set its own logo, primary"
+            " colors, and sign-in page terms notice",
+        ),
+    ]
 
 
 @dataclass(frozen=True, slots=True)

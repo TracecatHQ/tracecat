@@ -1867,6 +1867,10 @@ export type AppSettingsUpdate = {
   app_unsafe_disable_secret_error_withholding_workspace_ids?: Array<string>
 }
 
+export type AppVersionRead = {
+  version: string
+}
+
 /**
  * Operator decision for a pending approval.
  */
@@ -2473,6 +2477,63 @@ export type BooleanApprovalDecision = {
   metadata: {
     [key: string]: unknown
   }
+}
+
+/**
+ * Effective branding for an organization, safe to show before sign-in.
+ *
+ * Unset fields mean the Tracecat default. Organizations without the
+ * ``custom_branding`` entitlement always get the defaults.
+ */
+export type BrandingRead = {
+  /**
+   * Logo as a data URL
+   */
+  logo?: string | null
+  /**
+   * Light mode primary color as #RRGGBB
+   */
+  primary_color_light?: string | null
+  /**
+   * Dark mode primary color as #RRGGBB
+   */
+  primary_color_dark?: string | null
+  /**
+   * Whether to show the terms notice on sign-in
+   */
+  terms_enabled?: boolean
+}
+
+/**
+ * Organization branding settings.
+ */
+export type BrandingSettingsRead = {
+  branding_logo?: string | null
+  branding_primary_color_light?: string | null
+  branding_primary_color_dark?: string | null
+  branding_terms_enabled?: boolean
+}
+
+/**
+ * Organization branding settings.
+ */
+export type BrandingSettingsUpdate = {
+  /**
+   * Logo as a base64 data URL (PNG, JPEG, WebP, or SVG, at most 256 KB). Null restores the Tracecat logo.
+   */
+  branding_logo?: string | null
+  /**
+   * Primary color in light mode as #RRGGBB. Null uses the default.
+   */
+  branding_primary_color_light?: string | null
+  /**
+   * Primary color in dark mode as #RRGGBB. Null uses the default.
+   */
+  branding_primary_color_dark?: string | null
+  /**
+   * Whether sign-in and sign-up pages show the terms notice.
+   */
+  branding_terms_enabled?: boolean
 }
 
 /**
@@ -6212,6 +6273,10 @@ export type EffectiveEntitlements = {
    * Whether object storage events (S3 object created, over SNS) may start workflows and agents
    */
   object_triggers?: boolean
+  /**
+   * Whether the organization may set its own logo, primary colors, and sign-in page terms notice
+   */
+  custom_branding?: boolean
 }
 
 /**
@@ -6361,6 +6426,10 @@ export type EntitlementsDict = {
    * Whether object storage events (S3 object created, over SNS) may start workflows and agents
    */
   object_triggers?: boolean
+  /**
+   * Whether the organization may set its own logo, primary colors, and sign-in page terms notice
+   */
+  custom_branding?: boolean
 }
 
 export type ErrorModel = {
@@ -19584,6 +19653,14 @@ export type SettingsUpdateAppSettingsData = {
 
 export type SettingsUpdateAppSettingsResponse = void
 
+export type SettingsGetBrandingSettingsResponse = BrandingSettingsRead
+
+export type SettingsUpdateBrandingSettingsData = {
+  requestBody: BrandingSettingsUpdate
+}
+
+export type SettingsUpdateBrandingSettingsResponse = void
+
 export type SettingsGetAuditSettingsResponse = AuditSettingsRead
 
 export type SettingsUpdateAuditSettingsData = {
@@ -21968,7 +22045,17 @@ export type AuthDiscoverAuthMethodData = {
 
 export type AuthDiscoverAuthMethodResponse = AuthDiscoverResponse
 
+export type AuthGetPublicBrandingData = {
+  org?: string | null
+}
+
+export type AuthGetPublicBrandingResponse = BrandingRead
+
+export type OrganizationGetOrganizationBrandingResponse = BrandingRead
+
 export type PublicCheckHealthResponse = HealthResponse
+
+export type InfoGetAppVersionResponse = AppVersionRead
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
@@ -28382,6 +28469,29 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/settings/branding": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: BrandingSettingsRead
+      }
+    }
+    patch: {
+      req: SettingsUpdateBrandingSettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/settings/audit": {
     get: {
       res: {
@@ -32753,6 +32863,31 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/auth/branding": {
+    get: {
+      req: AuthGetPublicBrandingData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: BrandingRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/branding": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: BrandingRead
+      }
+    }
+  }
   "/health": {
     get: {
       res: {
@@ -32760,6 +32895,16 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: HealthResponse
+      }
+    }
+  }
+  "/version": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AppVersionRead
       }
     }
   }
