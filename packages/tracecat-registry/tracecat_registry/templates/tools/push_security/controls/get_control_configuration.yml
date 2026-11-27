@@ -1,0 +1,31 @@
+type: action
+definition:
+  title: Get control configuration
+  description: >-
+    Retrieve a browser control's configuration, including every rule in evaluation order.
+    Calls GET /v1/controls/{control}/configuration.
+  display_group: Push Security
+  doc_url: https://developer.pushsecurity.com/rest-v1
+  namespace: tools.push_security
+  name: get_control_configuration
+  secrets:
+    - name: push_security
+      keys: ["PUSH_SECURITY_API_KEY"]
+  expects:
+    control:
+      type: str
+      description: "The control's name in the API path. One of: accountConditionEnforcement, appBanner, appBannerUrlPattern, browserExtensionBlocking, clipboardBlocking, clonedLoginPageDetection, domainCategoryBlocking, fileDownloadBlocking, fileUploadBlocking, mfaEnforcement, maliciousBrowserExtensionDetection, maliciousCopyPasteDetection, passwordLoggingPrevention, phishingToolDetection, strongPasswordEnforcement."
+      enum: [accountConditionEnforcement, appBanner, appBannerUrlPattern, browserExtensionBlocking, clipboardBlocking, clonedLoginPageDetection, domainCategoryBlocking, fileDownloadBlocking, fileUploadBlocking, mfaEnforcement, maliciousBrowserExtensionDetection, maliciousCopyPasteDetection, passwordLoggingPrevention, phishingToolDetection, strongPasswordEnforcement]
+    base_url:
+      type: str | None
+      description: "Push Security regional API base URL: https://us1.api.pushsecurity.com (US) or https://eu1.api.pushsecurity.com (EU). Falls back to the workspace variable push_security.base_url."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.push_security.base_url }}/v1/controls/${{ FN.url_encode(inputs.control) }}/configuration
+        method: GET
+        headers:
+          x-api-key: ${{ SECRETS.push_security.PUSH_SECURITY_API_KEY }}
+  returns: ${{ steps.request.result }}

@@ -1,0 +1,80 @@
+type: action
+definition:
+  title: Block browser extension
+  description: >-
+    Block browser extensions by extension ID. Adds the IDs to one browserExtensionBlocking
+    rule in BLOCK mode and moves that rule to the top (creating it if missing), keeping
+    every other rule. Calls GET then PUT
+    /v1/controls/browserExtensionBlocking/configuration. Edits made to the control between
+    the read and the write are lost.
+  display_group: Push Security
+  doc_url: https://developer.pushsecurity.com/rest-v1/browser-extension-blocking/put-controls-browserextensionblocking
+  namespace: tools.push_security
+  name: block_browser_extension
+  secrets:
+    - name: push_security
+      keys: ["PUSH_SECURITY_API_KEY"]
+  expects:
+    extensionIds:
+      type: list[str]
+      description: "Extension IDs to block, such as a 32-character Chrome extension ID."
+    rule_name:
+      type: str
+      description: "Name of the rule this action manages. If no rule has this name, one is created as the highest-priority rule; otherwise the values are added to the first rule with this name."
+      default: "Blocked by Tracecat"
+    title:
+      type: str
+      description: "Heading shown to the user (max 75 characters)."
+      default: "Extension blocked"
+    subtext:
+      type: str
+      description: "Message shown to the user (max 1000 characters)."
+      default: "Your security team has blocked this browser extension."
+    base_url:
+      type: str | None
+      description: "Push Security regional API base URL: https://us1.api.pushsecurity.com (US) or https://eu1.api.pushsecurity.com (EU). Falls back to the workspace variable push_security.base_url."
+      default: null
+  steps:
+    - ref: get_configuration
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.push_security.base_url }}/v1/controls/browserExtensionBlocking/configuration
+        method: GET
+        headers:
+          x-api-key: ${{ SECRETS.push_security.PUSH_SECURITY_API_KEY }}
+    - ref: build_configuration
+      action: core.script.run_python
+      args:
+        inputs:
+          current: ${{ steps.get_configuration.result.data }}
+          extensionIds: ${{ inputs.extensionIds }}
+          rule_name: ${{ inputs.rule_name }}
+          title: ${{ inputs.title }}
+          subtext: ${{ inputs.subtext }}
+        script: |
+          def main(current, extensionIds, rule_name, title, subtext):
+              rules = list(current.get("rules") or [])
+              index = next((i for i, r in enumerate(rules) if r.get("name") == rule_name), None)
+              rule = {"name": rule_name} if index is None else rules.pop(index)
+              # First match wins, so keep the block rule ahead of broader rules.
+              rules.insert(0, rule)
+              criteria = dict(rule.get("criteria") or {})
+              condition = dict(criteria.get("browserExtensions") or {})
+              if condition.get("action", "INCLUDE") != "INCLUDE":
+                  raise ValueError(f"Rule {rule_name!r} excludes browserExtensions; adding values would change what it blocks")
+              matches = list(condition.get("matches") or [])
+              matches += [value for value in extensionIds if value not in matches]
+              condition.update({"matches": matches, "action": "INCLUDE"})
+              criteria["browserExtensions"] = condition
+              rule.update({"enabled": True, "mode": "BLOCK", "title": title, "subtext": subtext, "criteria": criteria})
+              return {**current, "rules": rules}
+    - ref: update_configuration
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.push_security.base_url }}/v1/controls/browserExtensionBlocking/configuration
+        method: PUT
+        headers:
+          x-api-key: ${{ SECRETS.push_security.PUSH_SECURITY_API_KEY }}
+          Content-Type: application/json
+        payload: ${{ steps.build_configuration.result }}
+  returns: ${{ steps.update_configuration.result }}

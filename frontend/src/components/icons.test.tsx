@@ -270,6 +270,20 @@ describe("Socket MCP catalog icon", () => {
   })
 })
 
+describe("Push Security registry icon mappings", () => {
+  it.each([
+    "tools.push_security",
+    "tools.push_security.block_browser_extension",
+  ])("renders the Push Security mark for %s", (key) => {
+    expect(svgTitle(getIcon(key))).toBe("Push Security")
+  })
+
+  it("renders the Push Security mark for the push_security secret", () => {
+    const Icon = secretIcons.push_security
+    expect(svgTitle(<Icon />)).toBe("Push Security")
+  })
+})
+
 describe("Swif registry icon mappings", () => {
   it.each(["tools.swif", "tools.swif.list_script_reports"])(
     "renders the Swif mark for %s",

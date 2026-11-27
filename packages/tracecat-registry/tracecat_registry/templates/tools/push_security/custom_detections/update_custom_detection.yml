@@ -1,0 +1,41 @@
+type: action
+definition:
+  title: Update custom detection
+  description: >-
+    Replace a custom detection's logic and rules with what you send. Any rule you don't
+    include is deleted. A rule with an id updates the existing rule with that id; a rule
+    without an id is created. Calls PUT /v1/controls/customDetections/{detectionEventType}.
+  display_group: Push Security
+  doc_url: https://developer.pushsecurity.com/rest-v1/custom-detections/put-controls-customdetections-detectioneventtype
+  namespace: tools.push_security
+  name: update_custom_detection
+  secrets:
+    - name: push_security
+      keys: ["PUSH_SECURITY_API_KEY"]
+  expects:
+    detectionEventType:
+      type: str
+      description: "The custom detection's unique identifier. Always an uppercase identifier beginning with CUSTOM_."
+    detectionLogic:
+      type: str
+      description: "The detection logic: one or more detection rules, each a YAML document describing what the browser extension matches on, separated by the standard YAML document separator. At most 100 rules and 10KB in total. It is stored exactly as sent."
+    rules:
+      type: list[dict[str, Any]]
+      description: "The complete list of control rules the custom detection should have, in priority order. 0 to 50 rules. Rules you leave out are deleted."
+    base_url:
+      type: str | None
+      description: "Push Security regional API base URL: https://us1.api.pushsecurity.com (US) or https://eu1.api.pushsecurity.com (EU). Falls back to the workspace variable push_security.base_url."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.push_security.base_url }}/v1/controls/customDetections/${{ FN.url_encode(inputs.detectionEventType) }}
+        method: PUT
+        headers:
+          x-api-key: ${{ SECRETS.push_security.PUSH_SECURITY_API_KEY }}
+          Content-Type: application/json
+        payload:
+          detectionLogic: ${{ inputs.detectionLogic }}
+          rules: ${{ inputs.rules }}
+  returns: ${{ steps.request.result }}
