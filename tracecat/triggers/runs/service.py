@@ -74,21 +74,28 @@ def agent_turn_workflow_types() -> set[str]:
     return {get_workflow_type(backend) for backend in get_agent_backends().values()}
 
 
-def _encode_stopped_cursor(received: datetime, occurrence_key: str) -> str:
-    raw = f"{received.isoformat()}|{occurrence_key}".encode()
+def _encode_stopped_cursor(
+    trigger_id: uuid.UUID, received: datetime, occurrence_key: str
+) -> str:
+    raw = f"{trigger_id}|{received.isoformat()}|{occurrence_key}".encode()
     return base64.urlsafe_b64encode(raw).decode()
 
 
-def _decode_stopped_cursor(cursor: str) -> tuple[datetime, str]:
+def _decode_stopped_cursor(cursor: str, trigger_id: uuid.UUID) -> tuple[datetime, str]:
     """The (received, occurrence key) a stopped events cursor points after.
 
+    A cursor names the trigger it was issued for, so one from another
+    trigger's list is refused rather than silently moving the boundary.
+
     Raises:
-        PaginationError: If the cursor is not one the list returned.
+        PaginationError: If the cursor is not one this trigger's list returned.
     """
     try:
-        received, _, occurrence_key = (
-            base64.urlsafe_b64decode(cursor.encode()).decode().partition("|")
+        issued_for, received, occurrence_key = (
+            base64.urlsafe_b64decode(cursor.encode()).decode().split("|")
         )
+        if uuid.UUID(issued_for) != trigger_id:
+            raise ValueError("Cursor is for another trigger")
         return datetime.fromisoformat(received), occurrence_key
     except ValueError as e:
         raise PaginationError(
@@ -306,7 +313,7 @@ class TriggerRunsService(BaseWorkspaceService):
         # Paged on (received, occurrence key): the row ID comes from one
         # sequence across every workspace, so it is never shown or used.
         if params.cursor is not None:
-            received, occurrence_key = _decode_stopped_cursor(params.cursor)
+            received, occurrence_key = _decode_stopped_cursor(params.cursor, trigger.id)
             filters.append(
                 tuple_(EventOutbox.created_at, EventOutbox.occurrence_key)
                 < tuple_(literal(received), literal(occurrence_key))
@@ -343,13 +350,16 @@ class TriggerRunsService(BaseWorkspaceService):
             for _, attempts, last_error, created_at, payload in rows
         ]
         next_cursor = (
-            _encode_stopped_cursor(rows[-1][3], rows[-1][0]) if has_more else None
+            _encode_stopped_cursor(trigger.id, rows[-1][3], rows[-1][0])
+            if has_more
+            else None
         )
         return TriggerStoppedEventsPage(
             items=events,
             next_cursor=next_cursor,
             has_more=has_more,
-            has_previous=params.cursor is not None,
+            # Forward only: no previous cursor is issued.
+            has_previous=False,
         )
 
     async def run_origin(

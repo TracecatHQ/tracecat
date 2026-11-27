@@ -143,6 +143,20 @@ describe("TriggerRunsSections", () => {
   })
 })
 
+it("leaves Recent runs out for schedules, which aren't linked yet", async () => {
+  renderWithClient(
+    <TriggerRunsSections
+      workspaceId="workspace-1"
+      trigger={{ ...TRIGGER, kind: "schedule" }}
+    />
+  )
+
+  await waitFor(() =>
+    expect(screen.queryByText("Recent runs")).not.toBeInTheDocument()
+  )
+  expect(triggersListTriggerRuns).not.toHaveBeenCalled()
+})
+
 it("keeps Load more on an empty page that has more after it", async () => {
   // Child runs are filtered out of a page, so one can come back empty.
   jest
@@ -208,6 +222,28 @@ describe("StartedByTrigger", () => {
         screen.getByRole("link", { name: "New uploads" })
       ).toBeInTheDocument()
       expect(triggersGetTriggerRunOrigin).toHaveBeenCalledTimes(2)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it("stops asking after the retry bound while none is found", async () => {
+    jest.useFakeTimers()
+    try {
+      jest.mocked(triggersGetTriggerRunOrigin).mockResolvedValue(null)
+
+      renderWithClient(
+        <StartedByTrigger
+          workspaceId="workspace-1"
+          target={{ sessionId: "s" }}
+        />
+      )
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(5 * 60_000)
+      })
+
+      // The first answer plus 4 retries, then no more.
+      expect(triggersGetTriggerRunOrigin).toHaveBeenCalledTimes(5)
     } finally {
       jest.useRealTimers()
     }

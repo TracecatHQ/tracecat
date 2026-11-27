@@ -203,6 +203,31 @@ async def test_workflow_starts_carry_the_trigger_id_only_when_given(
     assert _trigger_ids(call.kwargs["search_attributes"]) == expected
 
 
+@pytest.mark.usefixtures("registered")
+async def test_a_nowait_start_carries_the_trigger_id(svc_role: Role) -> None:
+    """The case-trigger consumer starts its runs without waiting."""
+    client = Mock(spec=Client)
+    started = asyncio.Event()
+
+    async def _start(*_: Any, **__: Any) -> Mock:
+        started.set()
+        return Mock()
+
+    client.start_workflow = AsyncMock(side_effect=_start)
+    service = WorkflowExecutionsService(client=client, role=svc_role)
+    trigger_id = uuid.uuid4()
+
+    with patch.object(service, "_resolve_execution_timeout", return_value=None):
+        service.create_workflow_execution_nowait(
+            dsl=_dsl(), wf_id=WorkflowUUID.new_uuid4(), trigger_id=trigger_id
+        )
+        await asyncio.wait_for(started.wait(), timeout=5)
+
+    call = client.start_workflow.await_args
+    assert call is not None
+    assert _trigger_ids(call.kwargs["search_attributes"]) == [str(trigger_id)]
+
+
 @pytest.mark.usefixtures("fresh_probe")
 async def test_a_start_before_registration_carries_no_trigger_id(
     svc_role: Role,
@@ -617,16 +642,26 @@ async def test_stopped_events_page_newest_first(
     assert len(first.items) == 2 and first.has_more is True
     assert first.next_cursor is not None
     # The cursor names (received, occurrence key), never the global row ID.
-    _, occurrence_key = runs_service._decode_stopped_cursor(first.next_cursor)
+    _, occurrence_key = runs_service._decode_stopped_cursor(
+        first.next_cursor, trigger_id
+    )
     assert occurrence_key in {r.occurrence_key for r in rows}
     assert len(second.items) == 1 and second.has_more is False
     attempts_by_key = {r.occurrence_key: r.attempts for r in rows}
     assert [e.attempts for e in [*first.items, *second.items]] == [
         attempts_by_key[k] for k in newest_first
     ]
+    assert second.has_previous is False  # Forward only.
     with pytest.raises(PaginationError):
         await service.list_stopped_events(
             trigger_id, CursorPaginationParams(limit=2, cursor="not-a-cursor")
+        )
+    # A cursor from another trigger's list is refused, not applied.
+    other_trigger_id = await _object_trigger(triggers)
+    with pytest.raises(PaginationError):
+        await service.list_stopped_events(
+            other_trigger_id,
+            CursorPaginationParams(limit=2, cursor=first.next_cursor),
         )
 
 

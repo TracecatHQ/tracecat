@@ -471,6 +471,8 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
       }
       const nextPath = `/workspaces/${workspaceId}/agents/${normalizedId}`
       const params = new URLSearchParams(searchParams.toString())
+      // A linked session belongs to the preset it was opened from.
+      params.delete(AGENT_PRESET_SESSION_QUERY_PARAM)
       const queryString = params.toString()
       router.replace(queryString ? `${nextPath}?${queryString}` : nextPath)
     },
@@ -699,14 +701,19 @@ function AgentPresetChatPane({
     chats?.find((candidate) => !candidate.is_readonly)?.id ?? chats?.[0]?.id
   // ?session= opens one session, such as a trigger's run (Recent runs links).
   // Only a UUID: it becomes an API path segment.
+  // Picking a chat or a history scope leaves the linked session behind.
   const sessionParam = useSearchParams().get(AGENT_PRESET_SESSION_QUERY_PARAM)
+  const [linkDismissed, setLinkDismissed] = useState(false)
   const linkedChatId =
-    sessionParam && SESSION_ID_PATTERN.test(sessionParam) ? sessionParam : null
+    !linkDismissed && sessionParam && SESSION_ID_PATTERN.test(sessionParam)
+      ? sessionParam
+      : null
   const activeChatId = selectedChatId ?? linkedChatId ?? latestChatId
 
   const handleHistoryScopeChange = (nextScope: ChatHistoryScope) => {
     setHistoryScope(nextScope)
     setSelectedChatId(null)
+    setLinkDismissed(true)
   }
 
   const { createChat, createChatPending } = useCreateChat(workspaceId)
@@ -882,20 +889,6 @@ function AgentPresetChatPane({
       )
     }
 
-    if (
-      !activeChatId ||
-      chatLoading ||
-      chatsLoading ||
-      !chat ||
-      (!modelInfo && !chat.is_readonly)
-    ) {
-      return (
-        <div className="flex h-full items-center justify-center">
-          <CenteredSpinner />
-        </div>
-      )
-    }
-
     if (chatError) {
       return (
         <div className="flex h-full items-center justify-center px-4">
@@ -907,6 +900,20 @@ function AgentPresetChatPane({
                 : "We couldn't load the conversation for this agent."}
             </AlertDescription>
           </Alert>
+        </div>
+      )
+    }
+
+    if (
+      !activeChatId ||
+      chatLoading ||
+      chatsLoading ||
+      !chat ||
+      (!modelInfo && !chat.is_readonly)
+    ) {
+      return (
+        <div className="flex h-full items-center justify-center">
+          <CenteredSpinner />
         </div>
       )
     }
@@ -965,7 +972,10 @@ function AgentPresetChatPane({
                 isLoading={chatsLoading}
                 error={chatsError}
                 selectedChatId={activeChatId ?? undefined}
-                onSelectChat={(chatId) => setSelectedChatId(chatId)}
+                onSelectChat={(chatId) => {
+                  setSelectedChatId(chatId)
+                  setLinkDismissed(true)
+                }}
                 workspaceId={workspaceId}
                 scope={historyScope}
                 onScopeChange={handleHistoryScopeChange}

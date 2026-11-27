@@ -39,6 +39,13 @@ function runFallbackName(run: TriggerRunRead): string {
     : "Deleted workflow"
 }
 
+/** Kinds whose runs carry TracecatTriggerId. Schedules don't yet. */
+const LINKED_KINDS: ReadonlySet<TriggerRead["kind"]> = new Set([
+  "object_storage",
+  "webhook",
+  "case_trigger",
+])
+
 /** A trigger's recent runs and, for kinds that queue events, its stopped events. */
 export function TriggerRunsSections({
   workspaceId,
@@ -49,7 +56,9 @@ export function TriggerRunsSections({
 }) {
   return (
     <>
-      <TriggerRecentRuns workspaceId={workspaceId} trigger={trigger} />
+      {LINKED_KINDS.has(trigger.kind) ? (
+        <TriggerRecentRuns workspaceId={workspaceId} trigger={trigger} />
+      ) : null}
       {trigger.kind === "object_storage" ? (
         <TriggerStoppedEvents workspaceId={workspaceId} trigger={trigger} />
       ) : null}
@@ -150,9 +159,10 @@ function TriggerStoppedEvents({
         list={events}
         empty="No stopped events."
         forbidden="You need permission to view workflow runs and agents to see this trigger's stopped events."
-        renderItem={(event) => (
+        renderItem={(event, index) => (
           <div
-            key={`${event.created_at}-${event.attempts}-${event.error ?? ""}`}
+            // Events have no ID of their own here; the list only grows.
+            key={index}
             className="space-y-1 px-4 py-2.5"
           >
             <div className="flex items-center justify-between gap-3 text-xs">
@@ -187,7 +197,7 @@ function PagedList<T>({
   list: TriggerPagedList<T>
   empty: string
   forbidden: string
-  renderItem: (item: T) => React.ReactNode
+  renderItem: (item: T, index: number) => React.ReactNode
 }) {
   if (list.isLoading) {
     return <p className="text-xs text-muted-foreground">Loading...</p>

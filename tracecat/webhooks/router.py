@@ -377,7 +377,8 @@ class WebhookTriggerEnvelope(TypedDict):
 
 def _webhook_trigger_id(request: Request) -> uuid.UUID | None:
     """The webhook's trigger row ID, which ``validate_incoming_webhook`` stashed."""
-    # request.state is an untyped namespace; the draft route never sets it.
+    # request.state is an untyped namespace. The draft route has it too but
+    # doesn't forward it: draft runs are not linked to the trigger.
     return getattr(request.state, "webhook_trigger_id", None)
 
 

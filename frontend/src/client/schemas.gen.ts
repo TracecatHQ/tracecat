@@ -45916,7 +45916,7 @@ export const $TriggerRunRead = {
       ],
       title: "Target Name",
       description:
-        "The workflow's title, or for an agent run the agent preset's name; null if it was deleted",
+        "The workflow's title (null if it was deleted), or for an agent run the agent preset's name, falling back to the session's title if the preset was deleted (null if the session was too)",
     },
     wf_exec_id: {
       type: "string",

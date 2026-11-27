@@ -1652,6 +1652,7 @@ class WorkflowExecutionsService:
         registry_lock: RegistryLock | None = None,
         memo: dict[str, Any] | None = None,
         correlation_id: str | None = None,
+        trigger_id: uuid.UUID | None = None,
     ) -> WorkflowExecutionCreateResponse:
         """Create a new workflow execution.
 
@@ -1661,6 +1662,8 @@ class WorkflowExecutionsService:
             memo: Optional memo dict to store with the workflow execution.
                   Useful for correlation (e.g., parent_wf_exec_id).
             correlation_id: Optional `TracecatCorrelationId` search attribute value.
+            trigger_id: The trigger row that started the run, set as
+                  ``TracecatTriggerId`` once the namespace has it.
         """
         wf_exec_id = generate_exec_id(wf_id)
         coro = self._start_workflow(
@@ -1674,6 +1677,7 @@ class WorkflowExecutionsService:
             trigger_inputs=payload,
             execution_type=ExecutionType.PUBLISHED,
             correlation_id=correlation_id,
+            trigger_id=trigger_id,
         )
         task = asyncio.ensure_future(coro)
         task.add_done_callback(self._handle_background_task_exception)

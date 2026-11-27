@@ -12,7 +12,7 @@ from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.identifiers.workflow import WorkflowExecutionID
-from tracecat.pagination import CursorPaginationParams
+from tracecat.pagination import CursorPaginationParams, PaginationError
 from tracecat.triggers.runs.schemas import (
     TriggerRunOrigin,
     TriggerRunsPage,
@@ -33,7 +33,9 @@ LimitQuery = Annotated[
 
 
 def _bad_request(e: ValueError) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    """A 400 for a bad cursor or argument, with a pagination error's code."""
+    detail = e.detail if isinstance(e, PaginationError) and e.detail else str(e)
+    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
 
 
 # Before the ``/{trigger_id}/...`` routes, though no path of theirs matches it.
