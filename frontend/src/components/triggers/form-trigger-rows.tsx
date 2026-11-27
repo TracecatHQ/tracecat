@@ -6,10 +6,12 @@ import { useMemo } from "react"
 import type { FormReadMinimal } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { TriggerStatusLabel } from "@/components/triggers/trigger-status"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { useForms } from "@/hooks/use-forms"
 import { useFormsAccess } from "@/hooks/use-forms-access"
 
 const NO_FORMS: FormReadMinimal[] = []
+const PLAN_UNKNOWN = new Error("Couldn't check the plan")
 
 /**
  * The workspace's forms, for the Triggers tab. Forms are not triggers: they
@@ -21,9 +23,10 @@ const NO_FORMS: FormReadMinimal[] = []
  * workflow and the Forms page won't open the form, so none are listed.
  */
 export function useFormTriggers(workspaceId: string) {
-  const canReadForms = useScopeCheck("form:read")
+  const canReadForms = useScopeCheck("form:read") === true
   const access = useFormsAccess()
-  const enabled = canReadForms === true && access === "enabled"
+  const { isLoading: planIsLoading } = useEntitlements()
+  const enabled = canReadForms && access === "enabled"
   const { forms, formsIsLoading, formsError } = useForms(workspaceId, {
     enabled,
   })
@@ -31,12 +34,21 @@ export function useFormTriggers(workspaceId: string) {
     () => forms.filter((form) => form.workflow_id && form.workflow_title),
     [forms]
   )
+  // The plan check failed: whether forms exist is unknown, not "none".
+  let error: unknown = null
+  if (enabled) {
+    error = formsError
+  } else if (canReadForms && access === "loading" && !planIsLoading) {
+    error = PLAN_UNKNOWN
+  }
   return {
     forms: enabled ? listed : NO_FORMS,
-    isLoading: enabled && formsIsLoading,
-    error: enabled ? formsError : null,
+    isLoading:
+      (enabled && formsIsLoading) ||
+      (canReadForms && access === "loading" && planIsLoading),
+    error,
     /** The caller reads forms, but the plan doesn't include them. */
-    locked: canReadForms === true && access === "locked",
+    locked: canReadForms && access === "locked",
   }
 }
 

@@ -20,14 +20,16 @@ jest.mock("@/client", () => ({
 
 let scopes: Record<string, boolean | undefined> = {}
 let entitlements: Set<string> = new Set()
+let entitlementsFailed = false
 
 jest.mock("@/components/auth/scope-guard", () => ({
   useScopeCheck: (scope: string) => scopes[scope],
 }))
 jest.mock("@/hooks/use-entitlements", () => ({
   useEntitlements: () => ({
-    hasEntitlement: (key: string) => entitlements.has(key),
-    hasEntitlementData: true,
+    hasEntitlement: (key: string) =>
+      !entitlementsFailed && entitlements.has(key),
+    hasEntitlementData: !entitlementsFailed,
     isLoading: false,
   }),
 }))
@@ -97,6 +99,7 @@ function renderWithClient(ui: ReactNode) {
 beforeEach(() => {
   jest.clearAllMocks()
   entitlements = new Set(["forms"])
+  entitlementsFailed = false
   scopes = {
     "trigger:read": true,
     "trigger:create": true,
@@ -227,6 +230,19 @@ describe("Forms in the Triggers tab", () => {
     expect(
       screen.getByText(/Forms aren.t listed because your plan/)
     ).toBeInTheDocument()
+  })
+
+  it("doesn't claim there are no triggers when the plan check fails", async () => {
+    entitlementsFailed = true
+    jest
+      .mocked(triggersListTriggers)
+      .mockResolvedValue({ items: [], has_more: false })
+
+    renderWithClient(<WorkspaceTriggers />)
+
+    expect(await screen.findByText("Couldn't load forms.")).toBeInTheDocument()
+    expect(screen.queryByText("No triggers yet")).not.toBeInTheDocument()
+    expect(formsListForms).not.toHaveBeenCalled()
   })
 
   it("says nothing about the plan without form:read", async () => {
