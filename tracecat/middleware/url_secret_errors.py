@@ -5,7 +5,7 @@ from __future__ import annotations
 import traceback
 
 from fastapi import status
-from fastapi.dependencies.utils import get_flat_dependant
+from fastapi.dependencies.utils import get_flat_params
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -85,10 +85,6 @@ def _carries_url_secret(scope: Scope) -> bool:
     route = scope.get("route")
     if not isinstance(route, APIRoute):
         return False
-    flat = get_flat_dependant(route.dependant)
-    path_params = {param.alias for param in flat.path_params}
-    query_params = {param.alias for param in flat.query_params}
-    return not (
-        path_params.isdisjoint(SECRET_PATH_PARAMS)
-        and query_params.isdisjoint(SECRET_QUERY_KEYS)
-    )
+    # get_flat_params also expands a Pydantic model declared as the query.
+    declared = {param.alias for param in get_flat_params(route.dependant)}
+    return not declared.isdisjoint(SECRET_PATH_PARAMS | SECRET_QUERY_KEYS)

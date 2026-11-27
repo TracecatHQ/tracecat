@@ -13,14 +13,16 @@ import logging
 import re
 import sys
 from collections.abc import Generator, Sequence
+from typing import Annotated
 
 import httpx
 import pytest
 import uvicorn
-from fastapi import HTTPException
+from fastapi import HTTPException, Query
 from fastapi.routing import APIRoute, _IncludedRouter
 from fastapi.testclient import TestClient
 from loguru import logger
+from pydantic import BaseModel
 
 from tracecat.api.app import create_app
 from tracecat.logger.redaction import (
@@ -399,7 +401,19 @@ async def _synthetic_plain_route() -> None:
     raise RuntimeError("plain failure")
 
 
+class _SyntheticCallbackQuery(BaseModel):
+    code: str
+    state: str
+
+
+async def _synthetic_model_callback(
+    callback: Annotated[_SyntheticCallbackQuery, Query()],
+) -> None:
+    raise RuntimeError(f"lookup failed for {callback.state}")
+
+
 app.add_api_route("/synthetic/callback", _synthetic_callback)
+app.add_api_route("/synthetic/model-callback", _synthetic_model_callback)
 app.add_api_route("/synthetic/plain", _synthetic_plain_route)
 
 
@@ -415,10 +429,13 @@ app.add_api_route("/synthetic/items/{item_id}", _synthetic_item_route)
 app.add_api_route("/synthetic/files/{file_path:path}", _synthetic_file_route)
 
 
-def test_errors_on_routes_with_credential_query_params_do_not_escape() -> None:
+@pytest.mark.parametrize("route", ["/synthetic/callback", "/synthetic/model-callback"])
+def test_errors_on_routes_with_credential_query_params_do_not_escape(
+    route: str,
+) -> None:
     with _captured_loguru() as lines:
         response = TestClient(app).get(
-            f"/synthetic/callback?code=synthetic-code&state={STATE_VALUE}"
+            f"{route}?code=synthetic-code&state={STATE_VALUE}"
         )
     assert response.status_code == 500
     _assert_no_secret(lines)
