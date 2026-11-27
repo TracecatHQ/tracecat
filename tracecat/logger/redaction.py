@@ -1,9 +1,11 @@
-"""Redact secrets that some public routes carry in their URL path.
+"""Redact secrets that requests carry in their URL.
 
 Incoming webhooks, SNS ingest endpoints, agent channel endpoints, channel
-links and invitation links authenticate the caller with a secret path segment. Anything that logs a request path or a
-request line passes it through ``redact_url_secrets`` first. A new route with a
-secret in its path adds one pattern to ``_URL_SECRET_PATTERNS``.
+links and invitation links authenticate the caller with a secret path
+segment, and OAuth-style callbacks carry codes and signed state in the query
+string. Anything that logs a request path, query string or request line passes
+it through ``redact_url_secrets`` first. A new route with a secret in its path
+adds one pattern to ``_URL_SECRET_PATTERNS``.
 """
 
 from __future__ import annotations
@@ -29,16 +31,23 @@ _URL_SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(rf"(/agent/channels/{_SEGMENT}/)(?!oauth/callback\b){_SEGMENT}"),
     # /agent/channel-links/{token}/sign-in
     re.compile(rf"(/agent/channel-links/){_SEGMENT}(?=/sign-in\b)"),
+    # Query parameters that carry a credential: OAuth codes and state (the
+    # channel-link state embeds the link token), and bearer tokens.
+    re.compile(
+        r"((?:^|[?&])(?:code|state|token|access_token|id_token|refresh_token)=)"
+        r"[^&#\s\"']+"
+    ),
 )
 
 UVICORN_LOGGER_NAMES = ("uvicorn.access", "uvicorn.error")
 
 
 def redact_url_secrets(text: str) -> str:
-    """Replace every secret path segment in ``text`` with ``[redacted]``.
+    """Replace every URL secret in ``text`` with ``[redacted]``.
 
     Args:
-        text: A request path, a full URL, or a log line containing either.
+        text: A request path, a query string, a full URL, or a log line
+            containing one of them.
 
     Returns:
         The text with each secret segment replaced; other text is unchanged.
@@ -53,7 +62,8 @@ class URLSecretRedactionFilter(logging.Filter):
 
     uvicorn formats its access line from ``record.args`` (client, method, path
     with query, HTTP version, status), so the arguments and the message are
-    both rewritten before any handler formats the record.
+    both rewritten before any handler formats the record. A traceback is
+    rendered once into ``exc_text``, which formatters reuse, and redacted too.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
@@ -64,6 +74,10 @@ class URLSecretRedactionFilter(logging.Filter):
                 redact_url_secrets(arg) if isinstance(arg, str) else arg
                 for arg in record.args
             )
+        if record.exc_info and not record.exc_text:
+            record.exc_text = logging.Formatter().formatException(record.exc_info)
+        if record.exc_text:
+            record.exc_text = redact_url_secrets(record.exc_text)
         return True
 
 

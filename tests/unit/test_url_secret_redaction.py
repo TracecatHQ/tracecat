@@ -11,6 +11,7 @@ import asyncio
 import contextlib
 import logging
 import re
+import sys
 from collections.abc import Generator, Sequence
 
 import httpx
@@ -21,7 +22,7 @@ from fastapi.routing import APIRoute, _IncludedRouter
 from fastapi.testclient import TestClient
 from loguru import logger
 
-from tracecat.api.app import app
+from tracecat.api.app import create_app
 from tracecat.logger.redaction import (
     REDACTED_URL_SECRET,
     UVICORN_LOGGER_NAMES,
@@ -39,10 +40,15 @@ INGEST_TOKEN = "SyntheticIngestToken0123456789abcdefghijk"
 WEBHOOK_SECRET = "synthetic-webhook-secret-0123456789"
 INVITATION_TOKEN = "synthetic-invitation-token-0123456789"
 WORKFLOW_ID = "wf_0zLWumDDdMzepLBrQIOwpD"
-SECRETS = (INGEST_TOKEN, WEBHOOK_SECRET, INVITATION_TOKEN)
+STATE_VALUE = "synthetic-signed-state-0123456789"
+SECRETS = (INGEST_TOKEN, WEBHOOK_SECRET, INVITATION_TOKEN, STATE_VALUE)
 
 INGEST_PATH = f"/ingest/sns/{INGEST_TOKEN}"
-WEBHOOK_PATH = f"/webhooks/{WORKFLOW_ID}/{WEBHOOK_SECRET}"
+WEBHOOK_PATH = f"/webhooks/{WORKFLOW_ID}/{WEBHOOK_SECRET}?state={STATE_VALUE}"
+
+# A private app instance: starting the shared ``tracecat.api.app.app`` builds
+# its middleware stack, and later tests that add middleware to it would fail.
+app = create_app()
 
 # Path parameters that hold a credential. A new route using one of these names
 # fails test_every_secret_route_is_redacted until it has a pattern.
@@ -128,6 +134,20 @@ def _captured_loguru() -> Generator[list[str]]:
             "/agent/channel-links/callback",
             id="channel-link-callback",
         ),
+        pytest.param(
+            f"/agent/channel-links/callback?code=synthetic-code&state={STATE_VALUE}",
+            "/agent/channel-links/callback"
+            f"?code={REDACTED_URL_SECRET}&state={REDACTED_URL_SECRET}",
+            id="callback-query",
+        ),
+        pytest.param(
+            "page=2&token=synthetic-token",
+            f"page=2&token={REDACTED_URL_SECRET}",
+            id="query-string",
+        ),
+        pytest.param(
+            "/cases?postcode=12345", "/cases?postcode=12345", id="query-other"
+        ),
         pytest.param("/workflows/wf_1/webhook", "/workflows/wf_1/webhook", id="other"),
     ],
 )
@@ -191,7 +211,12 @@ def client() -> Generator[TestClient]:
             400,
             id="malformed",
         ),
-        pytest.param(RuntimeError("database down"), 500, id="unexpected"),
+        pytest.param(
+            # A failed lookup echoes its bound parameters in the error text.
+            RuntimeError(f"connection lost [parameters: ('{INGEST_TOKEN}',)]"),
+            500,
+            id="unexpected-echoes-token",
+        ),
     ],
 )
 def test_ingest_request_logs_omit_token(
@@ -215,7 +240,11 @@ def test_ingest_request_logs_omit_token(
     [
         pytest.param(HTTPException(404, "Not found"), 404, id="unknown-webhook"),
         pytest.param(HTTPException(401, "Unauthorized"), 401, id="wrong-secret"),
-        pytest.param(RuntimeError("database down"), 500, id="unexpected"),
+        pytest.param(
+            RuntimeError(f"lookup failed for {WEBHOOK_SECRET}"),
+            500,
+            id="unexpected-echoes-secret",
+        ),
     ],
 )
 def test_webhook_request_logs_omit_secret(
@@ -296,6 +325,19 @@ async def test_uvicorn_access_log_omits_url_secrets(
     assert len(access_lines) == 2, handler.lines
     _assert_no_secret(handler.lines)
     assert all(REDACTED_URL_SECRET in line for line in access_lines)
+
+
+def test_filter_redacts_traceback_text() -> None:
+    try:
+        raise ValueError(f"bad URL /ingest/sns/{INGEST_TOKEN}")
+    except ValueError:
+        record = logging.LogRecord(
+            "uvicorn.error", logging.ERROR, __file__, 1, "boom", None, sys.exc_info()
+        )
+    URLSecretRedactionFilter().filter(record)
+    formatted = logging.Formatter().format(record)
+    assert INGEST_TOKEN not in formatted
+    assert f"/ingest/sns/{REDACTED_URL_SECRET}" in formatted
 
 
 def test_uvicorn_filter_installed_once() -> None:

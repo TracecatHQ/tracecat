@@ -119,13 +119,22 @@ async def database_exception_handler(request: Request, exc: Exception) -> Respon
 
 
 async def generic_exception_handler(request: Request, exc: Exception) -> Response:
-    logger.exception(
-        "Unexpected error",
-        exc=exc,
-        role=ctx_role.get(),
-        params=request.query_params,
-        path=redact_url_secrets(request.url.path),
-    )
+    path = redact_url_secrets(request.url.path)
+    params = redact_url_secrets(str(request.query_params))
+    if path != request.url.path or params != str(request.query_params):
+        # The exception text can echo the URL secret, for example a failed
+        # lookup that bound it as a query parameter, so log the type only.
+        logger.error(
+            "Unexpected error",
+            error_type=type(exc).__name__,
+            role=ctx_role.get(),
+            params=params,
+            path=path,
+        )
+    else:
+        logger.exception(
+            "Unexpected error", exc=exc, role=ctx_role.get(), params=params, path=path
+        )
     return ORJSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"message": "An unexpected error occurred. Please try again later."},
@@ -282,7 +291,7 @@ def tracecat_exception_handler(request: Request, exc: Exception) -> Response:
         "{}",
         msg,
         role=ctx_role.get(),
-        params=request.query_params,
+        params=redact_url_secrets(str(request.query_params)),
         path=redact_url_secrets(request.url.path),
         detail=tracecat_exc.detail,
     )

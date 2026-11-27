@@ -149,9 +149,6 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
         try:
             request_logger = request.app.state.logger
-            # Extract request parameters
-            request_params = dict(request.query_params)
-
             # Log the incoming request with parameters.
             request_logger.debug(
                 "Incoming request",
@@ -159,7 +156,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 scheme=request.url.scheme,
                 hostname=request.url.hostname,
                 path=redact_url_secrets(request.url.path),
-                params=request_params,
+                params=redact_url_secrets(str(request.query_params)),
                 client_ip=client_ip,
             )
 

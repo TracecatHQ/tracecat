@@ -528,7 +528,7 @@ def fastapi_users_auth_exception_handler(request: Request, exc: Exception) -> Re
         "Handling FastAPI Users exception",
         msg=msg,
         role=ctx_role.get(),
-        params=request.query_params,
+        params=redact_url_secrets(str(request.query_params)),
         path=redact_url_secrets(request.url.path),
     )
     match exc:
