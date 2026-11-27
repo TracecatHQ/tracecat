@@ -3,18 +3,20 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import logging
 import re
 import sys
 import uuid
 from collections.abc import Callable, Coroutine, Sequence
 from datetime import UTC, datetime, timedelta
 from types import ModuleType, SimpleNamespace
-from typing import Any, cast
+from typing import Any, Literal, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import yaml
-from fastmcp.exceptions import ToolError
+from fastmcp import Client, FastMCP
+from fastmcp.exceptions import AuthorizationError, ToolError
 from fastmcp.server.middleware.middleware import MiddlewareContext
 from fastmcp.tools import ToolResult
 from mcp import McpError
@@ -59,7 +61,13 @@ from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseFieldReadType, CaseVerdict, CaseViewVisibility
 from tracecat.cases.schemas import CaseFieldRead
 from tracecat.cases.search_schemas import CaseCriteria, CaseQuery, CaseSearchRequest
-from tracecat.db.models import EventSource, Schedule, Workflow
+from tracecat.db.models import (
+    CaseTrigger,
+    EventSource,
+    Schedule,
+    Workflow,
+    WorkflowDefinition,
+)
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.dsl.schemas import ROOT_STREAM, ActionStatement, StreamID
 from tracecat.exceptions import (
@@ -80,7 +88,10 @@ from tracecat.managed_resources.guard import (
     LOCKED_MESSAGE,
     ManagedResourceLockedError,
 )
-from tracecat.mcp.middleware import MCPErrorHandlingMiddleware
+from tracecat.mcp.middleware import (
+    MCPErrorHandlingMiddleware,
+    MCPLoggingMiddleware,
+)
 from tracecat.pagination import CursorPaginatedResponse, PageParams
 from tracecat.storage.object import ExternalObject, ObjectRef
 from tracecat.tables.service import TablesService
@@ -200,6 +211,24 @@ def resolved_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
         workspace_id=workspace_id,
         organization_id=uuid.uuid4(),
         scopes=frozenset({"case:read"}),
+    )
+
+    async def _resolve(_workspace_id: Any) -> tuple[uuid.UUID, Role]:
+        return workspace_id, role
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+
+
+@pytest.fixture
+def resolved_workflow_editor(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Like ``resolved_workspace``, with `workflow:update` for `edit_workflow`."""
+    workspace_id = uuid.uuid4()
+    role = Role(
+        type="service",
+        service_id="tracecat-mcp",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"workflow:update"}),
     )
 
     async def _resolve(_workspace_id: Any) -> tuple[uuid.UUID, Role]:
@@ -1307,7 +1336,15 @@ def _chained_workflow_stub(workflow_id: uuid.UUID) -> SimpleNamespace:
 
 def _patch_workflow_read(monkeypatch, workflow: SimpleNamespace) -> None:
     async def _resolve(_workspace_id):
-        return uuid.uuid4(), SimpleNamespace()
+        role = Role(
+            type="service",
+            service_id="tracecat-mcp",
+            workspace_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+            # `edit_workflow` needs it; it implies `workflow:read`.
+            scopes=frozenset({"workflow:update"}),
+        )
+        return role.workspace_id, role
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     _patch_workflow_service(monkeypatch, workflow)
@@ -1771,7 +1808,7 @@ async def test_replace_workflow_definition_from_dsl_uses_existing_workflow() -> 
 
 
 @pytest.mark.anyio
-@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_refreshes_related_state_before_response_revision(
     monkeypatch,
 ):
@@ -1837,7 +1874,47 @@ async def test_edit_workflow_refreshes_related_state_before_response_revision(
 
 
 @pytest.mark.anyio
-@pytest.mark.usefixtures("resolved_workspace")
+async def test_edit_workflow_needs_workflow_update(monkeypatch):
+    """A viewer can't edit a workflow (or its case trigger) over MCP: the
+    tool needs `workflow:update`, as `PUT /workflows/{id}/draft` does."""
+    viewer = Role(
+        type="user",
+        service_id="tracecat-mcp",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"workflow:read"}),
+    )
+
+    async def _resolve(_workspace_id: Any) -> tuple[uuid.UUID | None, Role]:
+        return viewer.workspace_id, viewer
+
+    opened = MagicMock()
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server.WorkflowsManagementService, "with_session", opened)
+
+    with pytest.raises(ToolError, match="Missing required scope: workflow:update"):
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(viewer.workspace_id),
+            workflow_id=str(uuid.uuid4()),
+            base_revision="any",
+            patch_ops=[
+                {
+                    "op": "replace",
+                    "path": "/case_trigger",
+                    "value": {
+                        "status": "online",
+                        "event_types": ["case_created"],
+                        "tag_filters": [],
+                    },
+                }
+            ],
+        )
+    opened.assert_not_called()
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_validate_only_does_not_persist(monkeypatch):
     workflow_id = uuid.uuid4()
     workflow = SimpleNamespace(
@@ -1892,7 +1969,7 @@ async def test_edit_workflow_validate_only_does_not_persist(monkeypatch):
 
 
 @pytest.mark.anyio
-@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_validate_only_rejects_invalid_schedule(monkeypatch):
     workflow_id = uuid.uuid4()
     workflow = _workflow_stub(id=workflow_id)
@@ -1922,7 +1999,7 @@ async def test_edit_workflow_validate_only_rejects_invalid_schedule(monkeypatch)
 
 
 @pytest.mark.anyio
-@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_validate_only_runs_full_definition_validation(monkeypatch):
     validation_error = ValidationResult.new(
         type=ValidationResultType.DSL,
@@ -1982,7 +2059,7 @@ async def test_edit_workflow_validate_only_runs_full_definition_validation(monke
 
 
 @pytest.mark.anyio
-@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_updates_metadata_with_disconnected_layout_actions(
     monkeypatch,
 ):
@@ -2193,7 +2270,7 @@ async def test_persist_workflow_edit_document_skips_reorder_only_changes(
 
 
 @pytest.mark.anyio
-@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_validate_only_canonicalizes_draft_revision(monkeypatch):
     workflow_id = uuid.uuid4()
     trigger_id = f"trigger-{workflow_id}"
@@ -2274,7 +2351,7 @@ async def test_edit_workflow_validate_only_canonicalizes_draft_revision(monkeypa
 
 
 @pytest.mark.anyio
-@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_validate_only_revision_drops_inert_case_trigger(
     monkeypatch,
 ):
@@ -2401,7 +2478,7 @@ async def test_edit_workflow_unknown_ref_path_names_ref(monkeypatch):
 
 
 @pytest.mark.anyio
-@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_apply_returns_post_save_action_map(monkeypatch):
     workflow_id = uuid.uuid4()
     workflow = _chained_workflow_stub(workflow_id)
@@ -2455,7 +2532,7 @@ async def test_edit_workflow_apply_returns_post_save_action_map(monkeypatch):
 
 
 @pytest.mark.anyio
-@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_refuses_a_managed_workflow(monkeypatch):
     workflow = _workflow_stub()
     _patch_workflow_service(monkeypatch, workflow)
@@ -2481,7 +2558,7 @@ async def test_edit_workflow_refuses_a_managed_workflow(monkeypatch):
 
 
 @pytest.mark.anyio
-@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_rejects_stale_revision(monkeypatch):
     workflow_id = uuid.uuid4()
     workflow = SimpleNamespace(
@@ -2598,7 +2675,7 @@ def test_parse_workflow_edit_request_rejects_removing_trigger_status(
         ("/case_trigger", "/case_trigger/status"),
     ],
 )
-@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_rejects_trigger_parent_replace_that_omits_status(
     monkeypatch,
     patch_path,
@@ -2641,7 +2718,7 @@ async def test_edit_workflow_rejects_trigger_parent_replace_that_omits_status(
 
 
 @pytest.mark.anyio
-@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_rejects_unknown_nested_fields(monkeypatch):
     workflow_id = uuid.uuid4()
     workflow = SimpleNamespace(
@@ -2719,7 +2796,7 @@ async def test_edit_workflow_rejects_unknown_nested_fields(monkeypatch):
         ),
     ],
 )
-@pytest.mark.usefixtures("resolved_workspace")
+@pytest.mark.usefixtures("resolved_workflow_editor")
 async def test_edit_workflow_rejects_excluded_nested_fields_in_parent_replace(
     monkeypatch,
     patch_ops,
@@ -5167,6 +5244,93 @@ async def test_a_tool_refusal_reads_as_itself_not_an_internal_error() -> None:
 
     with pytest.raises(McpError, match="Internal error: boom"):
         await mw.on_message(ctx, _fail)
+
+
+@pytest.mark.anyio
+async def test_a_tool_refusal_logs_a_warning_and_a_fault_an_error() -> None:
+    """A refusal is an expected answer: WARNING. A server fault stays ERROR.
+    Both are counted as before."""
+    logged = MagicMock()
+    mw = MCPErrorHandlingMiddleware(
+        logger=logged, include_traceback=False, transform_errors=True
+    )
+    ctx = _make_tool_context()
+
+    async def _refuse(context: MiddlewareContext[CallToolRequestParams]) -> Any:
+        raise ToolError("refused")
+
+    async def _fail(context: MiddlewareContext[CallToolRequestParams]) -> Any:
+        raise RuntimeError("boom")
+
+    with pytest.raises(ToolError):
+        await mw.on_message(ctx, _refuse)
+    with pytest.raises(McpError):
+        await mw.on_message(ctx, _fail)
+
+    method = ctx.method or "unknown"
+    logged.warning.assert_called_once_with(f"Error in {method}: ToolError: refused")
+    logged.error.assert_called_once_with(f"Error in {method}: RuntimeError: boom")
+    assert mw.get_error_stats() == {
+        f"ToolError:{method}": 1,
+        f"RuntimeError:{method}": 1,
+    }
+
+
+class _Records(logging.Handler):
+    def __init__(self) -> None:
+        super().__init__(level=logging.DEBUG)
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+
+
+@pytest.mark.anyio
+async def test_a_tool_refusal_logs_no_error_through_the_whole_pipeline() -> None:
+    """Every emitter in a real call (FastMCP's own tool log, the logging and
+    error middlewares) logs a refusal below ERROR. A fault, and a FastMCP
+    error that is not a ``ToolError``, still log ERROR.
+
+    The FastMCP filter comes from importing ``tracecat.mcp.server``.
+    """
+
+    def refuse() -> str:
+        raise ToolError("refused")
+
+    def fail() -> str:
+        raise RuntimeError("boom")
+
+    def deny() -> str:
+        raise AuthorizationError("denied")
+
+    server = FastMCP("refusal-logging")
+    server.tool(refuse)
+    server.tool(fail)
+    server.tool(deny)
+    server.add_middleware(
+        MCPErrorHandlingMiddleware(include_traceback=False, transform_errors=True)
+    )
+    server.add_middleware(MCPLoggingMiddleware(methods=["tools/call"]))
+    records = _Records()
+    fastmcp_logger = logging.getLogger("fastmcp")
+    fastmcp_logger.addHandler(records)
+    try:
+        async with Client(server) as client:
+            await client.call_tool("refuse", {}, raise_on_error=False)
+            refusal = list(records.records)
+            records.records.clear()
+            await client.call_tool("fail", {}, raise_on_error=False)
+            fault = list(records.records)
+            records.records.clear()
+            await client.call_tool("deny", {}, raise_on_error=False)
+            other_fastmcp_error = list(records.records)
+    finally:
+        fastmcp_logger.removeHandler(records)
+
+    assert refusal, "the refusal was not logged at all"
+    assert max(record.levelno for record in refusal) == logging.WARNING
+    assert max(record.levelno for record in fault) == logging.ERROR
+    assert max(record.levelno for record in other_fastmcp_error) == logging.ERROR
 
 
 @pytest.mark.anyio
@@ -11276,3 +11440,222 @@ async def test_get_concurrency_limits_requires_organization_context(monkeypatch)
 
     with pytest.raises(ToolError, match="organization context"):
         await _tool(mcp_server.get_concurrency_limits)()
+
+
+async def _seed_case_trigger(
+    session: AsyncSession,
+    role: Role,
+    *,
+    status: Literal["online", "offline"],
+    event_types: list[str],
+    tag_filters: list[str],
+) -> uuid.UUID:
+    """A published workflow with a case trigger holding the given settings.
+
+    Returns the workflow ID: the tools commit on this session, which expires
+    the ORM objects.
+    """
+    workflow = Workflow(
+        title="Case trigger MCP update",
+        description="MCP update_case_trigger test",
+        status="offline",
+        workspace_id=role.workspace_id,
+        version=1,
+    )
+    session.add(workflow)
+    await session.flush()
+    definition = mcp_server.DSLInput.model_validate(
+        {
+            "title": "Case trigger MCP update",
+            "description": "MCP update_case_trigger test",
+            "entrypoint": {"ref": "start"},
+            "actions": [
+                {
+                    "ref": "start",
+                    "action": "core.transform.reshape",
+                    "args": {"value": "ok"},
+                }
+            ],
+        }
+    )
+    session.add(
+        WorkflowDefinition(
+            workspace_id=role.workspace_id,
+            workflow_id=workflow.id,
+            version=1,
+            content=definition.model_dump(exclude_unset=True),
+        )
+    )
+    session.add(
+        CaseTrigger(
+            workspace_id=role.workspace_id,
+            workflow_id=workflow.id,
+            status=status,
+            event_types=event_types,
+            tag_filters=tag_filters,
+        )
+    )
+    workflow_id = workflow.id
+    await session.commit()
+    return workflow_id
+
+
+def _patch_case_triggers_session(
+    monkeypatch: pytest.MonkeyPatch, session: AsyncSession, role: Role
+) -> None:
+    """Run the case trigger tools on the test session as ``role``."""
+
+    async def _resolve(workspace_id):
+        return workspace_id, role
+
+    def _with_session(*, role: Role):
+        return _AsyncContext(mcp_server.CaseTriggersService(session, role=role))
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server.CaseTriggersService, "with_session", _with_session)
+
+
+async def _saved_case_trigger(
+    session: AsyncSession, workflow_id: uuid.UUID
+) -> CaseTrigger:
+    session.expire_all()
+    return (
+        await session.execute(
+            select(CaseTrigger).where(CaseTrigger.workflow_id == workflow_id)
+        )
+    ).scalar_one()
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+@pytest.mark.parametrize(
+    ("before", "after"), [("online", "offline"), ("offline", "online")]
+)
+async def test_update_case_trigger_status_only_keeps_settings(
+    session: AsyncSession,
+    svc_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+    before: Literal["online", "offline"],
+    after: Literal["online", "offline"],
+) -> None:
+    """A status-only call turns the trigger on or off and keeps its events
+    and tag filters (it used to clear them, and refuse turning on)."""
+    workflow_id = await _seed_case_trigger(
+        session,
+        svc_role,
+        status=before,
+        event_types=["case_closed", "case_created"],
+        tag_filters=["phishing"],
+    )
+    _patch_case_triggers_session(monkeypatch, session, svc_role)
+
+    await _tool(mcp_server.update_case_trigger)(
+        workspace_id=str(svc_role.workspace_id),
+        workflow_id=str(workflow_id),
+        status=after,
+    )
+
+    saved = await _saved_case_trigger(session, workflow_id)
+    assert saved.status == after
+    assert sorted(saved.event_types) == ["case_closed", "case_created"]
+    assert saved.tag_filters == ["phishing"]
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_update_case_trigger_empty_lists_clear_settings(
+    session: AsyncSession, svc_role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An explicit empty list still clears, and leaves the other field alone."""
+    workflow_id = await _seed_case_trigger(
+        session,
+        svc_role,
+        status="offline",
+        event_types=["case_closed"],
+        tag_filters=["phishing"],
+    )
+    _patch_case_triggers_session(monkeypatch, session, svc_role)
+    update = _tool(mcp_server.update_case_trigger)
+    workspace_id = str(svc_role.workspace_id)
+
+    await update(
+        workspace_id=workspace_id, workflow_id=str(workflow_id), tag_filters=[]
+    )
+
+    saved = await _saved_case_trigger(session, workflow_id)
+    assert saved.tag_filters == []
+    assert saved.event_types == ["case_closed"]
+
+    await update(
+        workspace_id=workspace_id, workflow_id=str(workflow_id), event_types=[]
+    )
+
+    saved = await _saved_case_trigger(session, workflow_id)
+    assert saved.event_types == []
+    assert saved.status == "offline"
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_update_case_trigger_online_without_events_is_refused(
+    session: AsyncSession, svc_role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workflow_id = await _seed_case_trigger(
+        session, svc_role, status="offline", event_types=[], tag_filters=[]
+    )
+    _patch_case_triggers_session(monkeypatch, session, svc_role)
+
+    with pytest.raises(ToolError, match="event_types must be non-empty"):
+        await _tool(mcp_server.update_case_trigger)(
+            workspace_id=str(svc_role.workspace_id),
+            workflow_id=str(workflow_id),
+            status="online",
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+@pytest.mark.parametrize(
+    ("tool_name", "arguments", "held", "missing"),
+    [
+        # `workflow:update` implies `workflow:read`, so the reader holds neither.
+        ("get_case_trigger", {}, {"case:read"}, "workflow:read"),
+        (
+            "update_case_trigger",
+            {"status": "offline"},
+            {"workflow:read"},
+            "workflow:update",
+        ),
+    ],
+)
+async def test_case_trigger_tools_need_the_route_scopes(
+    session: AsyncSession,
+    svc_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+    tool_name: str,
+    arguments: dict[str, Any],
+    held: set[str],
+    missing: str,
+) -> None:
+    """The tools need the same scopes as the /case-trigger routes; a viewer
+    (no workflow:update) can't turn a case trigger off or on."""
+    workflow_id = await _seed_case_trigger(
+        session,
+        svc_role,
+        status="online",
+        event_types=["case_closed"],
+        tag_filters=["phishing"],
+    )
+    viewer = svc_role.model_copy(update={"scopes": frozenset(held)})
+    _patch_case_triggers_session(monkeypatch, session, viewer)
+
+    with pytest.raises(ToolError, match=f"Missing required scope: {missing}"):
+        await _tool(getattr(mcp_server, tool_name))(
+            workspace_id=str(svc_role.workspace_id),
+            workflow_id=str(workflow_id),
+            **arguments,
+        )
+
+    saved = await _saved_case_trigger(session, workflow_id)
+    assert saved.status == "online"
+    assert saved.event_types == ["case_closed"]

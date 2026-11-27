@@ -31,6 +31,7 @@ import { WorkspaceTriggers } from "@/components/triggers/workspace-triggers"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
+import { workflowUuidToShortId } from "@/lib/workflow-ids"
 
 jest.mock("@/client", () => ({
   // The webhook form's method and status choices.
@@ -1310,5 +1311,138 @@ describe("Webhook triggers", () => {
         },
       },
     })
+  })
+})
+
+describe("CreateTriggerDialog for a webhook already a trigger", () => {
+  beforeEach(() => {
+    scopes = { ...scopes, "workflow:execute": true }
+    // Radix Select's pointer handling, which jsdom lacks.
+    Element.prototype.hasPointerCapture = () => false
+    Element.prototype.releasePointerCapture = () => {}
+  })
+
+  it("marks workflows whose webhook is already a trigger", async () => {
+    const user = userEvent.setup()
+    // The API names the workflow by UUID; the workflow list by short ID.
+    const listedUuid = "6f1c2a7e-3b4d-4e5f-9a1b-2c3d4e5f6a7b"
+    workflows = [
+      {
+        id: workflowUuidToShortId(listedUuid),
+        title: "Alert intake",
+        version: 1,
+      },
+      { id: "wf_other", title: "Other", version: 1 },
+    ]
+    jest.mocked(triggersListTriggers).mockResolvedValue({
+      items: [
+        {
+          ...WEBHOOK_TRIGGER,
+          config: { ...WEBHOOK_TRIGGER.config, workflow_id: listedUuid },
+        } as TriggerRead,
+      ],
+      has_more: false,
+      locked: [],
+    })
+
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
+
+    await user.click(screen.getByRole("button", { name: /Webhook/ }))
+    await user.click(screen.getByRole("combobox", { name: "Workflow" }))
+
+    const listed = await screen.findByRole("option", {
+      name: /Alert intake.*Already a trigger/,
+    })
+    expect(listed).toHaveAttribute("aria-disabled", "true")
+    expect(screen.getByRole("option", { name: "Other" })).not.toHaveAttribute(
+      "aria-disabled"
+    )
+    expect(triggersListTriggers).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: "workspace-1", kind: "webhook" })
+    )
+  })
+
+  it("marks workflows from every page of triggers", async () => {
+    const user = userEvent.setup()
+    workflows = [
+      { id: "wf_first", title: "First page", version: 1 },
+      { id: "wf_second", title: "Second page", version: 1 },
+    ]
+    const listedOn = (workflowId: string, id: string): TriggerRead =>
+      ({
+        ...WEBHOOK_TRIGGER,
+        id,
+        config: { ...WEBHOOK_TRIGGER.config, workflow_id: workflowId },
+      }) as TriggerRead
+    jest
+      .mocked(triggersListTriggers)
+      .mockResolvedValueOnce({
+        items: [listedOn("wf_first", "trigger-a")],
+        has_more: true,
+        next_cursor: "page-2",
+        locked: [],
+      })
+      .mockResolvedValueOnce({
+        items: [listedOn("wf_second", "trigger-b")],
+        has_more: false,
+        locked: [],
+      })
+
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
+
+    await user.click(screen.getByRole("button", { name: /Webhook/ }))
+    await user.click(screen.getByRole("combobox", { name: "Workflow" }))
+
+    for (const title of ["First page", "Second page"]) {
+      expect(
+        await screen.findByRole("option", {
+          name: new RegExp(`${title}.*Already a trigger`),
+        })
+      ).toHaveAttribute("aria-disabled", "true")
+    }
+    expect(triggersListTriggers).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kind: "webhook", cursor: "page-2" })
+    )
+  })
+
+  it("brings a refused create's message into view", async () => {
+    const user = userEvent.setup()
+    // jest.setup.js stubs scrollIntoView, which jsdom lacks.
+    const scrollIntoView = jest.spyOn(Element.prototype, "scrollIntoView")
+    workflows = [{ id: "wf_alert", title: "Alert intake", version: 1 }]
+    jest.mocked(triggersGetWebhook).mockResolvedValue({
+      id: "webhook-1",
+      secret: "synthetic-secret",
+      status: "online",
+      methods: ["POST"],
+      allowlisted_cidrs: [],
+      include_headers: false,
+      workflow_id: "wf_alert",
+      url: WEBHOOK_URL,
+    })
+    const conflict =
+      "This workflow's webhook is already a trigger. Open it in the Triggers tab to change it."
+    jest.mocked(triggersCreateTrigger).mockRejectedValue(
+      Object.assign(new Error("Conflict"), {
+        status: 409,
+        body: { detail: conflict },
+      })
+    )
+
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
+
+    await user.click(screen.getByRole("button", { name: /Webhook/ }))
+    await user.type(screen.getByLabelText("Name"), "Alert intake webhook")
+    await user.click(screen.getByRole("combobox", { name: "Workflow" }))
+    await user.click(
+      await screen.findByRole("option", { name: "Alert intake" })
+    )
+    await waitFor(() => expect(triggersGetWebhook).toHaveBeenCalled())
+    await user.click(screen.getByRole("button", { name: "Create trigger" }))
+
+    const alert = await screen.findByRole("alert")
+    expect(alert).toHaveTextContent(conflict)
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" })
+    expect(scrollIntoView.mock.contexts).toContain(alert)
   })
 })
