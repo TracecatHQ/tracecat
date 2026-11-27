@@ -18,6 +18,7 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { ControlsHeader } from "@/components/nav/controls-header"
 import { DynamicNavbar } from "@/components/nav/dynamic-nav"
 import { SettingsModal } from "@/components/settings/settings-modal"
+import { useSettingsDeepLink } from "@/components/settings/settings-modal-context"
 import { AppSidebar } from "@/components/sidebar/app-sidebar"
 import { Button } from "@/components/ui/button"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
@@ -57,6 +58,7 @@ export default function WorkspaceLayout({
 }) {
   const router = useRouter()
   const { user, userIsLoading } = useAuth()
+  useSettingsDeepLink(!!user)
   const {
     workspaces,
     workspacesLoading,
@@ -160,6 +162,7 @@ export default function WorkspaceLayout({
       return (
         <ScopeProvider>
           <NoWorkspaces />
+          <SettingsModal />
         </ScopeProvider>
       )
     }
@@ -173,6 +176,7 @@ export default function WorkspaceLayout({
     return (
       <ScopeProvider>
         <NoWorkspaces />
+        <SettingsModal />
       </ScopeProvider>
     )
   } else if (fallbackWorkspaceId) {

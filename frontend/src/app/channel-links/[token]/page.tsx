@@ -23,47 +23,10 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { useAuth } from "@/hooks/use-auth"
+import { LINK_FAILURES, type LinkFailure } from "@/lib/channel-link-failures"
 import { getApiErrorDetail, type TracecatApiError } from "@/lib/errors"
 import { useMutation } from "@/lib/query"
 import { cn } from "@/lib/utils"
-
-type LinkFailure = { message: string; retryable: boolean }
-
-// The callback redirects with a code, never text, so the page shows only this copy.
-// A link is spent only by a matching sign-in, so retryable failures can reuse it.
-const LINK_FAILURES: Record<string, LinkFailure> = {
-  invalid: {
-    message: "This link is invalid, expired, or already used.",
-    retryable: false,
-  },
-  not_member: {
-    message: "Sign in as a member of the organization that sent this link.",
-    retryable: false,
-  },
-  other_user: {
-    message: "Sign in as the Tracecat user who started linking.",
-    retryable: true,
-  },
-  wrong_account: {
-    message:
-      "You signed in to the provider as a different user than the one who asked to link.",
-    retryable: true,
-  },
-  cancelled: { message: "Sign-in was cancelled.", retryable: true },
-  signed_out: {
-    message: "Your Tracecat session ended. Open the link again to retry.",
-    retryable: true,
-  },
-  failed: {
-    message: "The provider could not confirm your sign-in.",
-    retryable: true,
-  },
-  blocked_network: {
-    message:
-      "Your organization's IP allowlist does not include this network. Open the link from an allowed network.",
-    retryable: true,
-  },
-}
 
 function linkFailure(
   result: string | null | undefined,
@@ -208,7 +171,7 @@ function ChannelLinkContent() {
   useEffect(() => {
     if (userIsLoading || result) return
     if (!user) {
-      // A callback outcome shows as is; its signed_out error says to reopen the link.
+      // A callback outcome shows as is, including a signed_out error.
       const returnUrl = `/channel-links/${encodeURIComponent(token)}`
       router.replace(`/sign-in?returnUrl=${encodeURIComponent(returnUrl)}`)
       return

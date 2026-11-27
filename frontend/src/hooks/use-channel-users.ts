@@ -1,11 +1,16 @@
 "use client"
 
+import { useEffect } from "react"
 import {
   type AgentChannelUserRead,
   agentChannelUsersListMyChannelUsers,
+  agentChannelUsersStartMyChannelLinkSignIn,
   agentChannelUsersUnlinkMyChannelUser,
+  type ChannelLinkSignInRead,
 } from "@/client"
+import { useSettingsModal } from "@/components/settings/settings-modal-context"
 import { toast } from "@/components/ui/use-toast"
+import { linkFailureMessage } from "@/lib/channel-link-failures"
 import { getApiErrorDetail, type TracecatApiError } from "@/lib/errors"
 import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
@@ -47,5 +52,51 @@ export function useMyChannelUsers() {
       })
     },
   })
-  return { links, isLoading, error, unlink, unlinkPending }
+  const { mutate: startSignIn, isPending: signInPending } = useMutation<
+    ChannelLinkSignInRead,
+    TracecatApiError
+  >({
+    mutationFn: async () => await agentChannelUsersStartMyChannelLinkSignIn(),
+    onSuccess: ({ sign_in_url }) => window.location.assign(sign_in_url),
+    onError: (error) => {
+      toast({
+        title: "Couldn't start linking",
+        description: getApiErrorDetail(error) ?? "Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+  return {
+    links,
+    isLoading,
+    error,
+    unlink,
+    unlinkPending,
+    startSignIn,
+    signInPending,
+  }
+}
+
+/** Toast the outcome of a sign-in started from Settings, handed over by its deep link. */
+export function useChannelLinkResultToast() {
+  const { takeSectionParams } = useSettingsModal()
+  useEffect(() => {
+    const params = takeSectionParams()
+    const result = params?.get("result")
+    const url = new URL(window.location.href)
+    if (url.searchParams.has("result")) {
+      url.searchParams.delete("result")
+      url.searchParams.delete("error")
+      window.history.replaceState(window.history.state, "", url.toString())
+    }
+    if (result === "linked") {
+      toast({ title: "Slack account linked" })
+    } else if (result === "error") {
+      toast({
+        title: "Couldn't link your Slack account",
+        description: linkFailureMessage(params?.get("error") ?? ""),
+        variant: "destructive",
+      })
+    }
+  }, [takeSectionParams])
 }

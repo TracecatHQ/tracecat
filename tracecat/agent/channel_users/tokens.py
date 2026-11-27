@@ -20,6 +20,7 @@ LINK_TOKEN_TTL = timedelta(minutes=10)
 _ISSUER = "tracecat-api"
 _LINK_TOKEN_AUDIENCE = "tracecat-channel-link"
 _SIGN_IN_STATE_AUDIENCE = "tracecat-channel-link-sign-in"
+_SETTINGS_SIGN_IN_STATE_AUDIENCE = "tracecat-channel-link-settings-sign-in"
 _REQUIRED_CLAIMS = ["iss", "aud", "iat", "exp", "jti"]
 
 
@@ -58,6 +59,28 @@ class ChannelLinkSignIn(_SignInStateClaims):
     """A sign-in state: the link token's claims and the Tracecat user who confirmed."""
 
     claims: ChannelLinkClaims
+
+    @property
+    def organization_id(self) -> uuid.UUID:
+        return self.claims.organization_id
+
+    @property
+    def workspace_id(self) -> uuid.UUID:
+        return self.claims.workspace_id
+
+
+class ChannelSettingsSignIn(BaseModel):
+    """A sign-in started from Settings: no provider user yet, only the bot whose app
+    signs in and the Tracecat user who started it."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    jti: str
+    exp: int
+    organization_id: uuid.UUID
+    workspace_id: uuid.UUID
+    bot_id: uuid.UUID
+    user_id: uuid.UUID
 
 
 def _encode(*, audience: str, iat: datetime, claims: dict[str, Any]) -> str:
@@ -143,3 +166,45 @@ def read_sign_in_state(state: str) -> ChannelLinkSignIn:
         claims=read_link_token(signed.link_token),
         user_id=signed.user_id,
     )
+
+
+def mint_settings_sign_in_state(
+    *,
+    organization_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    bot_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> str:
+    """Sign a Settings sign-in state that expires after `LINK_TOKEN_TTL`."""
+    now = datetime.now(UTC)
+    state = ChannelSettingsSignIn(
+        jti=secrets.token_urlsafe(16),
+        exp=int((now + LINK_TOKEN_TTL).timestamp()),
+        organization_id=organization_id,
+        workspace_id=workspace_id,
+        bot_id=bot_id,
+        user_id=user_id,
+    )
+    return _encode(
+        audience=_SETTINGS_SIGN_IN_STATE_AUDIENCE,
+        iat=now,
+        claims=state.model_dump(mode="json"),
+    )
+
+
+def read_settings_sign_in_state(state: str) -> ChannelSettingsSignIn:
+    """Verify a sign-in state started from Settings.
+
+    Raises:
+        ChannelLinkInvalid: If it is malformed or expired.
+    """
+    return _decode(state, _SETTINGS_SIGN_IN_STATE_AUDIENCE, ChannelSettingsSignIn)
+
+
+def is_settings_sign_in_state(state: str) -> bool:
+    """Whether a state names the Settings audience; picks the reader, verifies nothing."""
+    try:
+        claims = jwt.decode(state, options={"verify_signature": False})
+    except PyJWTError:
+        return False
+    return claims.get("aud") == _SETTINGS_SIGN_IN_STATE_AUDIENCE

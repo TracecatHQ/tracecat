@@ -16557,6 +16557,9 @@ export type AgentChannelUsersStartChannelLinkSignInData = {
 export type AgentChannelUsersStartChannelLinkSignInResponse =
   ChannelLinkSignInRead
 
+export type AgentChannelUsersStartMyChannelLinkSignInResponse =
+  ChannelLinkSignInRead
+
 export type AgentChannelUsersListMyChannelUsersData = {
   cursor?: string | null
   limit?: number
@@ -22313,6 +22316,16 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/channel-users/me/sign-in": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ChannelLinkSignInRead
       }
     }
   }

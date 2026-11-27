@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowUpRight, Info, Loader2, Plus } from "lucide-react"
+import { ArrowUpRight, ChevronDown, Info, Loader2 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { type ReactNode, useState } from "react"
 import type { AgentChannelBotRead, AgentPresetReadMinimal } from "@/client"
@@ -45,8 +45,7 @@ export type PlatformOption =
 
 const PLATFORM_HELP: Record<PlatformOption, string> = {
   ready: "Quickest setup. One shared bot; pick the agent for each channel.",
-  missing:
-    "Not set up on this instance. A platform admin sets it up in Admin\u00a0›\u00a0Slack\u00a0app.",
+  missing: "Not available. Contact a platform admin for details.",
   installed: "Already added to this workspace's Slack.",
   checking: "Checking whether Tracecat is already added…",
   failed: "Couldn't check whether Tracecat is set up here.",
@@ -119,15 +118,15 @@ export function AddChannelBotMenu({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button type="button" size="sm" disabled={disabled}>
-          <Plus className="mr-2 size-4" />
           Add bot
+          <ChevronDown className="ml-2 size-4" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80">
         <MenuOption
           icon={slackIcon}
           title="Tracecat"
-          badge={<RecommendedBadge />}
+          badge={platform === "ready" ? <RecommendedBadge /> : undefined}
           help={PLATFORM_HELP[platform]}
           disabled={platform !== "ready"}
           onSelect={() => onChoose("tracecat")}
@@ -171,7 +170,7 @@ export function NoChannelBots({
       <div className="grid grid-cols-2 gap-3">
         <ChoiceCard
           title="Tracecat"
-          badge={<RecommendedBadge />}
+          badge={platform === "ready" ? <RecommendedBadge /> : undefined}
           help={PLATFORM_HELP[platform]}
           highlighted={platform === "ready"}
           action={
@@ -179,6 +178,7 @@ export function NoChannelBots({
               <Button
                 type="button"
                 size="sm"
+                variant={platform === "ready" ? "default" : "outline"}
                 disabled={disabled || platform !== "ready"}
                 onClick={() => onChoose("tracecat")}
               >

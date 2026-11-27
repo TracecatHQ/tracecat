@@ -16,17 +16,22 @@ from tracecat.agent.channel_users.schemas import (
     AgentChannelUserRead,
     ChannelLinkSignInRead,
     channel_link_page_url,
+    channel_link_settings_url,
 )
 from tracecat.agent.channel_users.service import (
-    complete_channel_link,
+    complete_sign_in,
     list_channel_users,
     start_provider_sign_in,
+    start_settings_sign_in,
     unlink_channel_user,
 )
 from tracecat.agent.channel_users.tokens import (
     ChannelLinkInvalid,
     ChannelLinkSignIn,
+    ChannelSettingsSignIn,
+    is_settings_sign_in_state,
     read_link_token,
+    read_settings_sign_in_state,
     read_sign_in_state,
 )
 from tracecat.auth.credentials import OptionalUserDep
@@ -84,6 +89,47 @@ def _link_page(
     return RedirectResponse(f"{page_url}?{urlencode(query)}")
 
 
+def _settings_page(error: ChannelLinkError | None) -> RedirectResponse:
+    query = (
+        {"result": "linked"} if error is None else {"result": "error", "error": error}
+    )
+    return RedirectResponse(f"{channel_link_settings_url()}&{urlencode(query)}")
+
+
+async def _link_signed_in_user(
+    sign_in: ChannelLinkSignIn | ChannelSettingsSignIn,
+    *,
+    user: User | None,
+    code: str | None,
+    provider_error: str | None,
+) -> ChannelLinkError | None:
+    if provider_error is not None or code is None:
+        return ChannelLinkError.CANCELLED
+    if user is None:
+        return ChannelLinkError.SIGNED_OUT
+    try:
+        # These routes take the user, not an org role, so the org check runs here.
+        try:
+            await enforce_org_ip_allowlist(
+                sign_in.organization_id, bypass=user.is_superuser
+            )
+        except HTTPException:
+            return ChannelLinkError.BLOCKED_NETWORK
+        async with get_async_session_tenant_context_manager(
+            workspace_id=sign_in.workspace_id
+        ) as session:
+            await complete_sign_in(session, sign_in=sign_in, code=code, user_id=user.id)
+    except ChannelLinkInvalid as exc:
+        return exc.error
+    except (TracecatValidationError, EntitlementRequired):
+        return ChannelLinkError.FAILED
+    except Exception as exc:
+        # The error can carry the sign-in code or provider response.
+        logger.error("Channel link sign-in failed", error_type=type(exc).__name__)
+        return ChannelLinkError.FAILED
+    return None
+
+
 @link_router.get(
     CHANNEL_LINK_CALLBACK_ROUTE.removeprefix(CHANNEL_LINKS_PREFIX),
     include_in_schema=False,
@@ -95,38 +141,26 @@ async def handle_channel_link_callback(
     code: str | None = None,
     error: str | None = None,
 ) -> RedirectResponse:
-    """The provider's return after sign-in: link, then back to the link page."""
+    """The provider's return after sign-in: link, then back to where it started."""
+    state = state or ""
+    if is_settings_sign_in_state(state):
+        try:
+            settings_sign_in = read_settings_sign_in_state(state)
+        except ChannelLinkInvalid as exc:
+            return _settings_page(exc.error)
+        return _settings_page(
+            await _link_signed_in_user(
+                settings_sign_in, user=user, code=code, provider_error=error
+            )
+        )
     try:
-        sign_in = read_sign_in_state(state or "")
+        sign_in = read_sign_in_state(state)
     except ChannelLinkInvalid as exc:
         return _link_page(None, exc.error)
-    if error is not None or code is None:
-        return _link_page(sign_in, ChannelLinkError.CANCELLED)
-    if user is None:
-        return _link_page(sign_in, ChannelLinkError.SIGNED_OUT)
-    try:
-        # These routes take the user, not an org role, so the org check runs here.
-        try:
-            await enforce_org_ip_allowlist(
-                sign_in.claims.organization_id, bypass=user.is_superuser
-            )
-        except HTTPException:
-            return _link_page(sign_in, ChannelLinkError.BLOCKED_NETWORK)
-        async with get_async_session_tenant_context_manager(
-            workspace_id=sign_in.claims.workspace_id
-        ) as session:
-            await complete_channel_link(
-                session, sign_in=sign_in, code=code, user_id=user.id
-            )
-    except ChannelLinkInvalid as exc:
-        return _link_page(sign_in, exc.error)
-    except (TracecatValidationError, EntitlementRequired):
-        return _link_page(sign_in, ChannelLinkError.FAILED)
-    except Exception as exc:
-        # The error can carry the sign-in code or provider response.
-        logger.error("Channel link sign-in failed", error_type=type(exc).__name__)
-        return _link_page(sign_in, ChannelLinkError.FAILED)
-    return _link_page(sign_in, None)
+    outcome = await _link_signed_in_user(
+        sign_in, user=user, code=code, provider_error=error
+    )
+    return _link_page(sign_in, outcome)
 
 
 @link_router.post("/{token}/sign-in", response_model=ChannelLinkSignInRead)
@@ -143,6 +177,20 @@ async def start_channel_link_sign_in(
             sign_in_url = await start_provider_sign_in(
                 session, link_token=token, user_id=user.id
             )
+    except TracecatValidationError as exc:
+        raise _bad_request(exc) from exc
+    return ChannelLinkSignInRead(sign_in_url=sign_in_url)
+
+
+@router.post("/me/sign-in", response_model=ChannelLinkSignInRead)
+async def start_my_channel_link_sign_in(*, role: OrgUserRole) -> ChannelLinkSignInRead:
+    """Start a provider sign-in from Settings that links the caller, with no link token."""
+    if role.organization_id is None or role.user_id is None:
+        raise _not_found()
+    try:
+        sign_in_url = await start_settings_sign_in(
+            organization_id=role.organization_id, user_id=role.user_id
+        )
     except TracecatValidationError as exc:
         raise _bad_request(exc) from exc
     return ChannelLinkSignInRead(sign_in_url=sign_in_url)

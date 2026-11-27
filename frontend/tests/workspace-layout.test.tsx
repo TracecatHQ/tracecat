@@ -65,6 +65,10 @@ jest.mock("@/components/settings/settings-modal", () => ({
   SettingsModal: () => null,
 }))
 
+jest.mock("@/components/settings/settings-modal-context", () => ({
+  useSettingsDeepLink: () => undefined,
+}))
+
 jest.mock("@/components/sidebar/app-sidebar", () => ({
   AppSidebar: () => <nav aria-label="Workspace" />,
 }))
