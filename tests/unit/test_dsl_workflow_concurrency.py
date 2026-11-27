@@ -4,6 +4,7 @@ import asyncio
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, cast
@@ -14,9 +15,10 @@ from temporalio.exceptions import ActivityError, ApplicationError, CancelledErro
 
 import tracecat.dsl.workflow as dsl_workflow_module
 from tracecat import config
-from tracecat.admission.types import ConcurrencyResource
+from tracecat.admission.types import ConcurrencyResource, NotAdmitted
 from tracecat.admission.waiting import RunAdmission
 from tracecat.auth.types import Role
+from tracecat.dsl._converter import get_data_converter
 from tracecat.dsl.action import DSLActivities, _evaluate_loop_iterations
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.enums import FailStrategy, PlatformAction, WaitStrategy
@@ -28,6 +30,7 @@ from tracecat.dsl.schemas import (
     ActionStatement,
     DSLConfig,
     ExecutionContext,
+    RunActionInput,
     RunContext,
     TaskResult,
 )
@@ -645,6 +648,105 @@ async def test_run_pre_patch_history_keeps_flag_snapshot(flag_enabled: bool) -> 
     else:
         execute_activity_mock.assert_not_awaited()
         assert workflow._max_actions_per_run is None
+    # Pre-patch histories never throttle outstanding actions.
+    assert workflow._run_throttle is None
+
+
+async def _resolve_limits_from(
+    workflow: DSLWorkflow, snapshot: RunLimitsSnapshot
+) -> None:
+    with (
+        patch("tracecat.dsl.workflow.workflow.patched", return_value=True),
+        patch(
+            "tracecat.dsl.workflow.workflow.execute_local_activity",
+            new=AsyncMock(return_value=snapshot),
+        ),
+    ):
+        await workflow._resolve_run_limits()
+
+
+@pytest.mark.anyio
+async def test_snapshot_recorded_before_the_field_gives_no_run_throttle() -> None:
+    """A history recorded before the field decodes it as None: no throttle on replay."""
+    converter = get_data_converter(compression_enabled=False)
+    payloads = await converter.encode([{"max_action_executions_per_workflow": 7}])
+    (snapshot,) = await converter.decode(payloads, [RunLimitsSnapshot])
+    assert isinstance(snapshot, RunLimitsSnapshot)
+    assert snapshot.max_concurrent_actions is None
+
+    workflow = _build_workflow()
+    await _resolve_limits_from(workflow, snapshot)
+
+    assert workflow._max_actions_per_run == 7
+    assert workflow._run_throttle is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("limit", [None, 0, -1])
+async def test_missing_or_non_positive_limit_means_no_run_throttle(
+    limit: int | None,
+) -> None:
+    """As in the gate, a limit of 0 or less is no limit."""
+    workflow = _build_workflow()
+    await _resolve_limits_from(
+        workflow, RunLimitsSnapshot(max_concurrent_actions=limit)
+    )
+    assert workflow._run_throttle is None
+
+
+@dataclass
+class _FakeExecutor:
+    """Admits up to ``limit`` attempts at once, like the gate for one run."""
+
+    limit: int
+    in_use: int = 0
+    max_in_use: int = 0
+    attempts: int = 0
+    busy: int = 0
+
+    async def execute_activity(self, *_args: Any, **_kwargs: Any) -> Any:
+        self.attempts += 1
+        if self.in_use >= self.limit:
+            self.busy += 1
+            return NotAdmitted(
+                resource=ConcurrencyResource.ACTIONS,
+                in_use=self.in_use,
+                limit=self.limit,
+                attempt=1,
+            ).model_dump(mode="json")
+        self.in_use += 1
+        self.max_in_use = max(self.max_in_use, self.in_use)
+        try:
+            # Stay running for a few loop turns so dispatches overlap.
+            for _ in range(3):
+                await asyncio.sleep(0)
+            return {"ok": True}
+        finally:
+            # The executor frees the lease before its result reaches the run.
+            self.in_use -= 1
+
+
+@pytest.mark.anyio
+async def test_run_throttle_keeps_a_fan_out_at_the_org_limit_without_bounces() -> None:
+    """200 items at limit 5: at most 5 outstanding, one attempt each, no bounce."""
+    workflow = _build_workflow()
+    await _resolve_limits_from(workflow, RunLimitsSnapshot(max_concurrent_actions=5))
+    executor = _FakeExecutor(limit=5)
+    task = ActionStatement(ref="item", action="core.transform.reshape")
+    arg = cast(RunActionInput, SimpleNamespace())
+
+    with patch(
+        "tracecat.dsl.workflow.workflow.execute_activity",
+        new=executor.execute_activity,
+    ):
+        results = await asyncio.gather(
+            *(workflow._execute_action_activity_once(task, arg) for _ in range(200))
+        )
+
+    assert results == [{"ok": True}] * 200
+    assert executor.busy == 0
+    assert executor.attempts == 200
+    assert executor.max_in_use == 5
 
 
 def test_resolve_child_loop_batch_plan_uses_dispatch_window(

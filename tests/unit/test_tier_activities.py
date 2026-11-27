@@ -120,7 +120,9 @@ async def test_resolve_run_limits_activity_skips_lookup_when_flag_off(
 
 @pytest.mark.anyio
 @pytest.mark.usefixtures("limits_flag_on")
-async def test_resolve_run_limits_activity_returns_the_action_budget() -> None:
+async def test_resolve_run_limits_activity_returns_the_budget_and_action_limit() -> (
+    None
+):
     limits = EffectiveLimits(
         api_rate_limit=None,
         api_burst_capacity=None,
@@ -133,7 +135,9 @@ async def test_resolve_run_limits_activity_returns_the_action_budget() -> None:
     ):
         snapshot = await resolve_run_limits_activity(ORG_ID)
 
-    assert snapshot == RunLimitsSnapshot(max_action_executions_per_workflow=12)
+    assert snapshot == RunLimitsSnapshot(
+        max_action_executions_per_workflow=12, max_concurrent_actions=3
+    )
 
 
 @pytest.mark.anyio
