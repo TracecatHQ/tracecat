@@ -211,8 +211,6 @@ async def test_changing_the_topic_resets_the_subscription(
         ("my-bucket", "my-bucket"),
         ("  logs.example-1  ", "logs.example-1"),
         ("arn:aws:s3:::my-bucket", "my-bucket"),
-        ("arn:aws-us-gov:s3:::my-bucket", "my-bucket"),
-        ("arn:aws-cn:s3:::my-bucket", "my-bucket"),
         ("", None),
         ("   ", None),
         (None, None),
@@ -240,6 +238,23 @@ def test_bucket_pin_takes_a_name_or_arn(given: str | None, saved: str | None) ->
 def test_bucket_pin_refuses_what_is_not_a_bucket(given: str) -> None:
     with pytest.raises(ValueError):
         _sns(bucket=given)
+
+
+def test_bucket_arn_must_be_in_the_topic_partition() -> None:
+    """Names are unique per partition, so a name saved from another
+    partition's ARN would match a different bucket."""
+    gov_topic = "arn:aws-us-gov:sns:us-gov-west-1:123456789012:bucket-events"
+    cn_topic = "arn:aws-cn:sns:cn-north-1:123456789012:bucket-events"
+
+    assert _sns(gov_topic, "arn:aws-us-gov:s3:::my-bucket").bucket == "my-bucket"
+    assert _sns(cn_topic, "arn:aws-cn:s3:::my-bucket").bucket == "my-bucket"
+    for topic, bucket in [
+        (TOPIC, "arn:aws-cn:s3:::my-bucket"),
+        (TOPIC, "arn:aws-us-gov:s3:::my-bucket"),
+        (cn_topic, "arn:aws:s3:::my-bucket"),
+    ]:
+        with pytest.raises(ValueError, match="another AWS partition"):
+            _sns(topic, bucket)
 
 
 async def test_bucket_pin_is_set_shown_and_cleared(service: TriggersService) -> None:

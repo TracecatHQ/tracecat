@@ -144,13 +144,17 @@ async def _queue_events(source: IngestSource, events: list[ParsedObjectEvent]) -
 
     Raises:
         IngestError: ``TOPIC_MISMATCH`` or ``SOURCE_OFFLINE`` if the source was
-            repointed or taken offline after the message was verified.
+            repointed or taken offline after the message was verified, or
+            ``UNAVAILABLE`` if its config changed otherwise (for example a
+            new bucket pin), so the provider retries and the message is
+            checked against the new config.
     """
-    # Recheck the pin in the insert's transaction. FOR SHARE waits for, and
-    # blocks, a concurrent source update, so no event from the old topic is
-    # queued after a repoint commits.
+    # Recheck the source in the insert's transaction. FOR SHARE waits for,
+    # and blocks, a concurrent source update, so no event checked against an
+    # older config (the old topic, or no bucket pin) is queued after the
+    # update commits.
     still_pinned = (
-        select(EventSource.status)
+        select(EventSource.status, EventSource.config == dict(source.config))
         .where(
             EventSource.id == source.id,
             EventSource.workspace_id == source.workspace_id,
@@ -176,13 +180,19 @@ async def _queue_events(source: IngestSource, events: list[ParsedObjectEvent]) -
         .returning(EventOutbox.id)
     )
     async with get_async_session_bypass_rls_context_manager() as session:
-        status = (await session.execute(still_pinned)).scalar_one_or_none()
-        if status is None:
+        row = (await session.execute(still_pinned)).tuples().one_or_none()
+        if row is None:
             raise IngestError(
                 IngestErrorCode.TOPIC_MISMATCH, "Source no longer accepts this topic"
             )
+        status, same_config = row
         if status != TriggerStatus.ONLINE.value:
             raise IngestError(IngestErrorCode.SOURCE_OFFLINE, "Event source is offline")
+        if not same_config:
+            raise IngestError(
+                IngestErrorCode.UNAVAILABLE,
+                "Event source changed while the message was checked",
+            )
         inserted = (await session.execute(stmt)).scalars().all()
         await session.commit()
     return len(inserted)

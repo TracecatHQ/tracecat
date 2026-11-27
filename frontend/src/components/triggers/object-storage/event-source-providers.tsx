@@ -90,7 +90,8 @@ function SnsFields({ draft, onDraftChange, disabled }: ProviderFieldsProps) {
       />
       <p className="text-xs text-muted-foreground">
         Accept events for this bucket only. Leave empty to accept every bucket
-        that publishes to the topic.
+        that publishes to the topic. Keep the topic policy's bucket and account
+        conditions too: the pin reads the bucket named in each message.
       </p>
     </>
   )
@@ -161,6 +162,12 @@ function SnsBucketPin({ workspaceId, source }: ProviderSetupProps) {
           ? `Events for any bucket other than ${saved} are refused.`
           : "Every bucket that publishes to the topic is accepted."}
       </p>
+      {saved ? (
+        <p className="text-xs text-muted-foreground">
+          The pin reads the bucket named in each message. Keep the topic
+          policy's bucket and account conditions too.
+        </p>
+      ) : null}
     </form>
   )
 }

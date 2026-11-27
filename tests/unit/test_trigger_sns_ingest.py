@@ -1165,8 +1165,14 @@ async def test_offline_source_refuses_notifications(
     [
         ({"config": {"topic_arn": OTHER_TOPIC}}, 403, "topic_mismatch"),
         ({"status": TriggerStatus.OFFLINE.value}, 409, "source_offline"),
+        # Pinned to another bucket in flight: retried, then checked again.
+        (
+            {"config": {"topic_arn": TOPIC, "bucket": "other-bucket"}},
+            503,
+            "unavailable",
+        ),
     ],
-    ids=["repointed", "taken-offline"],
+    ids=["repointed", "taken-offline", "pinned-elsewhere"],
 )
 async def test_source_changed_during_verification_queues_nothing(
     client: httpx.AsyncClient,

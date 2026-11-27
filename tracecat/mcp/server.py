@@ -7005,6 +7005,9 @@ async def create_event_source(
     off. The source accepts messages from that topic only. A workspace has at
     most one source per topic. Add `"bucket": "<name or bucket ARN>"` to accept
     events for that S3 bucket only; events for any other bucket are refused.
+    The pin checks the bucket named in each message, so anyone allowed to
+    publish to the topic can name it: keep the topic policy's `aws:SourceArn`
+    and `aws:SourceAccount` conditions as well.
 
     Args:
         workspace_id: The workspace ID.

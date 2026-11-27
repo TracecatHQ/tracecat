@@ -64,7 +64,7 @@ Only `ObjectCreated:*` records become events. Tracecat acknowledges the S3 test 
 | -- | -- | -- |
 | `200` | Every event is stored | Marks the message delivered |
 | `400`, `403`, `404`, `409`, `413` | The message is malformed, unsigned, from another topic or another bucket than the pinned one, older than 24 hours, or too large; the source is unknown or offline; or your organization does not have object storage triggers | Stops retrying and moves the message to your dead-letter queue |
-| `500`, `503` | Tracecat could not store the events, the source is over its rate cap, or a dependency is briefly unavailable | Retries under your retry policy |
+| `500`, `503` | Tracecat could not store the events, the source is over its rate cap or changed while the message was checked, or a dependency is briefly unavailable | Retries under your retry policy |
 
 An offline source refuses notifications with `409`. SNS treats `409` as final and does not retry, so an event sent while the source is offline is kept only if the subscription has a dead-letter queue; without one, it is lost. Subscription confirmations work while the source is offline, so you can confirm the subscription before you turn the source online.
 

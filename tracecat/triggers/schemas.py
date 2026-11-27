@@ -24,7 +24,13 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Annotated, Any, Literal, Self
 
-from pydantic import Field, StringConstraints, field_validator, model_validator
+from pydantic import (
+    Field,
+    StringConstraints,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from tracecat.cases.enums import CaseEventType
 from tracecat.core.schemas import Schema
@@ -84,17 +90,28 @@ Instruction = Annotated[
 # General purpose bucket names. Older buckets in us-east-1 may break these
 # rules; they cannot be pinned.
 _S3_BUCKET_NAME = re.compile(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]")
-_S3_BUCKET_ARN = re.compile(r"arn:aws(?:-cn|-us-gov)?:s3:::(?P<name>[^/:]+)")
+_S3_BUCKET_ARN = re.compile(
+    r"arn:(?P<partition>aws(?:-cn|-us-gov)?):s3:::(?P<name>[^/:]+)"
+)
 
 
-def _normalize_s3_bucket(value: str) -> str | None:
+def _normalize_s3_bucket(value: str, *, topic_arn: str | None) -> str | None:
     """Reduce a bucket pin to the bucket name; blank means no pin.
 
-    Accepts a bucket name or a bucket ARN (``arn:aws:s3:::name``, in any
-    partition).
+    Accepts a bucket name or a bucket ARN (``arn:aws:s3:::name``). Bucket
+    names are unique per partition, and S3 publishes only to a topic in its
+    own region, so the topic's partition is the bucket's: an ARN in another
+    partition is refused rather than saved as a name that means another
+    bucket.
+
+    Args:
+        value: The bucket name or ARN as given.
+        topic_arn: The source's validated topic ARN, or None if it is invalid
+            (its own error is reported then).
 
     Raises:
-        ValueError: If the value is neither.
+        ValueError: If the value is neither, or the ARN's partition is not
+            the topic's.
     """
     name = value.strip()
     if not name:
@@ -102,6 +119,10 @@ def _normalize_s3_bucket(value: str) -> str | None:
     if name.startswith("arn:"):
         if (arn := _S3_BUCKET_ARN.fullmatch(name)) is None:
             raise ValueError("Not an S3 bucket ARN (arn:aws:s3:::bucket-name)")
+        if topic_arn is not None and arn.group("partition") != topic_arn.split(":")[1]:
+            raise ValueError(
+                "The bucket ARN is in another AWS partition than the topic"
+            )
         name = arn.group("name")
     if not _S3_BUCKET_NAME.fullmatch(name):
         raise ValueError(
@@ -119,15 +140,20 @@ class AwsSnsSourceConfig(Schema):
     bucket: str | None = Field(
         default=None,
         description="Accept events for this S3 bucket only. A bucket name or"
-        " ARN, saved as the name. Null or omitted accepts every bucket that"
-        " publishes to the topic.",
+        " ARN (in the topic's partition), saved as the name. Null or omitted"
+        " accepts every bucket that publishes to the topic. It checks the"
+        " bucket named in each message, so it adds to the topic policy's"
+        " `aws:SourceArn` and `aws:SourceAccount` conditions and does not"
+        " replace them.",
         examples=["my-bucket"],
     )
 
     @field_validator("bucket", mode="before")
     @classmethod
-    def _normalize_bucket(cls, value: object) -> object:
-        return _normalize_s3_bucket(value) if isinstance(value, str) else value
+    def _normalize_bucket(cls, value: object, info: ValidationInfo) -> object:
+        if not isinstance(value, str):
+            return value
+        return _normalize_s3_bucket(value, topic_arn=info.data.get("topic_arn"))
 
 
 EventSourceConfig = Annotated[AwsSnsSourceConfig, Field(discriminator="kind")]

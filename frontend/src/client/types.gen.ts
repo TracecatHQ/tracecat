@@ -2226,7 +2226,7 @@ export type AwsSnsSourceConfig = {
    */
   topic_arn: string
   /**
-   * Accept events for this S3 bucket only. A bucket name or ARN, saved as the name. Null or omitted accepts every bucket that publishes to the topic.
+   * Accept events for this S3 bucket only. A bucket name or ARN (in the topic's partition), saved as the name. Null or omitted accepts every bucket that publishes to the topic. It checks the bucket named in each message, so it adds to the topic policy's `aws:SourceArn` and `aws:SourceAccount` conditions and does not replace them.
    */
   bucket?: string | null
 }
