@@ -164,8 +164,9 @@ def str_to_b64url(x: str) -> str:
 
 def b64url_to_str(x: str) -> str:
     """Decode URL-safe base64 string to string. Padding is optional."""
-    padded = x + "=" * (-len(x) % 4)
-    return base64.urlsafe_b64decode(padded.encode("utf-8")).decode()
+    # The decoder ignores surplus padding and non-alphabet characters such as
+    # newlines, so appending the maximum padding works for any valid length.
+    return base64.urlsafe_b64decode(f"{x}==".encode()).decode()
 
 
 # Hash functions

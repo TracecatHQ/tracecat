@@ -88,3 +88,6 @@
 - id: url_with_non_ascii_host_and_path
   text: "https://\u043f\u0440\u0438\u043c\u0435\u0440.\u0440\u0444/\u043f\u0443\u0442\u044c and https://example.com/caf\u00e9/\u00fc"
   expected: ["https://\u043f\u0440\u0438\u043c\u0435\u0440.\u0440\u0444/\u043f\u0443\u0442\u044c", "https://example.com/caf\u00e9/\u00fc"]
+- id: url_with_unicode_dash_in_path
+  text: "See https://en.wikipedia.org/wiki/1918\u20131920_flu_pandemic for details"
+  expected: ["https://en.wikipedia.org/wiki/1918\u20131920_flu_pandemic"]
