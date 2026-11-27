@@ -2,6 +2,8 @@
 
 import secrets
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from typing import cast as type_cast
@@ -20,8 +22,10 @@ from tests.support.membership import (
 )
 from tracecat import config
 from tracecat.auth.api_keys import ORG_API_KEY_PREFIX, generate_managed_api_key
+from tracecat.auth.enums import CredentialChangeErrorCode
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
+from tracecat.auth.users import CredentialChangeError
 from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.authz.membership import ensure_member
 from tracecat.authz.scopes import ORG_ADMIN_SCOPES, ORG_MEMBER_SCOPES, ORG_OWNER_SCOPES
@@ -2936,3 +2940,120 @@ class TestOrganizationServiceTraceMemberAccess:
 
         with pytest.raises(NoResultFound):
             await OrgService(session, role=role).trace_member_access(uuid.uuid4())
+
+
+class TestChangeMemberEmail:
+    @pytest.fixture(autouse=True)
+    def _basic_auth(
+        self, monkeypatch: pytest.MonkeyPatch, session: AsyncSession
+    ) -> None:
+        monkeypatch.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", set())
+        monkeypatch.setattr(config, "TRACECAT__AUTH_SUPERADMIN_EMAIL", None)
+
+        # Membership lookups use the RLS-bypassing auth session; point it at
+        # the test session so they see the fixtures.
+        @asynccontextmanager
+        async def _session_cm() -> AsyncIterator[AsyncSession]:
+            yield session
+
+        monkeypatch.setattr(
+            "tracecat.auth.users.get_async_session_auth_context_manager",
+            _session_cm,
+        )
+
+    @pytest.mark.anyio
+    async def test_changes_email_and_revokes_sessions(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        user_in_org1: User,
+    ) -> None:
+        session.add(AccessToken(token=secrets.token_hex(8), user_id=user_in_org1.id))
+        await session.commit()
+        service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
+
+        updated = await service.change_member_email(
+            user_in_org1.id, "renamed@example.com"
+        )
+
+        assert updated.email == "renamed@example.com"
+        tokens = await session.execute(
+            select(AccessToken).where(
+                type_cast(Any, AccessToken.user_id) == user_in_org1.id
+            )
+        )
+        assert tokens.scalars().all() == []
+
+    @pytest.mark.anyio
+    async def test_rejects_member_of_another_org(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        org2: Organization,
+        admin_in_org1: User,
+        user_in_org1: User,
+    ) -> None:
+        await grant_org_membership(
+            session, user_id=user_in_org1.id, organization_id=org2.id
+        )
+        await session.commit()
+        service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
+
+        with pytest.raises(CredentialChangeError) as exc_info:
+            await service.change_member_email(user_in_org1.id, "renamed@example.com")
+
+        assert (
+            exc_info.value.code
+            is CredentialChangeErrorCode.MEMBER_OF_OTHER_ORGANIZATION
+        )
+
+    @pytest.mark.anyio
+    async def test_platform_superuser_can_change_multi_org_member(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        org2: Organization,
+        admin_in_org1: User,
+        user_in_org1: User,
+    ) -> None:
+        await grant_org_membership(
+            session, user_id=user_in_org1.id, organization_id=org2.id
+        )
+        await session.commit()
+        role = create_superuser_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        updated = await service.change_member_email(
+            user_in_org1.id, "renamed-multi@example.com"
+        )
+
+        assert updated.email == "renamed-multi@example.com"
+
+    @pytest.mark.anyio
+    async def test_rejects_superuser_target(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        user_in_org1: User,
+    ) -> None:
+        user_in_org1.is_superuser = True
+        await session.commit()
+        service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
+
+        with pytest.raises(TracecatAuthorizationError):
+            await service.change_member_email(user_in_org1.id, "renamed@example.com")
+
+    @pytest.mark.anyio
+    async def test_rejects_user_outside_org(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        user_in_org2: User,
+    ) -> None:
+        service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
+
+        with pytest.raises(NoResultFound):
+            await service.change_member_email(user_in_org2.id, "renamed@example.com")

@@ -109,22 +109,3 @@ async def test_change_password_route_returns_error_code(
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert response.json()["detail"]["code"] == "invalid_current_password"
     assert user_manager.change_password.await_args.kwargs["current_token"] == "current"
-
-
-@pytest.mark.anyio
-async def test_change_email_route_forbidden_without_password_login(
-    client: TestClient, test_admin_role: Role
-) -> None:
-    user_manager = AsyncMock()
-    _override_user_and_manager(user_manager)
-    user_manager.change_email.side_effect = CredentialChangeError(
-        CredentialChangeErrorCode.PASSWORD_LOGIN_NOT_ALLOWED
-    )
-
-    response = client.post(
-        "/users/me/email",
-        json={"current_password": "password", "new_email": "new@example.com"},
-    )
-
-    assert response.status_code == status.HTTP_403_FORBIDDEN
-    assert response.json()["detail"]["code"] == "password_login_not_allowed"

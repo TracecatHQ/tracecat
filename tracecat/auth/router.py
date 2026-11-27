@@ -8,7 +8,6 @@ from sqlalchemy import select
 from tracecat.auth.credentials import AuthenticatedUserOnly, RoleACL
 from tracecat.auth.enums import CredentialChangeErrorCode
 from tracecat.auth.schemas import (
-    EmailChange,
     LoginMethodsRead,
     PasswordChange,
     UserRead,
@@ -105,26 +104,6 @@ async def change_current_user_password(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=e.reason
         ) from e
-
-
-@router.post("/me/email", tags=["users"])
-async def change_current_user_email(
-    *,
-    _role: AuthenticatedUserOnly,
-    user: CurrentUser,
-    user_manager: UserManagerDep,
-    params: EmailChange,
-) -> UserRead:
-    """Change the email the current user signs in with."""
-    try:
-        updated = await user_manager.change_email(
-            user,
-            current_password=params.current_password.get_secret_value(),
-            new_email=str(params.new_email),
-        )
-    except CredentialChangeError as e:
-        raise _credential_change_http_error(e) from e
-    return UserRead.model_validate(updated)
 
 
 @router.get("/search", tags=["users"])

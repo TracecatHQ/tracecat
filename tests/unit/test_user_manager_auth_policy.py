@@ -824,7 +824,7 @@ async def test_change_password_rejected_when_saml_enforced(
 
 
 @pytest.mark.anyio
-async def test_change_email_lets_user_log_in_with_new_email(
+async def test_set_email_lets_user_log_in_with_new_email(
     session: AsyncSession,
     user_manager: UserManager,
     monkeypatch: pytest.MonkeyPatch,
@@ -832,37 +832,16 @@ async def test_change_email_lets_user_log_in_with_new_email(
 ) -> None:
     user = await _create_basic_user(session, monkeypatch, email="old@acme-em1.com")
 
-    updated = await user_manager.change_email(
-        user, current_password="password-123456", new_email="new@acme-em1.com"
-    )
+    updated = await user_manager.set_email(user, new_email="new@acme-em1.com")
 
     assert updated.email == "new@acme-em1.com"
     assert updated.is_verified is False
     assert not await _can_log_in(user_manager, "old@acme-em1.com", "password-123456")
     assert await _can_log_in(user_manager, "new@acme-em1.com", "password-123456")
-    credential_audit.assert_awaited_once_with(user=updated, changed_field="email")
 
 
 @pytest.mark.anyio
-async def test_change_email_rejects_wrong_current_password(
-    session: AsyncSession,
-    user_manager: UserManager,
-    monkeypatch: pytest.MonkeyPatch,
-    credential_audit: AsyncMock,
-) -> None:
-    user = await _create_basic_user(session, monkeypatch, email="old@acme-em2.com")
-
-    with pytest.raises(users_mod.CredentialChangeError) as exc_info:
-        await user_manager.change_email(
-            user, current_password="wrong-password", new_email="new@acme-em2.com"
-        )
-
-    assert exc_info.value.code is CredentialChangeErrorCode.INVALID_CURRENT_PASSWORD
-    credential_audit.assert_not_awaited()
-
-
-@pytest.mark.anyio
-async def test_change_email_rejects_domain_outside_org_policy(
+async def test_set_email_rejects_domain_outside_org_policy(
     session: AsyncSession,
     user_manager: UserManager,
     monkeypatch: pytest.MonkeyPatch,
@@ -871,15 +850,13 @@ async def test_change_email_rejects_domain_outside_org_policy(
     user = await _create_basic_user(session, monkeypatch, email="old@acme-em3.com")
 
     with pytest.raises(users_mod.CredentialChangeError) as exc_info:
-        await user_manager.change_email(
-            user, current_password="password-123456", new_email="new@elsewhere.com"
-        )
+        await user_manager.set_email(user, new_email="new@elsewhere.com")
 
     assert exc_info.value.code is CredentialChangeErrorCode.INVALID_EMAIL
 
 
 @pytest.mark.anyio
-async def test_change_email_allowed_when_org_has_no_domains(
+async def test_set_email_allowed_when_org_has_no_domains(
     session: AsyncSession,
     user_manager: UserManager,
     monkeypatch: pytest.MonkeyPatch,
@@ -894,15 +871,13 @@ async def test_change_email_allowed_when_org_has_no_domains(
     await session.commit()
     monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
 
-    updated = await user_manager.change_email(
-        user, current_password="password-123456", new_email="new@elsewhere-em6.com"
-    )
+    updated = await user_manager.set_email(user, new_email="new@elsewhere-em6.com")
 
     assert updated.email == "new@elsewhere-em6.com"
 
 
 @pytest.mark.anyio
-async def test_change_email_rejects_env_disallowed_domain(
+async def test_set_email_rejects_env_disallowed_domain(
     session: AsyncSession,
     user_manager: UserManager,
     monkeypatch: pytest.MonkeyPatch,
@@ -912,15 +887,13 @@ async def test_change_email_rejects_env_disallowed_domain(
     monkeypatch.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", {"other.com"})
 
     with pytest.raises(users_mod.CredentialChangeError) as exc_info:
-        await user_manager.change_email(
-            user, current_password="password-123456", new_email="new@acme-em4.com"
-        )
+        await user_manager.set_email(user, new_email="new@acme-em4.com")
 
     assert exc_info.value.code is CredentialChangeErrorCode.INVALID_EMAIL
 
 
 @pytest.mark.anyio
-async def test_change_email_rejects_email_in_use(
+async def test_set_email_rejects_email_in_use(
     session: AsyncSession,
     user_manager: UserManager,
     monkeypatch: pytest.MonkeyPatch,
@@ -940,15 +913,13 @@ async def test_change_email_rejects_email_in_use(
     await session.commit()
 
     with pytest.raises(users_mod.CredentialChangeError) as exc_info:
-        await user_manager.change_email(
-            user, current_password="password-123456", new_email="Taken@acme-em5.com"
-        )
+        await user_manager.set_email(user, new_email="Taken@acme-em5.com")
 
     assert exc_info.value.code is CredentialChangeErrorCode.INVALID_EMAIL
 
 
 @pytest.mark.anyio
-async def test_change_email_keeps_superadmin_email_reserved(
+async def test_set_email_keeps_superadmin_email_reserved(
     session: AsyncSession,
     user_manager: UserManager,
     monkeypatch: pytest.MonkeyPatch,
@@ -958,8 +929,76 @@ async def test_change_email_keeps_superadmin_email_reserved(
     monkeypatch.setattr(config, "TRACECAT__AUTH_SUPERADMIN_EMAIL", user.email)
 
     with pytest.raises(users_mod.CredentialChangeError) as exc_info:
-        await user_manager.change_email(
-            user, current_password="password-123456", new_email="new@acme-em7.com"
-        )
+        await user_manager.set_email(user, new_email="new@acme-em7.com")
 
     assert exc_info.value.code is CredentialChangeErrorCode.INVALID_EMAIL
+
+
+@pytest.mark.anyio
+async def test_set_email_revokes_all_sessions(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = await _create_basic_user(session, monkeypatch, email="old@acme-em8.com")
+    session.add_all(
+        [
+            AccessToken(token="first-em8", user_id=user.id),
+            AccessToken(token="second-em8", user_id=user.id),
+        ]
+    )
+    await session.commit()
+
+    await user_manager.set_email(user, new_email="new@acme-em8.com")
+
+    remaining = (
+        await session.execute(
+            select(AccessToken).where(cast(Any, AccessToken.user_id) == user.id)
+        )
+    ).scalars()
+    assert list(remaining) == []
+
+
+async def _add_second_org_membership(session: AsyncSession, user: User) -> None:
+    other_org = Organization(
+        id=uuid.uuid4(),
+        name="Other",
+        slug=f"other-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    session.add(other_org)
+    await session.flush()
+    await grant_org_membership(session, user_id=user.id, organization_id=other_org.id)
+    await session.commit()
+
+
+@pytest.mark.anyio
+async def test_set_email_rejects_member_of_another_org(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = await _create_basic_user(session, monkeypatch, email="old@acme-em9.com")
+    [org_id] = await user_manager._list_user_org_ids(user.id)
+    await _add_second_org_membership(session, user)
+
+    with pytest.raises(users_mod.CredentialChangeError) as exc_info:
+        await user_manager.set_email(
+            user, new_email="new@acme-em9.com", organization_id=org_id
+        )
+
+    assert exc_info.value.code is CredentialChangeErrorCode.MEMBER_OF_OTHER_ORGANIZATION
+
+
+@pytest.mark.anyio
+async def test_set_email_without_org_scope_allows_multi_org_member(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = await _create_basic_user(session, monkeypatch, email="old@acme-em10.com")
+    await _add_second_org_membership(session, user)
+
+    updated = await user_manager.set_email(user, new_email="new@acme-em10.com")
+
+    assert updated.email == "new@acme-em10.com"

@@ -735,6 +735,8 @@ import type {
   McpPersonalAccessTokensListMcpPersonalAccessTokensResponse,
   McpPersonalAccessTokensRevokeMcpPersonalAccessTokenData,
   McpPersonalAccessTokensRevokeMcpPersonalAccessTokenResponse,
+  OrganizationChangeOrgMemberEmailData,
+  OrganizationChangeOrgMemberEmailResponse,
   OrganizationDeleteOrganizationData,
   OrganizationDeleteOrganizationResponse,
   OrganizationDeleteOrgMemberData,
@@ -1207,8 +1209,6 @@ import type {
   UpdateCustomProviderResponse,
   UpdateWorkspaceModelAccessData,
   UpdateWorkspaceModelAccessResponse,
-  UsersChangeCurrentUserEmailData,
-  UsersChangeCurrentUserEmailResponse,
   UsersChangeCurrentUserPasswordData,
   UsersChangeCurrentUserPasswordResponse,
   UsersGetCurrentUserLoginMethodsResponse,
@@ -5557,28 +5557,6 @@ export const usersChangeCurrentUserPassword = (
 }
 
 /**
- * Change Current User Email
- * Change the email the current user signs in with.
- * @param data The data for the request.
- * @param data.requestBody
- * @returns UserRead Successful Response
- * @throws ApiError
- */
-export const usersChangeCurrentUserEmail = (
-  data: UsersChangeCurrentUserEmailData
-): CancelablePromise<UsersChangeCurrentUserEmailResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/users/me/email",
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
  * Search User
  * Find a member of the caller's organization by email.
  *
@@ -5803,6 +5781,34 @@ export const organizationUpdateOrgMember = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Change Org Member Email
+ * Change a member's sign-in email and sign them out of every session.
+ * @param data The data for the request.
+ * @param data.userId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const organizationChangeOrgMemberEmail = (
+  data: OrganizationChangeOrgMemberEmailData
+): CancelablePromise<OrganizationChangeOrgMemberEmailResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/organization/members/{user_id}/email",
+    path: {
+      user_id: data.userId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      400: "The email can't be used.",
+      403: "The member is a superuser or belongs to another organization.",
       422: "Validation Error",
     },
   })

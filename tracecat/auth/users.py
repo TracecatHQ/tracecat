@@ -108,11 +108,15 @@ _CREDENTIAL_CHANGE_ERROR_MESSAGES: dict[CredentialChangeErrorCode, str] = {
     # Deliberately generic: also covers an email already in use, so the
     # endpoint cannot be used to enumerate accounts.
     CredentialChangeErrorCode.INVALID_EMAIL: "This email address can't be used.",
+    CredentialChangeErrorCode.MEMBER_OF_OTHER_ORGANIZATION: (
+        "This user also belongs to another organization. "
+        "Ask a platform admin to change their email."
+    ),
 }
 
 
 class CredentialChangeError(FastAPIUsersException):
-    """A self-service email or password change was refused."""
+    """An email or password change was refused."""
 
     def __init__(self, code: CredentialChangeErrorCode) -> None:
         self.code = code
@@ -243,23 +247,45 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         await self._emit_credential_change_audit(user=user, changed_field="password")
         return user
 
-    async def change_email(
-        self, user: User, *, current_password: str, new_email: str
+    async def set_email(
+        self,
+        user: User,
+        *,
+        new_email: str,
+        organization_id: OrganizationID | None = None,
     ) -> User:
-        """Change the user's sign-in email after checking the current password.
+        """Change a user's sign-in email on an admin's behalf and sign them out.
 
-        The new email must pass registration validation, sit on a verified
-        domain of every member organization that has domains, and not sit on
-        a domain claimed by an organization the user is not a member of.
+        There is no mailbox verification, so this is not self-service. The new
+        email must pass registration validation, sit on a verified domain of
+        every member organization that has domains, and not sit on a domain
+        claimed by an organization the user is not a member of.
+
+        Args:
+            user: The user whose email changes.
+            new_email: The new sign-in email.
+            organization_id: The acting admin's organization. When set, the
+                user must belong to no other organization, so one tenant's
+                admin can't change another tenant's login.
 
         Raises:
-            CredentialChangeError: If local password login is not allowed, the
-                current password is wrong, or the new email can't be used.
+            CredentialChangeError: If the user belongs to another organization
+                or the new email can't be used.
         """
-        await self._verify_current_password(user, current_password)
+        if organization_id is not None:
+            org_ids = await self._list_user_org_ids(user.id)
+            if org_ids - {organization_id}:
+                raise CredentialChangeError(
+                    CredentialChangeErrorCode.MEMBER_OF_OTHER_ORGANIZATION
+                )
         if new_email == user.email:
             return user
         await self._validate_new_email(user, new_email)
+        # user_db.update commits, so the session revocation lands atomically
+        # with the new email.
+        await self._user_db.session.execute(
+            delete(AccessToken).where(cast(Any, AccessToken.user_id) == user.id)
+        )
         email_taken = False
         try:
             user = await self.user_db.update(
@@ -272,8 +298,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         # Raised outside the handler so the database error isn't chained on.
         if email_taken:
             raise CredentialChangeError(CredentialChangeErrorCode.INVALID_EMAIL)
-        self.logger.info("User changed their email", user_id=str(user.id))
-        await self._emit_credential_change_audit(user=user, changed_field="email")
+        self.logger.info("User email changed by an admin", user_id=str(user.id))
         return user
 
     async def _verify_current_password(self, user: User, password: str) -> None:

@@ -6,7 +6,9 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import AuthenticatedUserOnly
 from tracecat.auth.dependencies import OrgActorRole, OrgUserRole
+from tracecat.auth.enums import CredentialChangeErrorCode
 from tracecat.auth.schemas import SessionRead, UserUpdate
+from tracecat.auth.users import CredentialChangeError
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
 from tracecat.db.models import (
@@ -34,8 +36,10 @@ from tracecat.organization.schemas import (
     OrgDomainRead,
     OrgMemberAccess,
     OrgMemberDetail,
+    OrgMemberEmailUpdate,
     OrgMemberRead,
     OrgMemberStatus,
+    OrgMemberUpdate,
     OrgRead,
 )
 from tracecat.organization.service import OrgService
@@ -425,11 +429,13 @@ async def update_org_member(
     role: OrgUserRole,
     session: AsyncDBSession,
     user_id: UserID,
-    params: UserUpdate,
+    params: OrgMemberUpdate,
 ) -> OrgMemberDetail:
     service = OrgService(session, role=role)
     try:
-        user = await service.update_member(user_id, params)
+        user = await service.update_member(
+            user_id, UserUpdate(**params.model_dump(exclude_unset=True))
+        )
         # Get role name from RBAC assignment
         rbac_stmt = (
             select(DBRole.name)
@@ -459,6 +465,49 @@ async def update_org_member(
     except TracecatAuthorizationError as e:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+        ) from e
+
+
+@router.patch(
+    "/members/{user_id}/email",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {"description": "The email can't be used."},
+        status.HTTP_403_FORBIDDEN: {
+            "description": (
+                "The member is a superuser or belongs to another organization."
+            )
+        },
+    },
+)
+@require_scope("org:member:update")
+async def change_org_member_email(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    user_id: UserID,
+    params: OrgMemberEmailUpdate,
+) -> None:
+    """Change a member's sign-in email and sign them out of every session."""
+    service = OrgService(session, role=role)
+    try:
+        await service.change_member_email(user_id, str(params.email))
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        ) from e
+    except TracecatAuthorizationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+        ) from e
+    except CredentialChangeError as e:
+        status_code = (
+            status.HTTP_403_FORBIDDEN
+            if e.code is CredentialChangeErrorCode.MEMBER_OF_OTHER_ORGANIZATION
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(
+            status_code=status_code, detail={"code": e.code, "message": str(e)}
         ) from e
 
 

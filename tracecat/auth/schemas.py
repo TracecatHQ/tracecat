@@ -77,8 +77,9 @@ class UserUpdate(schemas.BaseUserUpdate):
 class UserSelfUpdate(BaseModel):
     """Profile fields a user may change on their own account.
 
-    Email and password changes go through the dedicated credential endpoints,
-    which require the current password.
+    Password changes go through the dedicated endpoint, which requires the
+    current password. Email changes are admin-only because the new address
+    isn't verified.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -99,11 +100,6 @@ class LoginMethodsRead(BaseModel):
 class PasswordChange(BaseModel):
     current_password: SecretStr = Field(min_length=1)
     new_password: SecretStr = Field(min_length=1)
-
-
-class EmailChange(BaseModel):
-    current_password: SecretStr = Field(min_length=1)
-    new_email: EmailStr
 
 
 # === Sessions ===

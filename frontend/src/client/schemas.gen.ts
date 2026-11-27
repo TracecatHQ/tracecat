@@ -20482,26 +20482,6 @@ export const $EffectiveEntitlements = {
 Values are resolved from org overrides falling back to tier defaults.`,
 } as const
 
-export const $EmailChange = {
-  properties: {
-    current_password: {
-      type: "string",
-      minLength: 1,
-      format: "password",
-      title: "Current Password",
-      writeOnly: true,
-    },
-    new_email: {
-      type: "string",
-      format: "email",
-      title: "New Email",
-    },
-  },
-  type: "object",
-  required: ["current_password", "new_email"],
-  title: "EmailChange",
-} as const
-
 export const $EmbeddingConfigurationRead = {
   properties: {
     available: {
@@ -30087,6 +30067,20 @@ export const $OrgMemberDetail = {
   description: "Detailed member info for /me and update endpoints.",
 } as const
 
+export const $OrgMemberEmailUpdate = {
+  properties: {
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+  },
+  type: "object",
+  required: ["email"],
+  title: "OrgMemberEmailUpdate",
+  description: "New sign-in email for an organization member.",
+} as const
+
 export const $OrgMemberGroupRead = {
   properties: {
     id: {
@@ -30268,6 +30262,50 @@ export const $OrgMemberStatus = {
   type: "string",
   enum: ["active", "inactive", "invited"],
   title: "OrgMemberStatus",
+} as const
+
+export const $OrgMemberUpdate = {
+  properties: {
+    role: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/UserRole",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "OrgMemberUpdate",
+  description: `Member fields an organization admin may update.
+
+Email has its own endpoint because changing it signs the member out.
+Passwords are never set by an admin.`,
 } as const
 
 export const $OrgMemberWorkspaceRead = {
@@ -46547,8 +46585,9 @@ export const $UserSelfUpdate = {
   title: "UserSelfUpdate",
   description: `Profile fields a user may change on their own account.
 
-Email and password changes go through the dedicated credential endpoints,
-which require the current password.`,
+Password changes go through the dedicated endpoint, which requires the
+current password. Email changes are admin-only because the new address
+isn't verified.`,
 } as const
 
 export const $UserSummary = {

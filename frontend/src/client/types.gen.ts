@@ -6183,11 +6183,6 @@ export type EffectiveEntitlements = {
   object_triggers?: boolean
 }
 
-export type EmailChange = {
-  current_password: string
-  new_email: string
-}
-
 /**
  * Availability from existing provider settings and current indexing state.
  */
@@ -9349,6 +9344,13 @@ export type OrgMemberDetail = {
   last_login_at: string | null
 }
 
+/**
+ * New sign-in email for an organization member.
+ */
+export type OrgMemberEmailUpdate = {
+  email: string
+}
+
 export type OrgMemberGroupRead = {
   id: string
   name: string
@@ -9381,6 +9383,18 @@ export type OrgMemberRoleRead = {
 }
 
 export type OrgMemberStatus = "active" | "inactive" | "invited"
+
+/**
+ * Member fields an organization admin may update.
+ *
+ * Email has its own endpoint because changing it signs the member out.
+ * Passwords are never set by an admin.
+ */
+export type OrgMemberUpdate = {
+  role?: UserRole | null
+  first_name?: string | null
+  last_name?: string | null
+}
 
 export type OrgMemberWorkspaceRead = {
   id: string
@@ -14223,8 +14237,9 @@ export type UserSearchRead = {
 /**
  * Profile fields a user may change on their own account.
  *
- * Email and password changes go through the dedicated credential endpoints,
- * which require the current password.
+ * Password changes go through the dedicated endpoint, which requires the
+ * current password. Email changes are admin-only because the new address
+ * isn't verified.
  */
 export type UserSelfUpdate = {
   first_name?: string | null
@@ -17493,12 +17508,6 @@ export type UsersChangeCurrentUserPasswordData = {
 
 export type UsersChangeCurrentUserPasswordResponse = void
 
-export type UsersChangeCurrentUserEmailData = {
-  requestBody: EmailChange
-}
-
-export type UsersChangeCurrentUserEmailResponse = UserRead
-
 export type UsersSearchUserData = {
   email?: string | null
   workspaceId?: string | null
@@ -17546,11 +17555,18 @@ export type OrganizationDeleteOrgMemberData = {
 export type OrganizationDeleteOrgMemberResponse = void
 
 export type OrganizationUpdateOrgMemberData = {
-  requestBody: UserUpdate
+  requestBody: OrgMemberUpdate
   userId: string
 }
 
 export type OrganizationUpdateOrgMemberResponse = OrgMemberDetail
+
+export type OrganizationChangeOrgMemberEmailData = {
+  requestBody: OrgMemberEmailUpdate
+  userId: string
+}
+
+export type OrganizationChangeOrgMemberEmailResponse = void
 
 export type OrganizationListSessionsResponse = Array<SessionRead>
 
@@ -24311,21 +24327,6 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/users/me/email": {
-    post: {
-      req: UsersChangeCurrentUserEmailData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: UserRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
   "/users/search": {
     get: {
       req: UsersSearchUserData
@@ -24464,6 +24465,29 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: OrgMemberDetail
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/members/{user_id}/email": {
+    patch: {
+      req: OrganizationChangeOrgMemberEmailData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * The email can't be used.
+         */
+        400: unknown
+        /**
+         * The member is a superuser or belongs to another organization.
+         */
+        403: unknown
         /**
          * Validation Error
          */

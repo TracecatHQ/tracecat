@@ -14,11 +14,12 @@ class SpecialUserID(StrEnum):
 
 
 class CredentialChangeErrorCode(StrEnum):
-    """Why a self-service email or password change was refused."""
+    """Why an email or password change was refused."""
 
     PASSWORD_LOGIN_NOT_ALLOWED = "password_login_not_allowed"
     INVALID_CURRENT_PASSWORD = "invalid_current_password"
     INVALID_EMAIL = "invalid_email"
+    MEMBER_OF_OTHER_ORGANIZATION = "member_of_other_organization"
 
 
 class AuthErrorCode(StrEnum):
