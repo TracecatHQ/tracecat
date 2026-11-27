@@ -523,6 +523,8 @@ def _webhook_session() -> SimpleNamespace:
 
 async def _webhook_create(mp: pytest.MonkeyPatch, role: Role):
     session = _webhook_session()
+    # The locked workflow's title, which names the new webhook's trigger.
+    session.scalar = AsyncMock(return_value="Report")
     mp.setattr(webhook_service, "get_webhook", AsyncMock(return_value=None))
     webhook = await webhook_service.create_webhook(
         role=role,
@@ -536,10 +538,13 @@ async def _webhook_create(mp: pytest.MonkeyPatch, role: Role):
 async def _webhook_update(mp: pytest.MonkeyPatch, role: Role):
     webhook_id = uuid.uuid4()
     session = _session()
+    webhook = SimpleNamespace(id=webhook_id, status="offline", trigger_id=None)
+    mp.setattr(webhook_service, "get_webhook", AsyncMock(return_value=webhook))
+    # Already a trigger, so the update writes its trigger row in place.
+    webhook.trigger_id = uuid.uuid4()
+    webhook.workspace_id = role.workspace_id
     mp.setattr(
-        webhook_service,
-        "get_webhook",
-        AsyncMock(return_value=SimpleNamespace(id=webhook_id, status="offline")),
+        webhook_service, "lock_webhook", AsyncMock(return_value=("Report", webhook))
     )
     await webhook_service.update_webhook(
         role=role,
@@ -903,13 +908,21 @@ async def test_failed_webhook_update_audit_preserves_resource_id(
     role, calls = _role(), []
     _capture_events(monkeypatch, calls)
     webhook_id = uuid.uuid4()
-    webhook = SimpleNamespace(id=webhook_id, status="offline")
+    webhook = SimpleNamespace(
+        id=webhook_id,
+        status="offline",
+        trigger_id=uuid.uuid4(),
+        workspace_id=role.workspace_id,
+    )
     session = _session()
     session.commit.side_effect = RuntimeError("synthetic commit failure")
     monkeypatch.setattr(
         webhook_service,
         "get_webhook",
         AsyncMock(return_value=webhook),
+    )
+    monkeypatch.setattr(
+        webhook_service, "lock_webhook", AsyncMock(return_value=("Report", webhook))
     )
 
     with pytest.raises(RuntimeError, match="synthetic commit failure"):

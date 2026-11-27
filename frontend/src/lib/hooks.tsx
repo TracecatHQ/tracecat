@@ -669,6 +669,10 @@ export function useUpdateWebhook(workspaceId: string, workflowId: string) {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
+      // A webhook that has been turned on also shows in the Triggers tab.
+      queryClient.invalidateQueries({
+        queryKey: triggersQueryKey(workspaceId),
+      })
     },
     onError: (error) => {
       console.error("Failed to update webhook:", error)

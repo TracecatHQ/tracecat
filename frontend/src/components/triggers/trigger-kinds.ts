@@ -1,4 +1,4 @@
-import { CalendarClockIcon, DatabaseIcon } from "lucide-react"
+import { CalendarClockIcon, DatabaseIcon, WebhookIcon } from "lucide-react"
 import type { TriggerKind, TriggerRead } from "@/client"
 import { ObjectStorageTriggerDetails } from "@/components/triggers/object-storage/object-storage-trigger-details"
 import { ObjectStorageTriggerForm } from "@/components/triggers/object-storage/object-storage-trigger-form"
@@ -8,6 +8,11 @@ import {
 } from "@/components/triggers/schedule/schedule-trigger-details"
 import { ScheduleTriggerForm } from "@/components/triggers/schedule/schedule-trigger-form"
 import type { TriggerKindDefinition } from "@/components/triggers/trigger-kind-types"
+import {
+  describeWebhook,
+  WebhookTriggerDetails,
+} from "@/components/triggers/webhook/webhook-trigger-details"
+import { WebhookTriggerForm } from "@/components/triggers/webhook/webhook-trigger-form"
 
 /**
  * Every trigger kind the Triggers tab can create and show. Adding a kind is
@@ -43,6 +48,32 @@ export const TRIGGER_KINDS: Record<TriggerKind, TriggerKindDefinition> = {
     describeSource: describeSchedule,
     CreateForm: ScheduleTriggerForm,
     Details: ScheduleTriggerDetails,
+  },
+  webhook: {
+    kind: "webhook",
+    label: "Webhook",
+    description: "Runs a workflow for each request to its webhook URL.",
+    icon: WebhookIcon,
+    entitlement: null,
+    // As the API checks them: a webhook is changed with workflow:update, as
+    // on the workflow page, and creating binds the workflow, so it needs
+    // workflow:execute. Reading it (its URL holds the secret) needs
+    // workflow:read, which also lists the workflows to pick from.
+    scopes: {
+      create: ["workflow:update", "workflow:execute", "workflow:read"],
+      update: ["workflow:update"],
+      delete: ["workflow:update"],
+    },
+    namePlaceholder: "Alert intake",
+    createdHint:
+      "It keeps the webhook's on/off status. If it's offline, put it online to start accepting requests at its URL.",
+    deleteDescription:
+      "This turns the workflow's webhook off and removes it from this list. The webhook, its settings and its URL stay on the workflow; turning it on again lists it here again.",
+    fixedTargets:
+      "A webhook runs the workflow it belongs to. To run another workflow, use that workflow's webhook.",
+    describeSource: describeWebhook,
+    CreateForm: WebhookTriggerForm,
+    Details: WebhookTriggerDetails,
   },
   object_storage: {
     kind: "object_storage",

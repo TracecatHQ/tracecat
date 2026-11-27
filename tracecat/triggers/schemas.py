@@ -28,12 +28,19 @@ from pydantic import Field, StringConstraints, field_validator, model_validator
 from tracecat.core.schemas import Schema
 from tracecat.identifiers.schedules import ScheduleUUID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowID
+from tracecat.pagination import CursorPaginatedResponse
+from tracecat.tiers.enums import Entitlement
 from tracecat.triggers.enums import (
     EventSourceKind,
     SubscriptionStatus,
     TriggerKind,
     TriggerStatus,
     TriggerTargetType,
+)
+from tracecat.webhooks.schemas import (
+    WebhookApiKeyRead,
+    WebhookMethod,
+    normalize_cidrs,
 )
 from tracecat.workflow.schedules.schemas import check_cron, check_schedule_spec
 
@@ -203,11 +210,72 @@ class ScheduleTriggerConfigRead(_ScheduleSettings):
     )
 
 
+class WebhookTriggerConfig(Schema):
+    """Run a workflow for each request to its webhook URL.
+
+    The settings of the workflow's webhook (``/workflows/{id}/webhook``),
+    which the trigger shows and edits. Every workflow has one webhook; it
+    becomes a trigger when it is turned on. Until webhooks start their targets
+    through bindings, the trigger's one target is this workflow and cannot
+    change. The API key is managed on the workflow's webhook only. Settings
+    left out of a create or update keep the webhook's saved values.
+    """
+
+    kind: Literal[TriggerKind.WEBHOOK]
+    workflow_id: AnyWorkflowID = Field(
+        description="The workflow whose webhook this is. Fixed after create."
+    )
+    methods: list[WebhookMethod] = Field(
+        default_factory=lambda: ["POST"],
+        min_length=1,
+        description="HTTP methods the webhook accepts",
+    )
+    allowlisted_cidrs: list[str] = Field(
+        default_factory=list,
+        description="IPv4 addresses or CIDR ranges allowed to call the webhook."
+        " Empty allows every address.",
+    )
+    include_headers: bool = Field(
+        default=False,
+        description="Pass request headers and metadata to the workflow, not"
+        " only the body",
+    )
+
+    @field_validator("allowlisted_cidrs")
+    @classmethod
+    def _valid_cidrs(cls, cidrs: list[str]) -> list[str]:
+        return normalize_cidrs(cidrs)
+
+
+class WebhookTriggerConfigRead(Schema):
+    """The webhook as ``/workflows/{id}/webhook`` shows it.
+
+    Readable only with ``workflow:read``, the scope that shows the same URL on
+    the workflow page.
+    """
+
+    kind: Literal[TriggerKind.WEBHOOK]
+    workflow_id: WorkflowID = Field(description="The workflow the webhook runs")
+    webhook_id: uuid.UUID = Field(description="The webhook's ID, which does not change")
+    methods: list[str] = Field(description="HTTP methods the webhook accepts")
+    allowlisted_cidrs: list[str] = Field(
+        description="Addresses allowed to call the webhook. Empty allows all."
+    )
+    include_headers: bool
+    url: str = Field(description="The webhook URL. It contains the webhook's secret.")
+    api_key: WebhookApiKeyRead | None = Field(
+        description="The webhook's API key, if it has one (preview only)"
+    )
+
+
 TriggerConfig = Annotated[
-    ObjectStorageTriggerConfig | ScheduleTriggerConfig, Field(discriminator="kind")
+    ObjectStorageTriggerConfig | ScheduleTriggerConfig | WebhookTriggerConfig,
+    Field(discriminator="kind"),
 ]
 TriggerConfigRead = Annotated[
-    ObjectStorageTriggerConfigRead | ScheduleTriggerConfigRead,
+    ObjectStorageTriggerConfigRead
+    | ScheduleTriggerConfigRead
+    | WebhookTriggerConfigRead,
     Field(discriminator="kind"),
 ]
 
@@ -215,7 +283,11 @@ TriggerConfigRead = Annotated[
 class TriggerCreate(Schema):
     name: Name
     config: TriggerConfig
-    status: TriggerStatus = Field(default=TriggerStatus.OFFLINE)
+    status: TriggerStatus = Field(
+        default=TriggerStatus.OFFLINE,
+        description="Offline when omitted, except for a webhook: its webhook"
+        " already exists and keeps its current status unless this is given.",
+    )
 
 
 class TriggerUpdate(Schema):
@@ -249,6 +321,24 @@ class TriggerRead(Schema):
     bindings: list[TriggerBindingRead]
     created_at: datetime
     updated_at: datetime
+
+
+class LockedTriggerCount(Schema):
+    """Triggers of one kind that a list leaves out because the plan lacks
+    the kind's feature."""
+
+    kind: TriggerKind
+    entitlement: Entitlement = Field(description="The plan feature the kind needs")
+    count: int = Field(description="How many such triggers match the list's filters")
+
+
+class TriggerListResponse(CursorPaginatedResponse[TriggerRead]):
+    locked: list[LockedTriggerCount] = Field(
+        default_factory=list,
+        description="Triggers matching the filters that are not listed because"
+        " the plan lacks their kind's feature, counted per kind. They are kept"
+        " and come back when the plan has the feature again.",
+    )
 
 
 # ----- Bindings -----

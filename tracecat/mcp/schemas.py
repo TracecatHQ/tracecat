@@ -16,6 +16,7 @@ from pydantic import (
 
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionRetryPolicy, ActionStatement, DSLConfig
+from tracecat.triggers.schemas import LockedTriggerCount, TriggerRead
 from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig
 
 T = TypeVar("T")
@@ -412,6 +413,14 @@ class MCPPaginatedResponse[T](BaseModel):
     prev_cursor: str | None = Field(default=None)
     has_more: bool = Field(default=False)
     has_previous: bool = Field(default=False)
+
+
+class MCPTriggerListResponse(MCPPaginatedResponse[TriggerRead]):
+    locked: list[LockedTriggerCount] = Field(
+        default_factory=list,
+        description="Matching triggers not listed because the plan lacks their"
+        " kind's feature, counted per kind",
+    )
 
 
 class MCPTruncationInfo(BaseModel):

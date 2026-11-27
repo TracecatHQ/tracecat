@@ -1838,7 +1838,26 @@ class ScimConnection(RecordModel):
 
 
 class Webhook(WorkspaceModel):
+    """A workflow's webhook, and the settings of its ``webhook`` trigger.
+
+    The webhook router reads this row. ``trigger_id`` links the ``trigger``
+    row that shows it in the Triggers tab; a webhook gets one when it is first
+    turned on, and keeps it when it goes offline. Never-used webhooks have
+    none, so the column stays nullable. Deleting the trigger leaves the
+    webhook (the key nulls only ``trigger_id``). A database trigger deletes
+    the ``trigger`` row when the webhook goes, including by cascade from its
+    workflow, and copies status changes to it.
+    """
+
     __tablename__ = "webhook"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["trigger_id", "workspace_id"],
+            ["trigger.id", "trigger.workspace_id"],
+            ondelete="SET NULL (trigger_id)",
+        ),
+        Index("uq_webhook_trigger_id", "trigger_id", unique=True),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -1873,6 +1892,7 @@ class Webhook(WorkspaceModel):
         nullable=False,
         server_default=text("false"),
     )
+    trigger_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
 
     workflow: Mapped[Workflow] = relationship(back_populates="webhook")
     api_key: Mapped[WebhookApiKey | None] = relationship(

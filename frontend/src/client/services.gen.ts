@@ -14630,7 +14630,8 @@ export const triggersUpdateEventSource = (
  * List triggers newest first, each with its config and bindings.
  *
  * ``workflow_id`` or ``agent_preset_id`` keeps the triggers bound to that
- * target.
+ * target. ``locked`` counts the matching triggers left out because the plan
+ * lacks their kind's feature.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.kind
@@ -14639,7 +14640,7 @@ export const triggersUpdateEventSource = (
  * @param data.limit
  * @param data.cursor
  * @param data.workflowId
- * @returns CursorPaginatedResponse_TriggerRead_ Successful Response
+ * @returns TriggerListResponse Successful Response
  * @throws ApiError
  */
 export const triggersListTriggers = (

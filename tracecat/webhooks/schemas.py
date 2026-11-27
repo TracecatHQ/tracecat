@@ -102,7 +102,7 @@ class WebhookCreate(BaseModel):
     @field_validator("allowlisted_cidrs")
     @classmethod
     def validate_allowlisted_cidrs(cls, value: list[str]) -> list[str]:
-        return _normalize_cidrs(value)
+        return normalize_cidrs(value)
 
 
 class WebhookUpdate(BaseModel):
@@ -125,7 +125,7 @@ class WebhookUpdate(BaseModel):
     def validate_cidrs(cls, value: list[str] | None) -> list[str] | None:
         if value is None:
             return None
-        return _normalize_cidrs(value)
+        return normalize_cidrs(value)
 
 
 class WebhookApiKeyRead(BaseModel):
@@ -147,7 +147,7 @@ class WebhookApiKeyGenerateResponse(BaseModel):
     created_at: datetime
 
 
-def _normalize_cidrs(cidrs: list[str]) -> list[str]:
+def normalize_cidrs(cidrs: list[str]) -> list[str]:
     normalized: list[str] = []
     seen: set[str] = set()
     for cidr in cidrs:

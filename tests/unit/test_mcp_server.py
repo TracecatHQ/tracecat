@@ -17,6 +17,7 @@ import yaml
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware.middleware import MiddlewareContext
 from fastmcp.tools import ToolResult
+from mcp import McpError
 from mcp.types import CallToolRequestParams
 from pydantic import ValidationError
 from sqlalchemy import select
@@ -79,9 +80,11 @@ from tracecat.managed_resources.guard import (
     LOCKED_MESSAGE,
     ManagedResourceLockedError,
 )
+from tracecat.mcp.middleware import MCPErrorHandlingMiddleware
 from tracecat.pagination import CursorPaginatedResponse, PageParams
 from tracecat.storage.object import ExternalObject, ObjectRef
 from tracecat.tables.service import TablesService
+from tracecat.triggers.schemas import LockedTriggerCount, TriggerListResponse
 from tracecat.validation.schemas import (
     ValidationDetail,
     ValidationResult,
@@ -5140,6 +5143,29 @@ async def test_input_size_limit_rejects(max_bytes: int, value: str) -> None:
 
     with pytest.raises(ToolError, match="exceeds maximum size"):
         await mw.on_call_tool(ctx, _call_next)
+
+
+@pytest.mark.anyio
+async def test_a_tool_refusal_reads_as_itself_not_an_internal_error() -> None:
+    """An expected refusal (a ToolError) keeps its message; anything else
+    still becomes an MCP internal error without its details changing."""
+    mw = MCPErrorHandlingMiddleware(include_traceback=False, transform_errors=True)
+    ctx = _make_tool_context()
+    refusal = ToolError("A schedule trigger runs its schedule's workflow only")
+
+    async def _refuse(context: MiddlewareContext[CallToolRequestParams]) -> Any:
+        raise refusal
+
+    async def _fail(context: MiddlewareContext[CallToolRequestParams]) -> Any:
+        raise RuntimeError("boom")
+
+    with pytest.raises(ToolError) as refused:
+        await mw.on_message(ctx, _refuse)
+    assert refused.value is refusal
+    assert str(refused.value) == "A schedule trigger runs its schedule's workflow only"
+
+    with pytest.raises(McpError, match="Internal error: boom"):
+        await mw.on_message(ctx, _fail)
 
 
 @pytest.mark.anyio
@@ -10265,8 +10291,14 @@ async def test_event_source_tools_need_the_entitlement(
 async def test_trigger_tools_leave_the_entitlement_to_the_service(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Schedules need no plan feature; the service checks each kind's."""
-    page = mcp_server.CursorPaginatedResponse(items=[])
+    """Schedules need no plan feature; the service checks each kind's, and
+    counts the triggers a missing feature hides."""
+    hidden = LockedTriggerCount(
+        kind=mcp_server.TriggerKind.OBJECT_STORAGE,
+        entitlement=mcp_server.Entitlement.OBJECT_TRIGGERS,
+        count=2,
+    )
+    page = TriggerListResponse(items=[], locked=[hidden])
     _patch_triggers(
         monkeypatch, entitled=False, list_triggers=AsyncMock(return_value=page)
     )
@@ -10274,6 +10306,7 @@ async def test_trigger_tools_leave_the_entitlement_to_the_service(
     result = await _call_trigger_tool("list_triggers", kind="schedule")
 
     assert result.items == []
+    assert result.locked == [hidden]
 
     denied = mcp_server.EntitlementRequired("object_triggers")
     _patch_triggers(
@@ -10321,6 +10354,50 @@ async def test_create_trigger_accepts_a_schedule_config(
 
 
 @pytest.mark.anyio
+async def test_trigger_tools_take_the_webhook_kind(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trigger_id, read = uuid.uuid4(), object()
+    create_trigger = AsyncMock(return_value=SimpleNamespace(id=trigger_id))
+    page = TriggerListResponse(items=[])
+    list_triggers = AsyncMock(return_value=page)
+    _patch_triggers(
+        monkeypatch,
+        entitled=False,
+        create_trigger=create_trigger,
+        get_trigger=AsyncMock(return_value=read),
+        list_triggers=list_triggers,
+    )
+    workflow_id = uuid.uuid4()
+    config = mcp_server.TriggerCreate.model_validate(
+        {
+            "name": "x",
+            "config": {
+                "kind": "webhook",
+                "workflow_id": str(workflow_id),
+                "methods": ["GET", "POST"],
+                "allowlisted_cidrs": ["10.0.0.1"],
+            },
+        }
+    ).config
+
+    result = await _call_trigger_tool("create_trigger", name="Intake", config=config)
+    await _call_trigger_tool("list_triggers", kind="webhook")
+
+    assert result is read
+    [call] = create_trigger.await_args_list
+    params = call.args[0]
+    assert params.config.kind is mcp_server.TriggerKind.WEBHOOK
+    assert params.config.workflow_id == workflow_id
+    # No status given: the webhook keeps its own (a live one stays live).
+    assert "status" not in params.model_fields_set
+    assert params.config.methods == ["GET", "POST"]
+    assert params.config.allowlisted_cidrs == ["10.0.0.1/32"]
+    [list_call] = list_triggers.await_args_list
+    assert list_call.kwargs["kind"] is mcp_server.TriggerKind.WEBHOOK
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("tool_name", list(_TRIGGER_TOOL_ARGUMENTS))
 async def test_trigger_tools_need_their_scope(
     monkeypatch: pytest.MonkeyPatch, tool_name: str
@@ -10338,7 +10415,7 @@ async def test_trigger_tools_need_their_scope(
 async def test_list_triggers_passes_its_filters_to_the_service(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    page = mcp_server.CursorPaginatedResponse(items=[])
+    page = TriggerListResponse(items=[])
     list_triggers = AsyncMock(return_value=page)
     _patch_triggers(monkeypatch, list_triggers=list_triggers)
     workflow_id, preset_id, source_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()

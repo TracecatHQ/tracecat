@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import NoResultFound
@@ -35,20 +35,51 @@ from tracecat.workflow.schedules.schemas import (
     ScheduleUpdate,
 )
 
-# The trigger name column is 255 characters; leave room for the suffix.
-_TITLE_IN_NAME_MAX = 255 - len(" schedule")
+# The trigger name column is 255 characters.
+_NAME_MAX = 255
 
 
-def default_trigger_name(workflow_title: str | None) -> str:
+def _describe_interval(every: timedelta) -> str:
+    """A compact interval such as "1d 2h", "30m" or "0.5s"."""
+    whole = int(every.total_seconds())
+    fraction = every.total_seconds() - whole
+    parts: list[str] = []
+    for unit, size in (("d", 86_400), ("h", 3_600), ("m", 60)):
+        count, whole = divmod(whole, size)
+        if count:
+            parts.append(f"{count}{unit}")
+    # Seconds keep any fraction: a 500 ms interval is "0.5s", not "0s".
+    seconds = round(whole + fraction, 3)
+    if seconds or not parts:
+        parts.append(f"{seconds:g}s")
+    return " ".join(parts)
+
+
+def default_trigger_name(
+    workflow_title: str | None,
+    *,
+    cron: str | None = None,
+    every: timedelta | None = None,
+) -> str:
     """The name a schedule's trigger gets when none is given.
 
-    The workflow title plus " schedule", or "Schedule" for an untitled
-    workflow. The migration backfill uses the same rule.
+    The workflow title plus " schedule" and when it runs, such as
+    "Nightly report schedule (0 9 * * *)" or "Sync schedule (every 1h)", so
+    several schedules of one workflow get different names. "Schedule" for an
+    untitled workflow. The title is cut so the name fits the column.
+    Backfilled rows (migration ``61ebd010e726``) have the name without the
+    spec.
     """
+    spec = ""
+    if cron and cron.strip():
+        spec = f" ({cron.strip()})"
+    elif every is not None:
+        spec = f" (every {_describe_interval(every)})"
     title = (workflow_title or "").strip()
     if not title:
-        return "Schedule"
-    return f"{title[:_TITLE_IN_NAME_MAX]} schedule"
+        return f"Schedule{spec}"[:_NAME_MAX]
+    suffix = f" schedule{spec}"
+    return f"{title[: max(_NAME_MAX - len(suffix), 0)]}{suffix}"[:_NAME_MAX]
 
 
 @dataclass(frozen=True)
@@ -236,7 +267,7 @@ class WorkflowSchedulesService(BaseWorkspaceService):
                 flushes the row and leaves the transaction and registered
                 Temporal callback to the caller.
             trigger_name: Name of the schedule's trigger row. Defaults to
-                ``default_trigger_name`` of the workflow title.
+                ``default_trigger_name`` of the workflow title and spec.
 
         Returns:
             The newly created schedule.
@@ -246,7 +277,8 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         trigger_id = await self._add_trigger(
             workflow_id=workflow_uuid,
             status=params.status,
-            name=trigger_name or default_trigger_name(title),
+            name=trigger_name
+            or default_trigger_name(title, cron=params.cron, every=params.every),
         )
         schedule = Schedule(
             workspace_id=self.workspace_id,
@@ -444,7 +476,9 @@ class WorkflowSchedulesService(BaseWorkspaceService):
             schedule.trigger_id = await self._add_trigger(
                 workflow_id=schedule.workflow_id,
                 status=schedule.status,
-                name=default_trigger_name(title),
+                name=default_trigger_name(
+                    title, cron=schedule.cron, every=schedule.every
+                ),
                 created_at=schedule.created_at,
             )
         else:

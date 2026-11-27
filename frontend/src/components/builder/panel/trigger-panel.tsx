@@ -3,8 +3,7 @@
 import "react18-json-view/src/style.css"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { CheckIcon, DotsHorizontalIcon } from "@radix-ui/react-icons"
-import * as ipaddr from "ipaddr.js"
+import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import {
   BanIcon,
   CalendarClockIcon,
@@ -19,10 +18,7 @@ import {
 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
-import { z } from "zod"
 import {
-  $WebhookMethod,
-  $WebhookStatus,
   ApiError,
   type CaseEventType,
   type SchedulesCreateScheduleData,
@@ -49,11 +45,7 @@ import {
   scheduleInputsToSettings,
   useScheduleForm,
 } from "@/components/schedules/schedule-form-fields"
-import {
-  CustomTagInput,
-  MultiTagCommandInput,
-  type Tag,
-} from "@/components/tags-input"
+import { MultiTagCommandInput, type Tag } from "@/components/tags-input"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -113,6 +105,15 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import {
+  normalizeCidrTags,
+  WebhookAllowlistHint,
+  WebhookAllowlistInput,
+  type WebhookForm,
+  WebhookIncludeHeadersToggle,
+  WebhookMethodsSelect,
+  webhookFormSchema,
+} from "@/components/webhooks/webhook-form-fields"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useFormsAccess } from "@/hooks/use-forms-access"
 import {
@@ -130,85 +131,6 @@ import { cn } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspaceId } from "@/providers/workspace-id"
-
-const HTTP_METHODS: readonly WebhookMethod[] = $WebhookMethod.enum
-
-const toCanonicalString = (address: ipaddr.IPv4 | ipaddr.IPv6): string => {
-  const maybeNormalized =
-    (address as ipaddr.IPv6).toNormalizedString?.() ?? address.toString()
-  return maybeNormalized
-}
-
-const validateAndNormalizeCidr = (
-  value: string
-): { normalized: string } | { error: string } => {
-  try {
-    const [address, prefixLength] = ipaddr.parseCIDR(value)
-    if (address.kind() !== "ipv4") {
-      throw new Error("Only IPv4 CIDR ranges are supported")
-    }
-    const normalized = `${toCanonicalString(address)}/${prefixLength}`
-    return { normalized }
-  } catch {
-    try {
-      const address = ipaddr.parse(value)
-      if (address.kind() !== "ipv4") {
-        throw new Error("Only IPv4 addresses are supported")
-      }
-      const prefixLength = 32
-      const normalized = `${toCanonicalString(address)}/${prefixLength}`
-      return { normalized }
-    } catch {
-      return {
-        error: `Invalid IPv4 address or CIDR: "${value}"`,
-      }
-    }
-  }
-}
-
-const webhookFormSchema = z.object({
-  status: z.enum($WebhookStatus.enum),
-  methods: z
-    .array(z.enum($WebhookMethod.enum))
-    .min(1, "At least one method is required"),
-  allowlisted_cidrs: z
-    .array(
-      z.object({
-        id: z.string(),
-        text: z.string().trim().min(1, "Invalid IP address or CIDR"),
-      })
-    )
-    .superRefine((cidrs, ctx) => {
-      for (const cidr of cidrs) {
-        const result = validateAndNormalizeCidr(cidr.text)
-        if ("error" in result) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: result.error,
-          })
-          return
-        }
-      }
-    })
-    .transform((cidrs) => {
-      const normalized = new Map<string, Tag>()
-      for (const cidr of cidrs) {
-        const result = validateAndNormalizeCidr(cidr.text)
-        if ("error" in result) {
-          continue
-        }
-        const value = result.normalized
-        if (!normalized.has(value)) {
-          normalized.set(value, { id: value, text: value })
-        }
-      }
-      return Array.from(normalized.values())
-    })
-    .default([]),
-  include_headers: z.boolean().default(false),
-})
-
-type WebhookForm = z.infer<typeof webhookFormSchema>
 
 const extractApiErrorMessage = (error: unknown, fallback: string): string => {
   if (error instanceof ApiError) {
@@ -434,41 +356,22 @@ export function WebhookControls({
         return
       }
 
-      const normalized = new Map<string, Tag>()
-      let firstError: string | null = null
-
-      for (const tag of newTags) {
-        const trimmed = tag.text.trim()
-        if (!trimmed) {
-          firstError ??= "Invalid IP address or CIDR"
-          continue
-        }
-        const result = validateAndNormalizeCidr(trimmed)
-        if ("error" in result) {
-          firstError ??= result.error
-          continue
-        }
-        const canonical = result.normalized
-        if (!normalized.has(canonical)) {
-          normalized.set(canonical, { id: canonical, text: canonical })
-        }
-      }
-
-      if (firstError) {
+      const result = normalizeCidrTags(newTags)
+      if ("error" in result) {
         form.setError("allowlisted_cidrs", {
           type: "manual",
-          message: firstError,
+          message: result.error,
         })
         toast({
           title: "Invalid IP allowlist entry",
-          description: firstError,
+          description: result.error,
           variant: "destructive",
         })
         return
       }
 
       form.clearErrors("allowlisted_cidrs")
-      const normalizedValues = Array.from(normalized.values())
+      const normalizedValues = result.tags
       form.setValue("allowlisted_cidrs", normalizedValues, {
         shouldDirty: true,
         shouldValidate: true,
@@ -675,26 +578,13 @@ export function WebhookControls({
             name="include_headers"
             render={({ field }) => (
               <FormItem>
-                <div className="flex items-center justify-between gap-4 rounded-md border p-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs font-semibold">
-                      Include request headers
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      Pass request headers and metadata to TRIGGER as{" "}
-                      <code>{"{ status_code, headers, data }"}</code> instead of
-                      just the body
-                    </p>
-                  </div>
-                  <FormControl>
-                    <Switch
-                      checked={field.value}
-                      onCheckedChange={handleIncludeHeadersChange}
-                      className="data-[state=checked]:bg-emerald-500"
-                      disabled={isUpdatingWebhook}
-                    />
-                  </FormControl>
-                </div>
+                <FormControl>
+                  <WebhookIncludeHeadersToggle
+                    checked={field.value}
+                    onCheckedChange={handleIncludeHeadersChange}
+                    disabled={isUpdatingWebhook}
+                  />
+                </FormControl>
               </FormItem>
             )}
           />
@@ -708,50 +598,11 @@ export function WebhookControls({
                   <span>Allowed HTTP methods</span>
                 </FormLabel>
                 <FormControl>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className="justify-between w-full text-xs"
-                        disabled={isUpdatingWebhook}
-                      >
-                        {field.value.length > 0
-                          ? field.value.sort().join(", ")
-                          : "Select HTTP methods"}
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      style={{
-                        width: "var(--radix-dropdown-menu-trigger-width)",
-                      }}
-                      align="start"
-                      sideOffset={4}
-                    >
-                      {HTTP_METHODS.map((method) => (
-                        <DropdownMenuItem
-                          key={method}
-                          onClick={() => {
-                            const newMethods = field.value.includes(method)
-                              ? field.value.filter((m) => m !== method)
-                              : [...field.value, method]
-
-                            handleMethodsChange(newMethods)
-                          }}
-                          className="w-full text-xs"
-                        >
-                          <CheckIcon
-                            className={cn(
-                              "mr-2 size-4",
-                              field.value.includes(method)
-                                ? "opacity-100"
-                                : "opacity-0"
-                            )}
-                          />
-                          <span>{method}</span>
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  <WebhookMethodsSelect
+                    value={field.value}
+                    onChange={handleMethodsChange}
+                    disabled={isUpdatingWebhook}
+                  />
                 </FormControl>
                 <FormMessage className="text-xs" />
               </FormItem>
@@ -767,24 +618,14 @@ export function WebhookControls({
                   <span>IP allowlist</span>
                 </FormLabel>
                 <FormControl>
-                  <CustomTagInput
-                    {...field}
-                    placeholder="Enter an IP address or CIDR. Allow all IPs by default."
+                  <WebhookAllowlistInput
                     tags={field.value}
-                    setTags={(newTags) =>
-                      handleAllowlistedCidrsChange(
-                        Array.isArray(newTags) ? newTags : []
-                      )
-                    }
+                    onTagsChange={handleAllowlistedCidrsChange}
                   />
                 </FormControl>
                 <FormMessage className="text-xs" />
                 <FormDescription className="text-xs">
-                  Press{" "}
-                  <kbd className="px-1 py-0.5 text-[10px] font-semibold bg-muted border rounded tracking-tighter">
-                    Enter ↵
-                  </kbd>{" "}
-                  to add a new entry.
+                  <WebhookAllowlistHint />
                 </FormDescription>
               </FormItem>
             )}

@@ -40,6 +40,7 @@ from tracecat.triggers.schemas import (
     AgentBindingTarget,
     AwsSnsSourceConfig,
     EventSourceCreate,
+    LockedTriggerCount,
     ObjectStorageTriggerConfig,
     ScheduleTriggerConfig,
     ScheduleTriggerConfigRead,
@@ -185,7 +186,7 @@ async def test_both_entry_points_write_the_same_rows(
     )
     from_triggers = await triggers.create_trigger(
         TriggerCreate(
-            name="Nightly report schedule",
+            name="Nightly report schedule (0 9 * * *)",
             status=TriggerStatus.OFFLINE,
             config=_config(workflow, every=None, cron="0 9 * * *"),
         )
@@ -213,7 +214,7 @@ async def test_both_entry_points_write_the_same_rows(
     assert shapes[0] == shapes[1]
     assert shapes[0] == (
         "schedule",
-        "Nightly report schedule",
+        "Nightly report schedule (0 9 * * *)",
         "offline",
         "workflow",
         workflow.id,
@@ -281,6 +282,30 @@ def test_default_name_comes_from_the_workflow_title() -> None:
     assert default_trigger_name("  ") == "Schedule"
     assert default_trigger_name(None) == "Schedule"
     assert len(default_trigger_name("x" * 400)) == 255
+
+
+def test_default_names_tell_a_workflows_schedules_apart() -> None:
+    """Staging QA: two schedules of one workflow got the same name."""
+    assert (
+        default_trigger_name("Nightly report", cron=" 0 9 * * * ")
+        == "Nightly report schedule (0 9 * * *)"
+    )
+    assert (
+        default_trigger_name("Sync", every=timedelta(days=1, hours=2, minutes=30))
+        == "Sync schedule (every 1d 2h 30m)"
+    )
+    assert default_trigger_name(None, every=timedelta(minutes=5)) == (
+        "Schedule (every 5m)"
+    )
+    assert default_trigger_name("Fast", every=timedelta(milliseconds=500)) == (
+        "Fast schedule (every 0.5s)"
+    )
+    assert default_trigger_name("Odd", every=timedelta(minutes=1, seconds=1.25)) == (
+        "Odd schedule (every 1m 1.25s)"
+    )
+    long = default_trigger_name("x" * 400, cron="*/5 * * * *")
+    assert len(long) == 255
+    assert long.endswith(" schedule (*/5 * * * *)")
 
 
 # ----- Status and settings stay together -----
@@ -527,7 +552,7 @@ async def test_updating_a_schedule_without_a_trigger_adopts_it(
     trigger, [binding], _ = await _rows(session, updated.trigger_id)
     assert (trigger.kind, trigger.name, trigger.status) == (
         "schedule",
-        "Nightly report schedule",
+        "Nightly report schedule (every 1h)",
         "offline",
     )
     assert binding.workflow_id == workflow.id
@@ -778,6 +803,7 @@ def test_every_kind_names_its_entitlement() -> None:
     assert ENTITLEMENT_BY_TRIGGER_KIND == {
         TriggerKind.OBJECT_STORAGE: Entitlement.OBJECT_TRIGGERS,
         TriggerKind.SCHEDULE: None,
+        TriggerKind.WEBHOOK: None,
     }
 
 
@@ -845,10 +871,25 @@ async def test_reads_hide_object_storage_triggers_without_the_plan(
     uploads_id = uploads.id
     await triggers.create_trigger(TriggerCreate(name="s", config=_config(workflow)))
 
+    assert (await triggers.list_triggers(PageParams(limit=10))).locked == []
+
     entitled = False
 
     page = await triggers.list_triggers(PageParams(limit=10))
     assert [item.kind for item in page.items] == [TriggerKind.SCHEDULE]
+    # The tab says they exist rather than showing an empty list.
+    assert page.locked == [
+        LockedTriggerCount(
+            kind=TriggerKind.OBJECT_STORAGE,
+            entitlement=Entitlement.OBJECT_TRIGGERS,
+            count=1,
+        )
+    ]
+    # Counts follow the list's filters.
+    schedules_only = await triggers.list_triggers(
+        PageParams(limit=10), kind=TriggerKind.SCHEDULE
+    )
+    assert schedules_only.locked == []
     with pytest.raises(EntitlementRequired):
         await triggers.get_trigger(uploads_id)
 

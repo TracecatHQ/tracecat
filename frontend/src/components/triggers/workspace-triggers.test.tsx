@@ -9,9 +9,11 @@ import {
   triggersCreateTriggerBinding,
   triggersGetEventSource,
   triggersGetTrigger,
+  triggersGetWebhook,
   triggersListEventSources,
   triggersListTriggers,
   triggersUpdateTriggerBinding,
+  type WebhookRead,
 } from "@/client"
 import { AddTargetDialog } from "@/components/triggers/add-target-dialog"
 import { CreateTriggerDialog } from "@/components/triggers/create-trigger-dialog"
@@ -23,17 +25,22 @@ import {
 } from "@/components/triggers/object-storage/event-source-providers"
 import { describeSchedule } from "@/components/triggers/schedule/schedule-trigger-details"
 import { TriggerDetail } from "@/components/triggers/trigger-detail"
+import { describeWebhook } from "@/components/triggers/webhook/webhook-trigger-details"
 import { WorkspaceTriggers } from "@/components/triggers/workspace-triggers"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/client", () => ({
+  // The webhook form's method and status choices.
+  $WebhookMethod: { enum: ["GET", "POST"] },
+  $WebhookStatus: { enum: ["online", "offline"] },
   triggersCreateEventSource: jest.fn(),
   triggersCreateTrigger: jest.fn(),
   triggersCreateTriggerBinding: jest.fn(),
   triggersGetEventSource: jest.fn(),
   triggersGetTrigger: jest.fn(),
+  triggersGetWebhook: jest.fn(),
   triggersListEventSources: jest.fn(),
   triggersListTriggers: jest.fn(),
   triggersUpdateTriggerBinding: jest.fn(),
@@ -63,8 +70,9 @@ jest.mock("next/navigation", () => ({
 }))
 jest.mock("@/components/ui/use-toast", () => ({ toast: jest.fn() }))
 // The add-target dialog's pickers.
+let workflows: { id: string; title: string; version: number | null }[] = []
 jest.mock("@/lib/hooks", () => ({
-  useWorkflowManager: () => ({ workflows: [], workflowsLoading: false }),
+  useWorkflowManager: () => ({ workflows, workflowsLoading: false }),
 }))
 let presets: { id: string; name: string; description: string | null }[] = []
 jest.mock("@/hooks/use-agent-presets", () => ({
@@ -158,6 +166,41 @@ const SCHEDULE_TRIGGER: TriggerRead = {
   updated_at: "2026-11-27T00:00:00Z",
 }
 
+const WEBHOOK_URL =
+  "https://tracecat.example.com/api/webhooks/wf_3nF1fBrbY6AIX7Mr2qhEpR/synthetic-secret"
+
+const WEBHOOK_TRIGGER: TriggerRead = {
+  id: "trigger-3",
+  kind: "webhook",
+  name: "Alert intake webhook",
+  status: "online",
+  config: {
+    kind: "webhook",
+    workflow_id: "wf_3nF1fBrbY6AIX7Mr2qhEpR",
+    webhook_id: "webhook-1",
+    methods: ["POST", "GET"],
+    allowlisted_cidrs: ["10.0.0.0/8"],
+    include_headers: false,
+    url: WEBHOOK_URL,
+    api_key: null,
+  },
+  bindings: [
+    {
+      id: "binding-4",
+      trigger_id: "trigger-3",
+      target_type: "workflow",
+      target_id: "6f1c2a7e-3b4d-4e5f-9a1b-2c3d4e5f6a7b",
+      target_name: "Alert intake",
+      instruction: null,
+      status: "online",
+      created_at: "2026-11-27T00:00:00Z",
+      updated_at: "2026-11-27T00:00:00Z",
+    },
+  ],
+  created_at: "2026-11-27T00:00:00Z",
+  updated_at: "2026-11-27T00:00:00Z",
+}
+
 function renderWithClient(ui: ReactNode) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -176,6 +219,7 @@ beforeEach(() => {
   entitled = true
   entitlementsFailed = false
   presets = []
+  workflows = []
   scopes = {
     "trigger:read": true,
     "trigger:create": true,
@@ -185,6 +229,8 @@ beforeEach(() => {
     "schedule:read": true,
     "schedule:update": true,
     "schedule:delete": true,
+    "workflow:read": true,
+    "workflow:update": true,
   }
 })
 
@@ -261,6 +307,24 @@ describe("WorkspaceTriggers", () => {
     ).toBeInTheDocument()
     expect(screen.getByText("0 9 * * *")).toBeInTheDocument()
     expect(screen.getByText("Schedule")).toBeInTheDocument()
+  })
+
+  it("says how many triggers the plan hides", async () => {
+    entitled = false
+    jest.mocked(triggersListTriggers).mockResolvedValue({
+      items: [],
+      has_more: false,
+      locked: [
+        { kind: "object_storage", entitlement: "object_triggers", count: 2 },
+      ],
+    })
+
+    renderWithClient(<WorkspaceTriggers />)
+
+    expect(await screen.findByText("No triggers yet")).toBeInTheDocument()
+    expect(
+      screen.getByText(/2 object storage triggers are hidden because your plan/)
+    ).toBeInTheDocument()
   })
 
   it("keeps the list when a later page fails", async () => {
@@ -802,6 +866,359 @@ describe("AddTargetDialog", () => {
           type: "agent",
           agent_preset_id: "preset-9",
           instruction: "Summarize it",
+        },
+      },
+    })
+  })
+})
+
+describe("Webhook triggers", () => {
+  beforeEach(() => {
+    scopes = { ...scopes, "workflow:execute": true }
+  })
+
+  it("lists a webhook with its methods and allowlist", async () => {
+    jest
+      .mocked(triggersListTriggers)
+      .mockResolvedValue({ items: [WEBHOOK_TRIGGER], has_more: false })
+
+    renderWithClient(<WorkspaceTriggers />)
+
+    const row = await screen.findByRole("link", {
+      name: /Alert intake webhook/,
+    })
+    expect(row).toHaveTextContent("Webhook")
+    expect(row).toHaveTextContent("GET, POST · 1 allowed IP range")
+    expect(describeWebhook({ ...WEBHOOK_TRIGGER })).toBe(
+      "GET, POST · 1 allowed IP range"
+    )
+  })
+
+  it("shows the URL and keeps its one target fixed", async () => {
+    jest.mocked(triggersGetTrigger).mockResolvedValue(WEBHOOK_TRIGGER)
+
+    renderWithClient(<TriggerDetail triggerId="trigger-3" />)
+
+    expect(await screen.findByText(WEBHOOK_URL)).toBeInTheDocument()
+    expect(screen.getByText("10.0.0.0/8")).toBeInTheDocument()
+    expect(
+      screen.getByText(/A webhook runs the workflow it belongs to/)
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Add target" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("switch", { name: "Alert intake webhook online" })
+    ).toBeEnabled()
+    expect(
+      screen.getByRole("button", { name: "Delete Alert intake webhook" })
+    ).toBeInTheDocument()
+  })
+
+  it("hides delete and locks the switch without workflow:update", async () => {
+    scopes = { ...scopes, "workflow:update": false }
+    jest.mocked(triggersGetTrigger).mockResolvedValue(WEBHOOK_TRIGGER)
+
+    renderWithClient(<TriggerDetail triggerId="trigger-3" />)
+
+    expect(
+      await screen.findByRole("switch", {
+        name: "Alert intake webhook online",
+      })
+    ).toBeDisabled()
+    expect(
+      screen.queryByRole("button", { name: /Delete/ })
+    ).not.toBeInTheDocument()
+  })
+
+  it("marks Webhook when the caller can't change webhooks", () => {
+    scopes = { ...scopes, "workflow:update": false }
+
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
+
+    const webhook = screen.getByRole("button", { name: /Webhook/ })
+    expect(webhook).toBeDisabled()
+    expect(webhook).toHaveTextContent("No permission")
+  })
+
+  it("won't create until the workflow's saved settings load, and retries", async () => {
+    const user = userEvent.setup()
+    workflows = [{ id: "wf_alert", title: "Alert intake", version: null }]
+    jest
+      .mocked(triggersGetWebhook)
+      .mockRejectedValueOnce(
+        Object.assign(new Error("Unavailable"), { status: 503 })
+      )
+      .mockResolvedValue({
+        id: "webhook-1",
+        secret: "synthetic-secret",
+        status: "offline",
+        methods: ["GET"],
+        allowlisted_cidrs: [],
+        include_headers: false,
+        workflow_id: "wf_alert",
+        url: WEBHOOK_URL,
+      })
+
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
+
+    await user.click(screen.getByRole("button", { name: /Webhook/ }))
+    await user.type(screen.getByLabelText("Name"), "Alert intake webhook")
+    await user.click(screen.getByRole("combobox", { name: "Workflow" }))
+    await user.click(
+      await screen.findByRole("option", { name: "Alert intake" })
+    )
+    expect(
+      await screen.findByText(/Couldn't load this workflow's webhook settings/)
+    ).toBeInTheDocument()
+
+    // The failed pick is cleared, so Create has nothing to submit.
+    await user.click(screen.getByRole("button", { name: "Create trigger" }))
+    expect(await screen.findByText("Pick a workflow.")).toBeInTheDocument()
+    expect(triggersCreateTrigger).not.toHaveBeenCalled()
+
+    // Picking the same workflow again reads its settings again.
+    await user.click(screen.getByRole("combobox", { name: "Workflow" }))
+    await user.click(
+      await screen.findByRole("option", { name: "Alert intake" })
+    )
+    await waitFor(() => expect(triggersGetWebhook).toHaveBeenCalledTimes(2))
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Allowed HTTP methods" })
+      ).toHaveTextContent("GET")
+    )
+  })
+
+  it("won't create while an allowlist entry is invalid", async () => {
+    const user = userEvent.setup()
+    workflows = [{ id: "wf_alert", title: "Alert intake", version: null }]
+    jest.mocked(triggersGetWebhook).mockResolvedValue({
+      id: "webhook-1",
+      secret: "synthetic-secret",
+      status: "offline",
+      methods: ["POST"],
+      allowlisted_cidrs: [],
+      include_headers: false,
+      workflow_id: "wf_alert",
+      url: WEBHOOK_URL,
+    })
+
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
+
+    await user.click(screen.getByRole("button", { name: /Webhook/ }))
+    await user.type(screen.getByLabelText("Name"), "Alert intake webhook")
+    await user.click(screen.getByRole("combobox", { name: "Workflow" }))
+    await user.click(
+      await screen.findByRole("option", { name: "Alert intake" })
+    )
+    await user.type(
+      await screen.findByRole("textbox", { name: "IP allowlist" }),
+      "10.0.0.0/33{Enter}"
+    )
+    await user.click(screen.getByRole("button", { name: "Create trigger" }))
+
+    expect(
+      await screen.findByText(/An IP allowlist entry was rejected/)
+    ).toBeInTheDocument()
+    expect(triggersCreateTrigger).not.toHaveBeenCalled()
+
+    // A second Create is the user choosing to go on without it.
+    jest.mocked(triggersCreateTrigger).mockResolvedValue(WEBHOOK_TRIGGER)
+    await user.click(screen.getByRole("button", { name: "Create trigger" }))
+    await waitFor(() => expect(triggersCreateTrigger).toHaveBeenCalledTimes(1))
+  })
+
+  it("forgets a rejected allowlist entry when another workflow is picked", async () => {
+    const user = userEvent.setup()
+    workflows = [
+      { id: "wf_alert", title: "Alert intake", version: null },
+      { id: "wf_other", title: "Other", version: null },
+    ]
+    jest.mocked(triggersGetWebhook).mockResolvedValue({
+      id: "webhook-1",
+      secret: "synthetic-secret",
+      status: "offline",
+      methods: ["POST"],
+      allowlisted_cidrs: [],
+      include_headers: false,
+      workflow_id: "wf_alert",
+      url: WEBHOOK_URL,
+    })
+    jest.mocked(triggersCreateTrigger).mockResolvedValue(WEBHOOK_TRIGGER)
+
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
+
+    await user.click(screen.getByRole("button", { name: /Webhook/ }))
+    await user.type(screen.getByLabelText("Name"), "Intake")
+    await user.click(screen.getByRole("combobox", { name: "Workflow" }))
+    await user.click(
+      await screen.findByRole("option", { name: "Alert intake" })
+    )
+    const allowlist = await screen.findByRole("textbox", {
+      name: "IP allowlist",
+    })
+    await user.type(allowlist, "10.0.0.0/33{Enter}")
+    expect(await screen.findByRole("alert")).toBeInTheDocument()
+    expect(allowlist).toHaveAttribute("aria-invalid", "true")
+
+    await user.click(screen.getByRole("combobox", { name: "Workflow" }))
+    await user.click(await screen.findByRole("option", { name: "Other" }))
+    await waitFor(() =>
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    )
+    await user.click(screen.getByRole("button", { name: "Create trigger" }))
+    await waitFor(() =>
+      expect(triggersCreateTrigger).toHaveBeenCalledWith({
+        workspaceId: "workspace-1",
+        requestBody: {
+          name: "Intake",
+          config: {
+            kind: "webhook",
+            workflow_id: "wf_other",
+            methods: ["POST"],
+            allowlisted_cidrs: [],
+            include_headers: false,
+          },
+        },
+      })
+    )
+  })
+
+  it("ignores a late read of a workflow picked again", async () => {
+    const user = userEvent.setup()
+    workflows = [
+      { id: "wf_alert", title: "Alert intake", version: null },
+      { id: "wf_other", title: "Other", version: null },
+    ]
+    const settings = (methods: WebhookRead["methods"]): WebhookRead => ({
+      id: "webhook-1",
+      secret: "synthetic-secret",
+      status: "offline",
+      methods,
+      allowlisted_cidrs: [],
+      include_headers: false,
+      workflow_id: "wf_alert",
+      url: WEBHOOK_URL,
+    })
+    let releaseFirst: (value: WebhookRead) => void = () => {}
+    jest
+      .mocked(triggersGetWebhook)
+      .mockReturnValueOnce(
+        new Promise<WebhookRead>((resolve) => {
+          releaseFirst = resolve
+        }) as never
+      )
+      .mockResolvedValueOnce(settings(["POST"]))
+      .mockResolvedValueOnce(settings(["GET"]))
+
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
+
+    await user.click(screen.getByRole("button", { name: /Webhook/ }))
+    for (const title of ["Alert intake", "Other", "Alert intake"]) {
+      await user.click(screen.getByRole("combobox", { name: "Workflow" }))
+      await user.click(await screen.findByRole("option", { name: title }))
+    }
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Allowed HTTP methods" })
+      ).toHaveTextContent("GET")
+    )
+
+    // The first read of Alert intake lands last; it must not win.
+    releaseFirst(settings(["POST"]))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(
+      screen.getByRole("button", { name: "Allowed HTTP methods" })
+    ).toHaveTextContent("GET")
+  })
+
+  it("says a live webhook stays online and sends no status", async () => {
+    const user = userEvent.setup()
+    workflows = [{ id: "wf_alert", title: "Alert intake", version: null }]
+    jest.mocked(triggersGetWebhook).mockResolvedValue({
+      id: "webhook-1",
+      secret: "synthetic-secret",
+      status: "online",
+      methods: ["POST"],
+      allowlisted_cidrs: [],
+      include_headers: false,
+      workflow_id: "wf_alert",
+      url: WEBHOOK_URL,
+    })
+    jest.mocked(triggersCreateTrigger).mockResolvedValue(WEBHOOK_TRIGGER)
+
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
+
+    await user.click(screen.getByRole("button", { name: /Webhook/ }))
+    await user.type(screen.getByLabelText("Name"), "Alert intake webhook")
+    await user.click(screen.getByRole("combobox", { name: "Workflow" }))
+    await user.click(
+      await screen.findByRole("option", { name: "Alert intake" })
+    )
+    expect(
+      await screen.findByText("This webhook is online and stays online.")
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Create trigger" }))
+
+    await waitFor(() => expect(triggersCreateTrigger).toHaveBeenCalledTimes(1))
+    const [call] = jest.mocked(triggersCreateTrigger).mock.calls
+    expect(call[0].requestBody).not.toHaveProperty("status")
+  })
+
+  it("starts from the workflow's saved webhook settings", async () => {
+    const user = userEvent.setup()
+    workflows = [{ id: "wf_alert", title: "Alert intake", version: null }]
+    const saved: WebhookRead = {
+      id: "webhook-1",
+      secret: "synthetic-secret",
+      status: "offline",
+      methods: ["GET"],
+      allowlisted_cidrs: ["10.0.0.0/8"],
+      include_headers: true,
+      workflow_id: "wf_alert",
+      url: WEBHOOK_URL,
+    }
+    jest.mocked(triggersGetWebhook).mockResolvedValue(saved)
+    jest.mocked(triggersCreateTrigger).mockResolvedValue(WEBHOOK_TRIGGER)
+
+    renderWithClient(<CreateTriggerDialog open onOpenChange={jest.fn()} />)
+
+    await user.click(screen.getByRole("button", { name: /Webhook/ }))
+    await user.type(screen.getByLabelText("Name"), "Alert intake webhook")
+    await user.click(screen.getByRole("combobox", { name: "Workflow" }))
+    await user.click(
+      await screen.findByRole("option", { name: "Alert intake" })
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Allowed HTTP methods" })
+      ).toHaveTextContent("GET")
+    )
+    await user.click(screen.getByRole("button", { name: "Create trigger" }))
+
+    await waitFor(() =>
+      expect(push).toHaveBeenCalledWith(
+        "/workspaces/workspace-1/triggers/trigger-3"
+      )
+    )
+    expect(triggersGetWebhook).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      workflowId: "wf_alert",
+    })
+    expect(
+      screen.getByRole("textbox", { name: "IP allowlist" })
+    ).toBeInTheDocument()
+    expect(triggersCreateTrigger).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      requestBody: {
+        name: "Alert intake webhook",
+        config: {
+          kind: "webhook",
+          workflow_id: "wf_alert",
+          methods: ["GET"],
+          allowlisted_cidrs: ["10.0.0.0/8"],
+          include_headers: true,
         },
       },
     })
