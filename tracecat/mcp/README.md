@@ -157,7 +157,9 @@ Scopes: list and get tools need `trigger:read`; `create_event_source` and
 `workflow:execute` or `agent:execute` for that target: creating a binding,
 turning a binding, trigger or source online, changing an agent binding's
 instruction, or changing what an online trigger or source matches. Switching
-things off and renaming need only `trigger:update`. `endpoint_url` is null
+things off and renaming need only `trigger:update`, except for kinds written
+through their own resource (`schedule`, `webhook`, `case_trigger`), which also
+need that resource's update scope. `endpoint_url` is null
 for callers without `trigger:update`.
 
 - `list_event_sources(workspace_id, limit=..., cursor=None)`
@@ -207,9 +209,10 @@ workflow has one, it is listed once it has been turned on (or made a trigger
 with `create_trigger`), and it stays listed when it goes offline. A config sets
 only the `event_types` and `tag_filters` it names, and the case trigger keeps
 its on/off status unless `status` is passed. Online needs at least one event
-type and a published workflow. Writes need `workflow:update` (creating also
-`workflow:execute`) and the `case_addons` feature, and refuse a managed
-workflow, as `update_case_trigger` does. Its one binding is fixed, as for
+type and a published workflow. Creating it, and renaming it or updating its
+config or status, need `workflow:update` on top of `trigger:create` or
+`trigger:update` (creating also `workflow:execute`), and the `case_addons`
+feature; they refuse a managed workflow, as `update_case_trigger` does. Its one binding is fixed, as for
 schedules.
 
 ## Workflow tag tools

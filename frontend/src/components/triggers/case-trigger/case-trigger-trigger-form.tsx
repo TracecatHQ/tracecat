@@ -103,7 +103,12 @@ export function CaseTriggerTriggerForm({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (loadingSettings) return
+    if (loadingSettings) {
+      setFormError(
+        "Loading this workflow's case trigger settings. Try again in a moment."
+      )
+      return
+    }
     setFormError(null)
     if (!workflowId) {
       setFormError("Pick a workflow.")

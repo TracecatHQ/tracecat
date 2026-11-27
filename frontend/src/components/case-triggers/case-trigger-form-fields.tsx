@@ -40,6 +40,17 @@ export function CaseEventsField({
   )
 }
 
+function tagPlaceholder(loading: boolean, error: unknown): string {
+  if (loading) {
+    return "Loading tags..."
+  }
+  if (error) {
+    // Listing tags needs case:read, which changing a case trigger does not.
+    return "Couldn't load case tags"
+  }
+  return "Select case tags..."
+}
+
 /**
  * The case tags an event's case must carry to start the workflow. Suggests
  * the workspace's case tags; empty applies no tag filter.
@@ -54,7 +65,8 @@ export function CaseTagFiltersField({
   disabled?: boolean
 }) {
   const workspaceId = useWorkspaceId()
-  const { caseTags, caseTagsIsLoading } = useCaseTagCatalog(workspaceId)
+  const { caseTags, caseTagsIsLoading, caseTagsError } =
+    useCaseTagCatalog(workspaceId)
   const suggestions = useMemo(
     () =>
       (caseTags ?? []).map((tag) => ({
@@ -73,9 +85,7 @@ export function CaseTagFiltersField({
         onChange={onChange}
         suggestions={suggestions}
         searchKeys={["label", "value", "description"]}
-        placeholder={
-          caseTagsIsLoading ? "Loading tags..." : "Select case tags..."
-        }
+        placeholder={tagPlaceholder(caseTagsIsLoading, caseTagsError)}
         disabled={disabled || caseTagsIsLoading}
         allowCustomTags={false}
       />

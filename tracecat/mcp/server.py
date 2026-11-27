@@ -7077,8 +7077,9 @@ async def list_triggers(
     Kind `webhook` is a workflow's webhook (the one `get_webhook` shows),
     listed once it has been turned on: it runs its one bound workflow for each
     request to `config.url`. Kind `case_trigger` is a workflow's case trigger
-    (the one `get_case_trigger` shows), listed once it has been turned on: it
-    runs its one bound workflow for each case event in `config.event_types`.
+    (the one `get_case_trigger` shows), listed once it has been turned on or
+    made a trigger with `create_trigger`: it runs its one bound workflow for
+    each case event in `config.event_types`.
 
     Args:
         workspace_id: The workspace ID.
@@ -7225,7 +7226,8 @@ async def update_trigger(
     rest keep their values), and its `workflow_id` must stay the same. A
     `case_trigger` trigger is written through its case trigger (as
     `update_case_trigger` does) the same way, with `event_types` and
-    `tag_filters`; it also needs the `case_addons` plan feature.
+    `tag_filters`; any change needs `workflow:update` on top of
+    `trigger:update`, and the `case_addons` plan feature.
 
     Args:
         workspace_id: The workspace ID.

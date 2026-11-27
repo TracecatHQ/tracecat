@@ -55,13 +55,12 @@ class CaseTriggerConfig(BaseModel):
     @field_validator("event_types")
     @classmethod
     def dedupe_event_types(cls, value: list[CaseEventType]) -> list[CaseEventType]:
-        return _dedupe_items(value)
+        return normalize_event_types(value)
 
     @field_validator("tag_filters")
     @classmethod
     def normalize_tag_filters(cls, value: list[str]) -> list[str]:
-        normalized = [ref.strip() for ref in value if ref and ref.strip()]
-        return _dedupe_items(normalized)
+        return normalize_tag_filters(value)
 
     @model_validator(mode="after")
     def validate_online_has_events(self) -> CaseTriggerConfig:
@@ -93,15 +92,14 @@ class CaseTriggerUpdate(BaseModel):
     ) -> list[CaseEventType] | None:
         if value is None:
             return None
-        return _dedupe_items(value)
+        return normalize_event_types(value)
 
     @field_validator("tag_filters")
     @classmethod
     def normalize_tag_filters(cls, value: list[str] | None) -> list[str] | None:
         if value is None:
             return None
-        normalized = [ref.strip() for ref in value if ref and ref.strip()]
-        return _dedupe_items(normalized)
+        return normalize_tag_filters(value)
 
 
 class CaseTriggerRead(Schema):

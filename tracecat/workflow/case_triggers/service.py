@@ -402,8 +402,10 @@ class CaseTriggersService(BaseWorkspaceService):
             workflow_id, commit=False, lock=True
         )
         if not tags_given:
-            # Kept as the locked row has them: a rename that committed while
-            # this waited rewrote them to its new refs.
+            # The row's filters were resolved above only to check them, as
+            # every write always has: a deleted tag's ref still refuses (or,
+            # with create_missing_tags, comes back). The value written is the
+            # locked row's: a rename that committed meanwhile rewrote it.
             resolved_tags = list(case_trigger.tag_filters or [])
 
         status = updates.get("status", case_trigger.status)

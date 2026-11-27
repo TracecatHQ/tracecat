@@ -171,7 +171,9 @@ export function useTriggerMutations(workspaceId: string) {
       // A case trigger trigger is a workflow's case trigger, which the
       // workflow page reads on its own (`["case-trigger", ...]`).
       queryClient.invalidateQueries({
-        predicate: (query) => query.queryKey[0] === "case-trigger",
+        predicate: (query) =>
+          query.queryKey[0] === "case-trigger" &&
+          query.queryKey[1] === workspaceId,
       }),
     ])
   }

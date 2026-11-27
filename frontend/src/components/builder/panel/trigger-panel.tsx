@@ -120,6 +120,7 @@ import {
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useFormsAccess } from "@/hooks/use-forms-access"
 import {
+  useCaseTagCatalog,
   useCaseTrigger,
   useDeleteWebhookApiKey,
   useGenerateWebhookApiKey,
@@ -993,6 +994,9 @@ export function CaseTriggerControls({
   } = useCaseTrigger(workspaceId, workflowId)
   const { mutateAsync: upsertCaseTrigger, isPending: isUpdatingCaseTrigger } =
     useUpsertCaseTrigger(workspaceId, workflowId)
+  // Start the tag catalog with the case trigger, not after it loads: the tag
+  // field reads the same cached query once it mounts.
+  useCaseTagCatalog(workspaceId)
 
   const [status, setStatus] = useState<"online" | "offline">("offline")
   const [eventTypes, setEventTypes] = useState<CaseEventType[]>([])

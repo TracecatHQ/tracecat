@@ -3254,7 +3254,8 @@ export type CaseEventRead =
  * The settings of the workflow's case trigger
  * (``/workflows/{id}/case-trigger``), which the trigger shows and edits.
  * Every workflow has one case trigger; it becomes a trigger when it is
- * turned on. Until case triggers start their targets through bindings, the
+ * turned on, or when it is created as one here (it may stay offline).
+ * Deleting the trigger turns the case trigger off and keeps it. Until case triggers start their targets through bindings, the
  * trigger's one target is this workflow and cannot change. Settings left out
  * of a create or update keep the case trigger's saved values. Needs the
  * ``case_addons`` plan feature.
