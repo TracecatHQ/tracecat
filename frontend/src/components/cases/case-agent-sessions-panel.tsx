@@ -239,7 +239,7 @@ const CaseAgentSessionRow = memo(function CaseAgentSessionRow({
               </Tooltip>
             )}
           </span>
-          <span className="flex w-11 shrink-0 justify-start">
+          <span className="flex w-12 shrink-0 justify-start">
             <UpdatedAtTimestamp updatedAt={session.updated_at} />
           </span>
         </button>
@@ -498,12 +498,7 @@ export function CaseAgentSessionsPanel({
       autoSaveId="case-agent-sessions"
       className="h-full min-h-0"
     >
-      <ResizablePanel
-        defaultSize={32}
-        minSize={18}
-        maxSize={50}
-        className="min-w-56"
-      >
+      <ResizablePanel defaultSize={32} minSize={18} maxSize={50}>
         <nav
           aria-label="Agent sessions"
           className="no-scrollbar @container h-full overflow-y-auto p-2"
