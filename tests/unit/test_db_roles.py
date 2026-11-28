@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import logging
 import os
 import re
 import subprocess
@@ -2849,6 +2850,13 @@ def test_migrations_ignore_a_shadow_alembic_version_in_a_user_schema(
     # Alembic as migrator would fail on the unknown revision if it read the shadow.
     assert migrate(roles) == 0
     assert _alembic_head(install.database) == head
+
+
+def test_migrate_keeps_existing_loggers_enabled(install: MigrateInstall) -> None:
+    """Alembic's logging setup must not silence loggers the process already has."""
+    existing = logging.getLogger(f"tests.migrate.{uuid.uuid4().hex}")
+    assert migrate(install.roles) == 0
+    assert not existing.disabled
 
 
 def test_migrate_moves_dynamic_schemas_that_migrations_create(

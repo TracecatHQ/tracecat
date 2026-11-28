@@ -218,6 +218,37 @@ async def test_serialized_session_cannot_commit_after_losing_the_lock() -> None:
             await connection.execute(text(f"DROP TABLE IF EXISTS {table}"))
 
 
+async def test_lost_lock_survives_a_holder_whose_socket_closed_mid_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The lost-lock error reaches the caller even if the holder can't roll back.
+
+    A killed holder can fail the check with an error that SQLAlchemy doesn't
+    treat as a disconnect, then have the driver see the socket close. Closing
+    the holder must not then fail its rollback and replace the error.
+    """
+    key = _lock_key()
+    engine = get_async_engine()
+    with pytest.raises(AdvisoryLockLostError):
+        async with hold_pg_advisory_xact_lock(engine, key) as holder:
+            assert holder is not None and holder.sync_connection is not None
+            driver = (await holder.get_raw_connection()).driver_connection
+            assert driver is not None
+
+            def fail_after_socket_closes(*_args: object, **_kwargs: object) -> None:
+                await_only(driver.close())
+                raise RuntimeError(
+                    "terminating connection due to administrator command"
+                )
+
+            async with AsyncSession(engine) as session:
+                require_lock_holder_on_commit(session, holder, key)
+                monkeypatch.setattr(
+                    holder.sync_connection, "execute", fail_after_socket_closes
+                )
+                await session.commit()
+
+
 async def test_commit_fails_when_the_holder_transaction_ended_on_a_live_socket() -> (
     None
 ):
