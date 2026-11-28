@@ -21,15 +21,11 @@ definition:
       type: bool | None
       description: Annotates the response with additional metadata explaining the response data elements.
       default: null
-    base_url:
-      type: str | None
-      description: Base URL of the Recorded Future API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.recorded_future.base_url || "https://api.recordedfuture.com" }}/v2/company/by_domain/${{ FN.url_encode(inputs.domain) }}
+        url: https://api.recordedfuture.com/v2/company/by_domain/${{ FN.url_encode(inputs.domain) }}
         method: GET
         headers:
           Accept: application/json

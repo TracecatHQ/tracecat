@@ -12,16 +12,12 @@ definition:
   secrets:
     - name: rippling
       keys: ["RIPPLING_API_KEY"]
-  expects:
-    base_url:
-      type: str | None
-      description: Base URL of the Rippling REST API.
-      default: null
+  expects: {}
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.rippling.base_url || "https://rest.ripplingapis.com" }}/entitlements/
+        url: https://rest.ripplingapis.com/entitlements/
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.rippling.RIPPLING_API_KEY }}

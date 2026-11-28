@@ -50,15 +50,11 @@ definition:
         `cursor` is used to fetch the next page of results. Start with a request without cursor,
         read the `next_link` value from the response, and continue until `next_link` is `null`.
       default: null
-    base_url:
-      type: str | None
-      description: Base URL of the Rippling REST API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.rippling.base_url || "https://rest.ripplingapis.com" }}/leave-balances/
+        url: https://rest.ripplingapis.com/leave-balances/
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.rippling.RIPPLING_API_KEY }}

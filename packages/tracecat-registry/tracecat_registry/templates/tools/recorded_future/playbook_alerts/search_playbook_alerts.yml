@@ -66,15 +66,11 @@ definition:
       type: datetime | None
       description: Updated before or at this point in time. Sent as updated_range.until.
       default: null
-    base_url:
-      type: str | None
-      description: Base URL of the Recorded Future API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.recorded_future.base_url || "https://api.recordedfuture.com" }}/playbook-alert/search
+        url: https://api.recordedfuture.com/playbook-alert/search
         method: POST
         headers:
           Accept: application/json

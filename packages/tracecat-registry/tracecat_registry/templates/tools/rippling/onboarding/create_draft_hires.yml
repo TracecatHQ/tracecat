@@ -20,15 +20,11 @@ definition:
         List of draft hires. Each draft hire requires `personal_info`, `employment_info`, and
         `work_location_info`, and optionally accepts `custom_fields`, `headcount_info`, and
         `documents`.
-    base_url:
-      type: str | None
-      description: Base URL of the Rippling REST API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.rippling.base_url || "https://rest.ripplingapis.com" }}/draft-hires/
+        url: https://rest.ripplingapis.com/draft-hires/
         method: POST
         headers:
           Authorization: Bearer ${{ SECRETS.rippling.RIPPLING_API_KEY }}
