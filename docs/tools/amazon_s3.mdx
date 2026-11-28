@@ -412,6 +412,14 @@ S3 bucket name.
 
 </ParamField>
 
+<ParamField path="continuation_token" type="string | null">
+
+`NextContinuationToken` from a previous response whose `IsTruncated` is true. Pass it to fetch the next page.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="duration_seconds" type="integer | null">
 
 Duration of the chained role session in seconds (900-3600). AWS limits role chaining to a maximum of one hour. Only used together with role_arn.
@@ -438,7 +446,7 @@ Default: `null`.
 
 <ParamField path="limit" type="integer">
 
-Maximum number of objects to return.
+Maximum number of objects to return in this page. S3 returns at most 1,000.
 
 Default: `1000`.
 
