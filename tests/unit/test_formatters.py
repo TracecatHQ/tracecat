@@ -83,6 +83,14 @@ def test_missing_values_render_empty_cells(
     assert empty_cell in formatter(missing_data)
 
 
+def test_html_renders_none_as_empty_cell():
+    result = _format_html([{"host": "web-1", "owner": None, "count": 0}])
+
+    assert "<td></td>" in result
+    assert "None" not in result
+    assert "<td>0</td>" in result
+
+
 def test_html_simple_format(simple_data):
     result = _format_html(simple_data)
 
