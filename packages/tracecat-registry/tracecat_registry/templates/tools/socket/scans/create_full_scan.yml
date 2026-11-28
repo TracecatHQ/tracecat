@@ -86,15 +86,11 @@ definition:
         The type of scan to perform. Defaults to 'socket'. Must be 32 characters or less. Used for
         categorizing multiple SBOM heads per repository branch.
       default: null
-    base_url:
-      type: str | None
-      description: Base URL of the Socket API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.socket.base_url || "https://api.socket.dev" }}/v0/orgs/${{ FN.url_encode(inputs.org_slug) }}/full-scans
+        url: https://api.socket.dev/v0/orgs/${{ FN.url_encode(inputs.org_slug) }}/full-scans
         method: POST
         headers:
           Accept: application/json

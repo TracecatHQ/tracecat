@@ -45,15 +45,11 @@ definition:
       type: int | None
       description: The maximum number of returned entities per type. Indicators are sorted by risk prior to filtering. Sent as limits.per_entity_type.
       default: null
-    base_url:
-      type: str | None
-      description: Base URL of the Recorded Future API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.recorded_future.base_url || "https://api.recordedfuture.com" }}/links/search
+        url: https://api.recordedfuture.com/links/search
         method: POST
         headers:
           Accept: application/json

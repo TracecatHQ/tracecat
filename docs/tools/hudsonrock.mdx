@@ -26,14 +26,6 @@ The domain to evaluate for potential security risks.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the HudsonRock API.
-
-Default: `null`.
-
-</ParamField>
-
 ## Discover assets
 
 Action ID: `tools.hudsonrock.discover_assets`
@@ -53,14 +45,6 @@ Required secrets:
 <ParamField path="domains" type="array[string]" required>
 
 List of domains to perform discovery on. Accepts root domains (example.com) and will match all subdomains. Between 1-500 domains can be specified per request.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the HudsonRock API.
-
-Default: `null`.
 
 </ParamField>
 
@@ -112,13 +96,7 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the HudsonRock API.
-
-Default: `null`.
-
-</ParamField>
+This action does not take input fields.
 
 ## Get domain overview
 
@@ -139,14 +117,6 @@ Required secrets:
 <ParamField path="domains" type="array[string]" required>
 
 List of domains to retrieve compromise overview statistics for. Accepts root domains (example.com) and will aggregate data across all subdomains. Between 1-500 domains can be specified per request.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the HudsonRock API.
-
-Default: `null`.
 
 </ParamField>
 
@@ -263,14 +233,6 @@ List of domains to filter results by. Accepts root domains (example.com) and wil
 <ParamField path="additional_fields" type="array[string] | null">
 
 Optional additional data to include in results: 'search_data', 'installed_software', 'employee_session_cookies', 'password_strength', 'sensitive_applications', 'dir_tree'.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the HudsonRock API.
 
 Default: `null`.
 
@@ -394,14 +356,6 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the HudsonRock API.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="cursor" type="string | null">
 
 Base64 encoded pagination cursor for retrieving the next set of results. Obtained from the 'nextCursor' field in the previous response.
@@ -498,14 +452,6 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the HudsonRock API.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="cidr" type="string | null">
 
 CIDR range. Valid CIDR 21-32. One of ips or cidr is required.
@@ -595,14 +541,6 @@ Array of computer names to search for.
 <ParamField path="additional_fields" type="array[string] | null">
 
 Optional additional data to include in results: 'search_data', 'installed_software', 'employee_session_cookies', 'password_strength', 'sensitive_applications', 'dir_tree'.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the HudsonRock API.
 
 Default: `null`.
 
@@ -718,14 +656,6 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the HudsonRock API.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="cursor" type="string | null">
 
 Base64 encoded pagination cursor for retrieving the next set of results. Obtained from the 'nextCursor' field in the previous response.
@@ -831,14 +761,6 @@ Array of usernames to search for.
 <ParamField path="additional_fields" type="array[string] | null">
 
 Optional additional data to include in results: 'search_data', 'installed_software', 'employee_session_cookies', 'password_strength', 'sensitive_applications', 'dir_tree'.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the HudsonRock API.
 
 Default: `null`.
 

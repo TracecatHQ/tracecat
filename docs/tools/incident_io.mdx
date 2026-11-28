@@ -32,14 +32,6 @@ Tag names to add to this alert
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 ## Connect follow-up external issue
 
 Action ID: `tools.incident_io.connect_follow_up_external_issue`
@@ -71,14 +63,6 @@ The issue tracker provider the issue belongs to. Allowed values: `asana`, `azure
 <ParamField path="url" type="string" required>
 
 URL of the issue in the external provider
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
 
 </ParamField>
 
@@ -119,14 +103,6 @@ The issue tracker provider the issue belongs to. It must match the provider of t
 <ParamField path="url" type="string" required>
 
 URL of the issue in the issue tracker
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
 
 </ParamField>
 
@@ -174,14 +150,6 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 ## Create escalation
 
 Action ID: `tools.incident_io.create_escalation`
@@ -207,14 +175,6 @@ Unique key to prevent duplicate escalations. If this key has already been used, 
 <ParamField path="title" type="string" required>
 
 The title of the escalation. This message will be included in all notifications about this escalation.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
 
 </ParamField>
 
@@ -294,14 +254,6 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="description" type="string | null">
 
 Description of the follow-up. Supports Markdown.
@@ -376,14 +328,6 @@ The title of the alert, parsed from the alert payload according to the alert sou
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="deduplication_key" type="string | null">
 
 A deduplication key which uniquely references this alert from your alert source. For newly created HTTP sources, this field is required.
@@ -443,14 +387,6 @@ Unique string used to de-duplicate incident create requests
 <ParamField path="visibility" type="string" required>
 
 Whether the incident should be open to anyone in your Slack workspace (public), or invite-only (private). For more information on Private Incidents see our [docs](https://docs.incident.io/incidents/sensitive-incidents). Allowed values: `public`, `private`.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
 
 </ParamField>
 
@@ -578,14 +514,6 @@ Incident to attach the alert to
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="re_relate" type="boolean | null">
 
 Relate the alert again even though someone previously marked it unrelated to this incident. Defaults to false, which preserves that decision and returns a 422
@@ -619,14 +547,6 @@ Unique string used to de-duplicate incident update requests. Retrying with the s
 <ParamField path="incident_id" type="string" required>
 
 The incident you want to update
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
 
 </ParamField>
 
@@ -706,14 +626,6 @@ Start time of the override
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 ## Delete action
 
 Action ID: `tools.incident_io.delete_action`
@@ -736,14 +648,6 @@ Unique identifier for the action
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 ## Delete schedule override
 
 Action ID: `tools.incident_io.delete_schedule_override`
@@ -763,14 +667,6 @@ Required secrets:
 <ParamField path="id" type="string" required>
 
 The override ID to delete
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
 
 </ParamField>
 
@@ -808,14 +704,6 @@ Should we send Slack channel notifications to inform responders of this update? 
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 ## Get alert
 
 Action ID: `tools.incident_io.get_alert`
@@ -838,14 +726,6 @@ Unique identifier for the alert
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 ## Get catalog entry
 
 Action ID: `tools.incident_io.get_catalog_entry`
@@ -865,14 +745,6 @@ Required secrets:
 <ParamField path="id" type="string" required>
 
 ID of this catalog entry
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
 
 </ParamField>
 
@@ -906,14 +778,6 @@ Unique ID of the escalation
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 ## Get escalation path
 
 Action ID: `tools.incident_io.get_escalation_path`
@@ -933,14 +797,6 @@ Required secrets:
 <ParamField path="id" type="string" required>
 
 Unique identifier for this escalation path.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
 
 </ParamField>
 
@@ -966,14 +822,6 @@ Unique identifier for the incident
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 ## Get schedule
 
 Action ID: `tools.incident_io.get_schedule`
@@ -996,14 +844,6 @@ Unique internal ID of the schedule
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 ## List actions
 
 Action ID: `tools.incident_io.list_actions`
@@ -1023,14 +863,6 @@ Required secrets:
 <ParamField path="after" type="string | null">
 
 An action's ID. This endpoint will return a list of actions after this ID in relation to the API response order.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
 
 Default: `null`.
 
@@ -1124,13 +956,7 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
-
-</ParamField>
+This action does not take input fields.
 
 ## List alert tags
 
@@ -1151,14 +977,6 @@ Required secrets:
 <ParamField path="after" type="string | null">
 
 A tag's ID. This endpoint will return a list of tags after this ID in relation to the API response order.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
 
 Default: `null`.
 
@@ -1231,14 +1049,6 @@ Default: `null`.
 <ParamField path="attributes" type="object | null">
 
 Filter on an alerts attributes. Alert attribute ID should be sent, followed by the operator and values. Accepted operator will depend on the attribute type. Sent as deepObject query parameters, for example `&#123;"01GBSQF3FHF7FWZQNWGHAVQ804": &#123;"one_of": ["01GBSQF3FHF7FWZQNWGHAVQ804", "01ET65M7ZARSFZ6TFDFVQDN9AA"]&#125;&#125;`.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
 
 Default: `null`.
 
@@ -1388,14 +1198,6 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="catalog_type_id" type="string | null">
 
 ID of this catalog type
@@ -1438,13 +1240,7 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
-
-</ParamField>
+This action does not take input fields.
 
 ## List custom field options
 
@@ -1465,14 +1261,6 @@ Required secrets:
 <ParamField path="after" type="string | null">
 
 A custom field option's ID. This endpoint will return a list of custom field options created after this option.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
 
 Default: `null`.
 
@@ -1510,13 +1298,7 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
-
-</ParamField>
+This action does not take input fields.
 
 ## List escalation paths
 
@@ -1537,14 +1319,6 @@ Required secrets:
 <ParamField path="after" type="string | null">
 
 An record's ID. This endpoint will return a list of records after this ID in relation to the API response order.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
 
 Default: `null`.
 
@@ -1593,14 +1367,6 @@ Default: `null`.
 <ParamField path="alert_one_of" type="array[string] | null">
 
 Filter on the alert that created an escalation. Accepted operators are 'one_of' and 'not_in'. Value for the `one_of` operator.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
 
 Default: `null`.
 
@@ -1758,14 +1524,6 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="created_at_date_range" type="string | null">
 
 Filter on follow-up created at timestamp. Accepted operators are 'gte', 'lte' and 'date_range'. Value for the `date_range` operator. Two dates joined by `~`, for example `2024-12-02~2024-12-08`.
@@ -1870,14 +1628,6 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="incident_id" type="string | null">
 
 Incident that this incident alert is attached to
@@ -1910,13 +1660,7 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
-
-</ParamField>
+This action does not take input fields.
 
 ## List incident statuses
 
@@ -1934,13 +1678,7 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
-
-</ParamField>
+This action does not take input fields.
 
 ## List incident types
 
@@ -1958,13 +1696,7 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
-
-</ParamField>
+This action does not take input fields.
 
 ## List incident updates
 
@@ -1985,14 +1717,6 @@ Required secrets:
 <ParamField path="after" type="string | null">
 
 An record's ID. This endpoint will return a list of records after this ID in relation to the API response order.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
 
 Default: `null`.
 
@@ -2033,14 +1757,6 @@ Required secrets:
 <ParamField path="after" type="string | null">
 
 An incident's ID. This endpoint will return a list of incidents after this ID in relation to the API response order.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
 
 Default: `null`.
 
@@ -2238,14 +1954,6 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="entry_window_end" type="string | null">
 
 The end of the window to get entries for.
@@ -2294,14 +2002,6 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="page_size" type="integer | null">
 
 Note that next_shifts will only be returned when the page size is 25 or lower. Maximum 10000.
@@ -2326,13 +2026,7 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
-
-</ParamField>
+This action does not take input fields.
 
 ## List teams
 
@@ -2353,14 +2047,6 @@ Required secrets:
 <ParamField path="after" type="string | null">
 
 An record's ID. This endpoint will return a list of records after this ID in relation to the API response order.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
 
 Default: `null`.
 
@@ -2393,14 +2079,6 @@ Required secrets:
 <ParamField path="after" type="string | null">
 
 An record's ID. This endpoint will return a list of records after this ID in relation to the API response order.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
 
 Default: `null`.
 
@@ -2466,14 +2144,6 @@ Tag names to remove from this alert
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 ## Resolve alert
 
 Action ID: `tools.incident_io.resolve_alert`
@@ -2493,14 +2163,6 @@ Required secrets:
 <ParamField path="id" type="string" required>
 
 Unique identifier for the alert
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
 
 </ParamField>
 
@@ -2529,14 +2191,6 @@ The ID of the escalation
 <ParamField path="response" type="string" required>
 
 Whether to acknowledge, decline or snooze the escalation. Allowed values: `ack`, `nack`, `snooze`.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
 
 </ParamField>
 
@@ -2573,14 +2227,6 @@ Unique identifier for the alert
 <ParamField path="tags" type="array[string]" required>
 
 The complete set of tag names for this alert
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
-
-Default: `null`.
 
 </ParamField>
 
@@ -2621,14 +2267,6 @@ Status of the action. Setting this to `deleted` is not allowed; use the delete e
 <ParamField path="assignee_id" type="string | null">
 
 ID of the user this action is assigned to. Set to null to unassign.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
 
 Default: `null`.
 
@@ -2679,14 +2317,6 @@ Default: `null`.
 <ParamField path="assignee_team_id" type="string | null">
 
 ID of the team this follow-up is assigned to. Set to null to unassign.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-incident.io API base URL.
 
 Default: `null`.
 

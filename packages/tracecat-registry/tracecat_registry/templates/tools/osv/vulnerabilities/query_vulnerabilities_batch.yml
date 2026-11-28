@@ -12,15 +12,11 @@ definition:
     queries:
       type: list[dict[str, Any]]
       description: OSV API-native query objects.
-    base_url:
-      type: str | None
-      description: Base URL of the OSV.dev API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.osv.base_url || "https://api.osv.dev" }}/v1/querybatch
+        url: https://api.osv.dev/v1/querybatch
         method: POST
         headers:
           Accept: application/json

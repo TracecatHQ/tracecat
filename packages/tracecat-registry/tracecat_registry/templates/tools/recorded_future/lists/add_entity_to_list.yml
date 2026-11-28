@@ -23,15 +23,11 @@ definition:
       type: dict[str, Any] | None
       description: Context to store with the list entry.
       default: null
-    base_url:
-      type: str | None
-      description: Base URL of the Recorded Future API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.recorded_future.base_url || "https://api.recordedfuture.com" }}/list/${{ FN.url_encode(inputs.listId) }}/entity/add
+        url: https://api.recordedfuture.com/list/${{ FN.url_encode(inputs.listId) }}/entity/add
         method: POST
         headers:
           Accept: application/json

@@ -124,15 +124,11 @@ definition:
         are 'is' for exact matches and 'starts_with' for prefix matching. Value for the
         `starts_with` operator.
       default: null
-    base_url:
-      type: str | None
-      description: incident.io API base URL.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/escalations
+        url: https://api.incident.io/v2/escalations
         method: GET
         headers:
           Accept: application/json

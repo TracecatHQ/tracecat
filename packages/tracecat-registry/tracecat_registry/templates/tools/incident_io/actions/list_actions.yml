@@ -71,15 +71,11 @@ definition:
         'date_range'. Value for the `date_range` operator. Two dates joined by `~`, for example
         `2024-12-02~2024-12-08`.
       default: null
-    base_url:
-      type: str | None
-      description: incident.io API base URL.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v3/actions
+        url: https://api.incident.io/v3/actions
         method: GET
         headers:
           Accept: application/json

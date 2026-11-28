@@ -26,14 +26,6 @@ IPv4 address to lookup.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-GreyNoise API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="days" type="string | null">
 
 Number of days to show data for. source_asn_subnet is limited to 90 days. GreyNoise defaults to 1.
@@ -88,14 +80,6 @@ GNQL query string.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-GreyNoise API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="count" type="integer | null">
 
 Number of top aggregates to grab. Minimum 1, maximum 10000. GreyNoise defaults to 1000.
@@ -123,14 +107,6 @@ Required secrets:
 <ParamField path="ip" type="string" required>
 
 IPv4 address to lookup.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-GreyNoise API base URL.
-
-Default: `null`.
 
 </ParamField>
 
@@ -164,14 +140,6 @@ IPv4 addresses to lookup. GreyNoise supports up to 10000 per request.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-GreyNoise API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="workspace_labels" type="string | null">
 
 Comma-separated list of dataset scopes to include in the query. When omitted, only the default GreyNoise global dataset is queried. Allowed values are greynoise (GreyNoise's global dataset), community (aggregated community-contributed data), and personal (the authenticated caller's own workspace data).
@@ -202,14 +170,6 @@ IPv4 address to lookup.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-GreyNoise API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="workspace_labels" type="string | null">
 
 Comma-separated list of dataset scopes to include in the query. When omitted, only the default GreyNoise global dataset is queried. Allowed values are greynoise (GreyNoise's global dataset), community (aggregated community-contributed data), and personal (the authenticated caller's own workspace data).
@@ -237,14 +197,6 @@ Required secrets:
 <ParamField path="query" type="string" required>
 
 GNQL query string.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-GreyNoise API base URL.
-
-Default: `null`.
 
 </ParamField>
 
@@ -310,14 +262,6 @@ IPv4 address to lookup.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-GreyNoise API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="workspace_labels" type="string | null">
 
 Comma-separated list of dataset scopes to include in the query. When omitted, only the default GreyNoise global dataset is queried. Allowed values are greynoise (GreyNoise's global dataset), community (aggregated community-contributed data), and personal (the authenticated caller's own workspace data).
@@ -345,14 +289,6 @@ Required secrets:
 <ParamField path="ips" type="array[string]" required>
 
 IPv4 addresses to lookup. GreyNoise supports up to 10000 per request.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-GreyNoise API base URL.
-
-Default: `null`.
 
 </ParamField>
 

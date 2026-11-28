@@ -30,15 +30,11 @@ definition:
       type: str | None
       description: Determines how multiple keywords are matched during discovery. 'any' returns results matching at least one keyword (broader discovery), while 'all' requires all keywords to match.
       default: null
-    base_url:
-      type: str | None
-      description: Base URL of the HudsonRock API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.hudsonrock.base_url || "https://api.hudsonrock.com" }}/json/v3/search-by-domain/discovery
+        url: https://api.hudsonrock.com/json/v3/search-by-domain/discovery
         method: POST
         headers:
           Accept: application/json

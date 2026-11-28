@@ -32,15 +32,11 @@ definition:
       type: str | None
       description: Comma-delimited attributes to search, such as url.
       default: null
-    base_url:
-      type: str | None
-      description: Base URL of the HN Algolia API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.hackernews.base_url || "https://hn.algolia.com" }}/api/v1/search
+        url: https://hn.algolia.com/api/v1/search
         method: GET
         headers:
           Accept: application/json

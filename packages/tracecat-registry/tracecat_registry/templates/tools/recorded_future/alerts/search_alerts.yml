@@ -54,15 +54,11 @@ definition:
       type: str | None
       description: Fields to include in the response. If no specific fields are requested, all available fields are included in the response. Values should be separated by comma. Available fields are ai_insights, enriched_entities, hits, id, log, owner_organisation_details, review, rule, title, triggered_by, type and url.
       default: null
-    base_url:
-      type: str | None
-      description: Base URL of the Recorded Future API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.recorded_future.base_url || "https://api.recordedfuture.com" }}/alert/v3
+        url: https://api.recordedfuture.com/alert/v3
         method: GET
         headers:
           Accept: application/json

@@ -27,15 +27,11 @@ definition:
         A boolean value, that when set to 1, will return MaxMind's GeoLite2 geolocation data
         instead of Spur's geolocation data in the location object.
       default: null
-    base_url:
-      type: str | None
-      description: Spur API base URL.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.spur.base_url || "https://api.spur.us" }}/v2/context/${{ FN.url_encode(inputs.ip) }}
+        url: https://api.spur.us/v2/context/${{ FN.url_encode(inputs.ip) }}
         method: GET
         headers:
           Token: ${{ SECRETS.spur.SPUR_TOKEN }}

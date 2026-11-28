@@ -20,14 +20,6 @@ OSV vulnerability identifier.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the OSV.dev API.
-
-Default: `null`.
-
-</ParamField>
-
 ## Query vulnerabilities
 
 Action ID: `tools.osv.query_vulnerabilities`
@@ -37,14 +29,6 @@ Query vulnerabilities. Calls POST /v1/query directly with an OSV API-native payl
 Reference: [https://google.github.io/osv.dev/post-v1-query/](https://google.github.io/osv.dev/post-v1-query/)
 
 ### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the OSV.dev API.
-
-Default: `null`.
-
-</ParamField>
 
 <ParamField path="commit" type="string | null">
 
@@ -107,13 +91,5 @@ Reference: [https://google.github.io/osv.dev/post-v1-querybatch/](https://google
 <ParamField path="queries" type="array[object]" required>
 
 OSV API-native query objects.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the OSV.dev API.
-
-Default: `null`.
 
 </ParamField>

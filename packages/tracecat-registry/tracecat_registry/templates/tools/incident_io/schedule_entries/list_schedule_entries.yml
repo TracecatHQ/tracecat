@@ -27,15 +27,11 @@ definition:
       type: str | None
       description: The end of the window to get entries for.
       default: null
-    base_url:
-      type: str | None
-      description: incident.io API base URL.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/schedule_entries
+        url: https://api.incident.io/v2/schedule_entries
         method: GET
         headers:
           Accept: application/json

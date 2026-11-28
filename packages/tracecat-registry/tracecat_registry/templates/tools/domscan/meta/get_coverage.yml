@@ -11,15 +11,11 @@ definition:
       type: str | None
       description: Set to 1 to include live RDAP endpoint health checks.
       default: null
-    base_url:
-      type: str | None
-      description: Base URL of the DomScan API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.domscan.base_url || "https://domscan.net" }}/v1/coverage
+        url: https://domscan.net/v1/coverage
         method: GET
         params:
           live: ${{ inputs.live }}

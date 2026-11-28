@@ -54,15 +54,11 @@ definition:
       type: str | None
       description: An opaque string that was received as the next_offset in the previous call when paging. It identifies the next page with additional results that did not fit within the limit.
       default: null
-    base_url:
-      type: str | None
-      description: Base URL of the Recorded Future API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.recorded_future.base_url || "https://api.recordedfuture.com" }}/detection-rule/search
+        url: https://api.recordedfuture.com/detection-rule/search
         method: POST
         headers:
           Accept: application/json

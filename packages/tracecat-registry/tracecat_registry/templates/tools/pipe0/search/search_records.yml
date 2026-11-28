@@ -17,15 +17,11 @@ definition:
       type: dict[str, Any] | None
       description: Pipe0 run configuration object, covering environment, widgets, and field_definitions.
       default: null
-    base_url:
-      type: str | None
-      description: Base URL of the Pipe0 API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.pipe0.base_url || "https://api.pipe0.com" }}/v1/searches/run/sync
+        url: https://api.pipe0.com/v1/searches/run/sync
         method: POST
         headers:
           Authorization: Bearer ${{ SECRETS.pipe0.PIPE0_API_KEY }}

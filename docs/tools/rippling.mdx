@@ -26,14 +26,6 @@ List of draft hires. Each draft hire requires `personal_info`, `employment_info`
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Rippling REST API.
-
-Default: `null`.
-
-</ParamField>
-
 ## Create software deployment
 
 Action ID: `tools.rippling.create_software_deployment`
@@ -49,14 +41,6 @@ Required secrets:
 - `rippling`: required values `RIPPLING_API_KEY`.
 
 ### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Rippling REST API.
-
-Default: `null`.
-
-</ParamField>
 
 <ParamField path="payload" type="object | null">
 
@@ -88,14 +72,6 @@ Rippling API path value for id.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Rippling REST API.
-
-Default: `null`.
-
-</ParamField>
-
 ## Get report run
 
 Action ID: `tools.rippling.get_report_run`
@@ -118,14 +94,6 @@ Rippling API path value for run_id.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Rippling REST API.
-
-Default: `null`.
-
-</ParamField>
-
 ## Get SSO me
 
 Action ID: `tools.rippling.get_sso_me`
@@ -141,14 +109,6 @@ Required secrets:
 - `rippling`: required values `RIPPLING_API_KEY`.
 
 ### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Rippling REST API.
-
-Default: `null`.
-
-</ParamField>
 
 <ParamField path="cursor" type="string | null">
 
@@ -188,14 +148,6 @@ Rippling API path value for id.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Rippling REST API.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="expand" type="string | null">
 
 Fields in a response can represent objects themselves. Instead of making an additional API call, you can expand field(s) in a response using the `expand` query parameter. Use commas to specify multiple fields to expand. Use dot notation (.) to recursively expand. The API supports two levels of expansion and up to ten expanded fields per request. Expandable fields: `user`, `manager`, `legal_entity`, `employment_type`, `compensation`, `department`, `teams`, `level`, `job_function`, `custom_fields`, `business_partners`.
@@ -219,14 +171,6 @@ Required secrets:
 - `rippling`: required values `RIPPLING_API_KEY`.
 
 ### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Rippling REST API.
-
-Default: `null`.
-
-</ParamField>
 
 <ParamField path="cursor" type="string | null">
 
@@ -284,14 +228,6 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Rippling REST API.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="cursor" type="string | null">
 
 `cursor` is used to fetch the next page of results. Start with a request without cursor, read the `next_link` value from the response, and continue until `next_link` is `null`.
@@ -339,14 +275,6 @@ Required secrets:
 - `rippling`: required values `RIPPLING_API_KEY`.
 
 ### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Rippling REST API.
-
-Default: `null`.
-
-</ParamField>
 
 <ParamField path="cursor" type="string | null">
 
@@ -404,13 +332,7 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Rippling REST API.
-
-Default: `null`.
-
-</ParamField>
+This action does not take input fields.
 
 ## List leave balances
 
@@ -427,14 +349,6 @@ Required secrets:
 - `rippling`: required values `RIPPLING_API_KEY`.
 
 ### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Rippling REST API.
-
-Default: `null`.
-
-</ParamField>
 
 <ParamField path="cursor" type="string | null">
 
@@ -492,14 +406,6 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Rippling REST API.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="cursor" type="string | null">
 
 `cursor` is used to fetch the next page of results. Start with a request without cursor, read the `next_link` value from the response, and continue until `next_link` is `null`.
@@ -555,14 +461,6 @@ Required secrets:
 - `rippling`: required values `RIPPLING_API_KEY`.
 
 ### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Rippling REST API.
-
-Default: `null`.
-
-</ParamField>
 
 <ParamField path="cursor" type="string | null">
 
@@ -626,14 +524,6 @@ Rippling API path value for group_id.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Rippling REST API.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="expand" type="string | null">
 
 Fields in a response can represent objects themselves. Instead of making an additional API call, you can expand field(s) in a response using the `expand` query parameter. Use commas to specify multiple fields to expand. Use dot notation (.) to recursively expand. The API supports two levels of expansion and up to ten expanded fields per request. Expandable fields: `worker`.
@@ -666,14 +556,6 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Rippling REST API.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="filter" type="string | null">
 
 The `filter` query parameter is used to filter the data returned from the API - similar to a `where` clause. The following operators are supported: eq, ne, gt, gte, lt, lte, and, or, in. Example: status eq 'ACTIVE'. Filterable fields: `app_owner_id`, `group_type`.
@@ -705,14 +587,6 @@ Required secrets:
 - `rippling`: required values `RIPPLING_API_KEY`.
 
 ### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Rippling REST API.
-
-Default: `null`.
-
-</ParamField>
 
 <ParamField path="cursor" type="string | null">
 
@@ -762,14 +636,6 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Rippling REST API.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="cursor" type="string | null">
 
 `cursor` is used to fetch the next page of results. Start with a request without cursor, read the `next_link` value from the response, and continue until `next_link` is `null`.
@@ -810,14 +676,6 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Rippling REST API.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="cursor" type="string | null">
 
 `cursor` is used to fetch the next page of results. Start with a request without cursor, read the `next_link` value from the response, and continue until `next_link` is `null`.
@@ -857,14 +715,6 @@ Required secrets:
 - `rippling`: required values `RIPPLING_API_KEY`.
 
 ### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Rippling REST API.
-
-Default: `null`.
-
-</ParamField>
 
 <ParamField path="cursor" type="string | null">
 
@@ -922,14 +772,6 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Rippling REST API.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="cursor" type="string | null">
 
 `cursor` is used to fetch the next page of results. Start with a request without cursor, read the `next_link` value from the response, and continue until `next_link` is `null`.
@@ -986,14 +828,6 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Rippling REST API.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="payload" type="object | null">
 
 API-native request body. Documented fields: report_id (required), filters, format_currency_fields, format_date_fields, include_object_ids, include_total_rows, output_type, view_as.
@@ -1021,14 +855,6 @@ Required secrets:
 <ParamField path="id" type="string" required>
 
 Rippling API path value for id.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Rippling REST API.
-
-Default: `null`.
 
 </ParamField>
 
@@ -1068,14 +894,6 @@ Rippling API path value for group_id.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Rippling REST API.
-
-Default: `null`.
-
-</ParamField>
-
 ## Update supergroup inclusion members
 
 Action ID: `tools.rippling.update_supergroup_inclusion_members`
@@ -1101,13 +919,5 @@ The list of operations to apply. Each operation takes `op` (add or remove) and `
 <ParamField path="group_id" type="string" required>
 
 Rippling API path value for group_id.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Rippling REST API.
-
-Default: `null`.
 
 </ParamField>

@@ -20,14 +20,6 @@ Filters by EPSS CVE ID. Multiple values are supported separated by commas. The m
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the FIRST API.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="date" type="string | null">
 
 Date in the format YYYY-MM-DD (since April 14, 2021), shows the historic values for epss and percentile attributes.
@@ -49,14 +41,6 @@ Reference: [https://api.first.org/epss/](https://api.first.org/epss/)
 <ParamField path="cve" type="string" required>
 
 Filters by EPSS CVE ID. Multiple values are supported separated by commas. The maximum size accepted for this parameter is 2000 characters (including commas).
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the FIRST API.
-
-Default: `null`.
 
 </ParamField>
 
@@ -93,14 +77,6 @@ Search EPSS scores. Calls GET /data/v1/epss directly with FIRST API-native filte
 Reference: [https://api.first.org/epss/](https://api.first.org/epss/)
 
 ### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the FIRST API.
-
-Default: `null`.
-
-</ParamField>
 
 <ParamField path="date" type="string | null">
 

@@ -38,14 +38,6 @@ The slug of the repository to associate the full-scan with.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Socket API.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="branch" type="string | null">
 
 The branch name to associate the full-scan with. Branch names must follow Git branch name rules: be 1-255 characters long; cannot be exactly @; cannot begin or end with /, ., or .lock; cannot contain "//", "..", or "@&#123;"; and cannot include control characters, spaces, or any of ~^:?*[.
@@ -173,14 +165,6 @@ Socket organization slug.
 <ParamField path="repo" type="string" required>
 
 The slug of the repository to associate the full-scan with.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Socket API.
-
-Default: `null`.
 
 </ParamField>
 
@@ -332,14 +316,6 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Socket API.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="cachedResultsOnly" type="boolean | null">
 
 Legacy fallback for older clients. Only used when poll is omitted: cachedResultsOnly=true behaves like poll=false, while cachedResultsOnly=false preserves the older blocking behavior.
@@ -448,14 +424,6 @@ Socket organization slug.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Socket API.
-
-Default: `null`.
-
-</ParamField>
-
 ## List full scans
 
 Action ID: `tools.socket.list_full_scans`
@@ -475,14 +443,6 @@ Required secrets:
 <ParamField path="org_slug" type="string" required>
 
 Socket organization slug.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Socket API.
-
-Default: `null`.
 
 </ParamField>
 
@@ -612,14 +572,6 @@ Socket organization slug.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Socket API.
-
-Default: `null`.
-
-</ParamField>
-
 ## List threat feed items
 
 Action ID: `tools.socket.list_threat_feed_items`
@@ -639,14 +591,6 @@ Required secrets:
 <ParamField path="org_slug" type="string" required>
 
 Socket organization slug.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Socket API.
-
-Default: `null`.
 
 </ParamField>
 
@@ -771,14 +715,6 @@ Socket organization slug.
 Response media type to request.
 
 Default: `"application/x-ndjson"`.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Socket API.
-
-Default: `null`.
 
 </ParamField>
 

@@ -26,14 +26,6 @@ Rewritten URLs to decode.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Proofpoint TAP API base URL. Defaults to https://tap-api-v2.proofpoint.com.
-
-Default: `null`.
-
-</ParamField>
-
 ## Get campaign
 
 Action ID: `tools.proofpoint_tap.get_campaign`
@@ -56,14 +48,6 @@ Campaign ID.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Proofpoint TAP API base URL. Defaults to https://tap-api-v2.proofpoint.com.
-
-Default: `null`.
-
-</ParamField>
-
 ## Get forensics
 
 Action ID: `tools.proofpoint_tap.get_forensics`
@@ -79,14 +63,6 @@ Required secrets:
 - `proofpoint_tap`: required values `PROOFPOINT_TAP_SERVICE_PRINCIPAL`, `PROOFPOINT_TAP_SERVICE_SECRET`.
 
 ### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-Proofpoint TAP API base URL. Defaults to https://tap-api-v2.proofpoint.com.
-
-Default: `null`.
-
-</ParamField>
 
 <ParamField path="campaignId" type="string | null">
 
@@ -134,14 +110,6 @@ Threat ID.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Proofpoint TAP API base URL. Defaults to https://tap-api-v2.proofpoint.com.
-
-Default: `null`.
-
-</ParamField>
-
 ## List campaign IDs
 
 Action ID: `tools.proofpoint_tap.list_campaign_ids`
@@ -161,14 +129,6 @@ Required secrets:
 <ParamField path="interval" type="string" required>
 
 ISO 8601 time interval to query, e.g. 2020-05-01T12:00:00Z/2020-05-01T13:00:00Z. Must span between 30 seconds and 1 day.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Proofpoint TAP API base URL. Defaults to https://tap-api-v2.proofpoint.com.
-
-Default: `null`.
 
 </ParamField>
 
@@ -210,14 +170,6 @@ Number of days to report on. Valid values: 14, 30, 90.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Proofpoint TAP API base URL. Defaults to https://tap-api-v2.proofpoint.com.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="page" type="integer | null">
 
 Page of results to return, starting at 1. Defaults to 1.
@@ -253,14 +205,6 @@ Required secrets:
 <ParamField path="window" type="integer" required>
 
 Number of days to report on. Valid values: 14, 30, 90.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Proofpoint TAP API base URL. Defaults to https://tap-api-v2.proofpoint.com.
-
-Default: `null`.
 
 </ParamField>
 

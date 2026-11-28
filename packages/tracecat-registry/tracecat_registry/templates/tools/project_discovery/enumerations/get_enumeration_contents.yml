@@ -130,15 +130,11 @@ definition:
       type: str | None
       description: "Retrieve the Team ID from: https://cloud.projectdiscovery.io/settings/team"
       default: null
-    base_url:
-      type: str | None
-      description: ProjectDiscovery Cloud API base URL.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.project_discovery.base_url || "https://api.projectdiscovery.io" }}/v1/asset/enumerate/${{ FN.url_encode(inputs.enumerate_id) }}/contents
+        url: https://api.projectdiscovery.io/v1/asset/enumerate/${{ FN.url_encode(inputs.enumerate_id) }}/contents
         method: GET
         headers:
           X-Api-Key: ${{ SECRETS.project_discovery.PDCP_API_KEY }}

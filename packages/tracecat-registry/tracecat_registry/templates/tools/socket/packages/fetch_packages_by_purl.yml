@@ -93,15 +93,11 @@ definition:
         analysis. Inputs that have not completed processing when the timeout is reached return
         pendingScan alerts when alerts=true, or errors when purlErrors=true.
       default: null
-    base_url:
-      type: str | None
-      description: Base URL of the Socket API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.socket.base_url || "https://api.socket.dev" }}/v0/orgs/${{ FN.url_encode(inputs.org_slug) }}/purl
+        url: https://api.socket.dev/v0/orgs/${{ FN.url_encode(inputs.org_slug) }}/purl
         method: POST
         headers:
           Accept: ${{ inputs.accept }}

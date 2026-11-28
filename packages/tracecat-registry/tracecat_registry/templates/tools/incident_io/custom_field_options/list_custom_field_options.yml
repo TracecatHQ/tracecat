@@ -26,15 +26,11 @@ definition:
       type: str | None
       description: The custom field to list options for.
       default: null
-    base_url:
-      type: str | None
-      description: incident.io API base URL.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v1/custom_field_options
+        url: https://api.incident.io/v1/custom_field_options
         method: GET
         headers:
           Accept: application/json

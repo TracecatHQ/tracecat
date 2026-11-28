@@ -43,15 +43,11 @@ definition:
       description: >-
         The title of the alert, parsed from the alert payload according to the alert source
         configuration
-    base_url:
-      type: str | None
-      description: incident.io API base URL.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/alert_events/http/${{ FN.url_encode(inputs.alert_source_config_id) }}
+        url: https://api.incident.io/v2/alert_events/http/${{ FN.url_encode(inputs.alert_source_config_id) }}
         method: POST
         headers:
           Accept: application/json
