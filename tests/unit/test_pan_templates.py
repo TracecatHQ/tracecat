@@ -335,3 +335,24 @@ def test_single_request_actions_return_full_result(rel: str) -> None:
     (request,) = [s for s in definition.steps if s.action.startswith("core.http_")]
     assert definition.returns == f"${{{{ steps.{request.ref}.result }}}}"
     assert "ignore_status_codes" not in request.args
+
+
+@pytest.mark.parametrize(
+    ("status", "result", "raise_on_failure", "raises"),
+    [
+        ("FIN", "OK", True, False),
+        ("FIN", "FAIL", True, True),
+        ("PUSHFAIL", "OK", True, True),
+        ("FIN", "FAIL", False, False),
+    ],
+)
+def test_scm_wait_for_job_raises_on_failed_job(
+    status: str, result: str, raise_on_failure: bool, raises: bool
+) -> None:
+    check = _script("pan_strata/operations/wait_for_job", "check")
+    response = {"data": {"data": [{"status_str": status, "result_str": result}]}}
+    if raises:
+        with pytest.raises(ValueError, match="finished with status"):
+            check(response, "1", raise_on_failure)
+    else:
+        assert check(response, "1", raise_on_failure) is None

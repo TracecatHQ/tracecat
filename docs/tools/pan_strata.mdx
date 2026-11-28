@@ -2472,7 +2472,7 @@ Default: `"pre"`.
 
 Action ID: `tools.pan_strata.wait_for_job`
 
-Poll GET /config/operations/v1/jobs/&#123;id&#125; until the job finishes, then return the final response. Check status_str and result_str for the outcome. Fails when the job does not finish within poll_max_attempts.
+Poll GET /config/operations/v1/jobs/&#123;id&#125; until the job finishes, then return the final response. Fails when the job fails, unless raise_on_failure is false, or when it does not finish within poll_max_attempts.
 
 Reference: [https://pan.dev/scm/api/config/ngfw/operations/get-jobs-by-id/](https://pan.dev/scm/api/config/ngfw/operations/get-jobs-by-id/)
 
@@ -2511,5 +2511,13 @@ Default: `10`.
 Maximum number of polls.
 
 Default: `60`.
+
+</ParamField>
+
+<ParamField path="raise_on_failure" type="boolean">
+
+Fail the action when the job finishes unsuccessfully.
+
+Default: `true`.
 
 </ParamField>
