@@ -1,0 +1,51 @@
+type: action
+definition:
+  title: Confirm compromised users
+  description: >-
+    Confirm one or more riskyUser objects as compromised. This action sets the
+    targeted user's risk level to high. Requires a Microsoft Entra ID P2 license
+    and the IdentityRiskyUser.ReadWrite.All permission (delegated or application).
+    IdentityRiskyUser.ReadWrite.All is not in the default delegated scopes, so add
+    it to the integration's scopes before connecting. For delegated access, the
+    signed-in user needs at least the Security Administrator role.
+  display_group: Microsoft Entra
+  doc_url: https://learn.microsoft.com/en-us/graph/api/riskyuser-confirmcompromised?view=graph-rest-1.0
+  namespace: tools.microsoft_entra
+  name: confirm_compromised_users
+  secrets:
+    - type: oauth
+      provider_id: microsoft_entra
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_entra
+      grant_type: client_credentials
+      optional: true
+  expects:
+    userIds:
+      type: list[str]
+      description: Specify the risky user IDs to mark as high risk.
+    base_url:
+      type: str | None
+      description: >-
+        Microsoft Graph host, without the API version. If omitted, uses the
+        workspace variable `microsoft_entra.base_url`, then
+        https://graph.microsoft.com. National clouds: https://graph.microsoft.us
+        (US Government L4) and https://dod-graph.microsoft.us (US Government L5
+        DOD).
+      default: null
+    api_version:
+      type: str
+      description: Microsoft Graph API version.
+      default: "v1.0"
+  steps:
+    - ref: confirm_compromised
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.microsoft_entra.base_url || "https://graph.microsoft.com" }}/${{ inputs.api_version }}/identityProtection/riskyUsers/confirmCompromised
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_USER_TOKEN || SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_SERVICE_TOKEN }}
+        payload:
+          userIds: ${{ inputs.userIds }}
+  returns: ${{ steps.confirm_compromised.result }}

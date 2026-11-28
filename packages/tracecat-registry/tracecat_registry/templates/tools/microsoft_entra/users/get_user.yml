@@ -20,42 +20,35 @@ definition:
       type: str
       description: The unique identifier of the user to retrieve.
     select:
-      type: list[str]
+      type: list[str] | None
       description: Optional set of user properties to return.
       default: null
     expand:
-      type: list[str]
+      type: list[str] | None
       description: Optional related entities to expand in the response.
       default: null
     base_url:
-      type: enum["https://graph.microsoft.com", "https://graph.microsoft.us"]
-      description: Base URL for the Microsoft Graph API.
-      default: https://graph.microsoft.com
+      type: str | None
+      description: >-
+        Microsoft Graph host, without the API version. If omitted, uses the
+        workspace variable `microsoft_entra.base_url`, then
+        https://graph.microsoft.com. National clouds: https://graph.microsoft.us
+        (US Government L4) and https://dod-graph.microsoft.us (US Government L5
+        DOD).
+      default: null
     api_version:
       type: str
       description: Microsoft Graph API version.
       default: "v1.0"
   steps:
-    - ref: build_params
-      action: core.script.run_python
-      args:
-        inputs:
-          select: ${{ inputs.select }}
-          expand: ${{ inputs.expand }}
-        script: |
-          def main(select, expand):
-              params = {}
-              if select:
-                  params["$select"] = ",".join(select)
-              if expand:
-                  params["$expand"] = ",".join(expand)
-              return params
     - ref: get_user
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/${{ inputs.api_version }}/users/${{ FN.url_encode(inputs.user_id) }}
+        url: ${{ inputs.base_url || VARS.microsoft_entra.base_url || "https://graph.microsoft.com" }}/${{ inputs.api_version }}/users/${{ FN.url_encode(inputs.user_id) }}
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_USER_TOKEN || SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_SERVICE_TOKEN }}
-        params: ${{ steps.build_params.result }}
+        params:
+          $select: ${{ FN.join(inputs.select, ",") if inputs.select else None }}
+          $expand: ${{ FN.join(inputs.expand, ",") if inputs.expand else None }}
   returns: ${{ steps.get_user.result.data }}
