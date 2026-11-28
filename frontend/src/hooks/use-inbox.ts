@@ -391,9 +391,6 @@ export function useCaseAgentSessions({
     enabled: enabled && Boolean(workspaceId) && Boolean(caseId),
     retry: retryHandler,
     meta: { suppressErrorToast: true },
-    // The poll keeps the list fresh, so a remount or window focus inside
-    // half an interval does not need its own request.
-    staleTime: CASE_AGENT_SESSIONS_POLL_MS / 2,
     refetchInterval: (query) => {
       if (
         typeof document !== "undefined" &&
