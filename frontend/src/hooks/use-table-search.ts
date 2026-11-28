@@ -12,6 +12,7 @@ import {
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { toast } from "@/components/ui/use-toast"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { getApiErrorCode } from "@/lib/errors"
 import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
 /** Shared cache prefix for selection, status and bounded progress. */
@@ -91,6 +92,17 @@ export function useTableSearch(workspaceId: string, tableId: string) {
     ])
   }
   function mutationError(error: ApiError) {
+    if (getApiErrorCode(error) === "SOURCE_BUSY") {
+      // Writes were in progress and the change gave up waiting. Nothing
+      // changed, so the settings don't need a refresh.
+      toast({
+        title: "Search settings are busy",
+        description:
+          "Other changes are in progress in this workspace. Try again shortly.",
+        variant: "destructive",
+      })
+      return
+    }
     toast({
       title:
         error.status === 409

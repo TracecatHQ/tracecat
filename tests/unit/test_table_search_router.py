@@ -6,7 +6,9 @@ from uuid import uuid4
 
 import httpx
 import pytest
+from asyncpg.exceptions import DeadlockDetectedError, LockNotAvailableError
 from fastapi import FastAPI, HTTPException
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
@@ -15,6 +17,7 @@ from tracecat.db.engine import get_async_session
 from tracecat.exceptions import ScopeDeniedError, TracecatNotFoundError
 from tracecat.pagination import PaginationError, PaginationErrorCode
 from tracecat.search.embeddings.service import WorkspaceEmbeddingService
+from tracecat.search.types import SearchError, SearchErrorCode, SearchScope
 from tracecat.tables.search.router import (
     get_table_search,
     get_table_search_progress,
@@ -95,6 +98,55 @@ async def test_invalid_column_selection_keeps_safe_422_response(
     assert exc.value.status_code == 422
     assert exc.value.detail == {"code": "INVALID_SELECTION"}
     session.commit.assert_not_awaited()
+
+
+async def test_busy_selection_is_a_conflict(
+    search_role: Role, monkeypatch: pytest.MonkeyPatch
+):
+    session = AsyncMock(spec=AsyncSession)
+    monkeypatch.setattr(
+        TableSearchService,
+        "select_column",
+        AsyncMock(side_effect=SearchError(SearchErrorCode.SOURCE_BUSY)),
+    )
+    with pytest.raises(HTTPException) as exc:
+        await select_table_search_column(
+            table_id=uuid4(),
+            params=TableSearchSelection(
+                column_id=uuid4(), enabled=True, expected_generation=0
+            ),
+            role=search_role,
+            session=session,
+        )
+    assert exc.value.status_code == 409
+    assert exc.value.detail == {"code": "SOURCE_BUSY"}
+    session.commit.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "cause",
+    [LockNotAvailableError("lock timeout"), DeadlockDetectedError("deadlock")],
+    ids=["lock-timeout", "deadlock"],
+)
+async def test_selection_lock_wait_failures_are_busy(
+    monkeypatch: pytest.MonkeyPatch, cause: Exception
+):
+    monkeypatch.setattr(
+        TableSearchService,
+        "_select_column",
+        AsyncMock(side_effect=DBAPIError("synthetic SQL", {}, cause)),
+    )
+    service = TableSearchService(
+        AsyncMock(spec=AsyncSession), SearchScope(uuid4(), uuid4())
+    )
+    with pytest.raises(SearchError) as exc:
+        await service.select_column(
+            uuid4(),
+            TableSearchSelection(
+                column_id=uuid4(), enabled=True, expected_generation=0
+            ),
+        )
+    assert exc.value.code == SearchErrorCode.SOURCE_BUSY
 
 
 async def test_missing_table_is_rejected_before_provider_lookup(

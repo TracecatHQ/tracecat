@@ -2079,6 +2079,7 @@ class BaseTablesService(BaseWorkspaceService):
         conn = await self.session.connection()
 
         total_affected = 0
+        recorded: list[UUID] = []
 
         # If we need upsert behaviour, fetch the unique index once.
         index: list[str] | None = None
@@ -2174,13 +2175,16 @@ class BaseTablesService(BaseWorkspaceService):
             )
             written = result.scalars().all()
             total_affected += len(written)
-            ids = [
+            recorded.extend(
                 row_id
                 for row_id in written
                 if row_id not in existing_ids or row_id in changed_ids
-            ]
-            await self.search.record_rows(collection, ids)
+            )
 
+        # Record rows once, after every source write. That holds the search
+        # document row locks for the shortest time, and it is the order writers
+        # need once they stop taking the workspace lock: write, then record.
+        await self.search.record_rows(collection, recorded)
         # Flush once at the end to ensure changes are persisted within the transaction.
         await self.session.flush()
         return total_affected
