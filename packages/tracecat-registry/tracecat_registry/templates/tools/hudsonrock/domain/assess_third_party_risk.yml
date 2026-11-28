@@ -14,15 +14,11 @@ definition:
     domain:
       type: str
       description: The domain to evaluate for potential security risks.
-    base_url:
-      type: str | None
-      description: Base URL of the HudsonRock API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.hudsonrock.base_url || "https://api.hudsonrock.com" }}/json/v3/search-by-domain/assessment
+        url: https://api.hudsonrock.com/json/v3/search-by-domain/assessment
         method: POST
         headers:
           Accept: application/json

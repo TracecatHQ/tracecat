@@ -255,7 +255,7 @@ export function SlackChannelPanel({
         title: "Missing fields",
         description:
           "Client ID, client secret, and signing secret are required.",
-        variant: "destructive",
+        variant: "warning",
       })
       return
     }

@@ -74,15 +74,11 @@ definition:
       description: >-
         A scan type to filter full-scans by (e.g. socket, socket_tier1, socket_basics).
       default: null
-    base_url:
-      type: str | None
-      description: Base URL of the Socket API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.socket.base_url || "https://api.socket.dev" }}/v0/orgs/${{ FN.url_encode(inputs.org_slug) }}/full-scans
+        url: https://api.socket.dev/v0/orgs/${{ FN.url_encode(inputs.org_slug) }}/full-scans
         method: GET
         headers:
           Accept: application/json

@@ -190,3 +190,12 @@ class TemporalSearchAttr(StrEnum):
             key=self.key,
             value=value,
         )
+
+
+TEMPORAL_SCHEDULED_BY_ID = SearchAttributeKey.for_keyword("TemporalScheduledById")
+"""Temporal's built-in attribute for the ID of the schedule that started a run.
+
+Temporal sets it on every run a schedule starts (``sch-<hex>``, see
+``tracecat.workflow.schedules.bridge``). Read only; Tracecat never registers
+or sets it, so it is not a ``TemporalSearchAttr``.
+"""

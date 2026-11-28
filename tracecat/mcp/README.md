@@ -169,6 +169,12 @@ things off and renaming need only `trigger:update`, except for kinds written
 through their own resource (`schedule`, `webhook`, `case_trigger`), which also
 need that resource's update scope. `endpoint_url` is null
 for callers without `trigger:update`.
+An `aws_sns` source config may carry `bucket` (a bucket name or ARN, stored as
+the name): the source then refuses events for any other bucket. Leave it out of
+an update's config to clear it; changing it does not reset the subscription.
+The pin checks only the bucket name written in each message; it is not an
+ownership check. The topic policy's `aws:SourceArn` and `aws:SourceAccount`
+conditions remain the ownership controls.
 
 - `list_event_sources(workspace_id, limit=..., cursor=None)`
 - `get_event_source(workspace_id, source_id)`
@@ -186,8 +192,10 @@ for callers without `trigger:update`.
 
 A run a trigger starts carries the trigger's ID in the `TracecatTriggerId`
 search attribute: object storage triggers' workflow and agent runs, and
-webhooks and case triggers that have a trigger row. Schedules are not linked
-yet. `list_trigger_runs` reads those runs (root runs only); workflow runs also
+webhooks and case triggers that have a trigger row. Schedules need no link:
+Temporal stamps every run a schedule starts with its built-in
+`TemporalScheduledById`, so a schedule trigger lists all its runs, older ones
+included (workflow runs only, `workflow:read`). `list_trigger_runs` reads those runs (root runs only); workflow runs also
 need `workflow:read` and agent runs `agent:read`. `list_trigger_stopped_events`
 lists an `object_storage` trigger's events that hit the attempt cap, with the
 redacted error and never the event; it also needs `workflow:read` and `agent:read`. `get_trigger_run_origin` goes the other

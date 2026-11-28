@@ -1,6 +1,7 @@
 "use client"
 
 import type { CaseRead, CaseUpdate } from "@/client"
+import { CaseAgentSessionsPanel } from "@/components/cases/case-agent-sessions-panel"
 import { CaseAttachmentsSection } from "@/components/cases/case-attachments-section"
 import { CaseLinkedRowsSection } from "@/components/cases/case-linked-rows-section"
 import { CasePanelDescription } from "@/components/cases/case-panel-description"
@@ -67,6 +68,14 @@ export function CasePanelContent({
           caseId={caseId}
           workspaceId={workspaceId}
           caseFields={caseData.fields}
+        />
+      )
+    case "agent-sessions":
+      return (
+        <CaseAgentSessionsPanel
+          caseId={caseId}
+          workspaceId={workspaceId}
+          embedded={embedded}
         />
       )
     case "sub-cases":

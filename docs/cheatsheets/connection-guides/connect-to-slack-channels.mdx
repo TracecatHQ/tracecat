@@ -1,0 +1,153 @@
+---
+title: "Connect to Slack channels"
+description: "Chat with agents and approve tool calls in Slack channels and direct messages."
+icon: "lock"
+---
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+Add a bot to Slack so people can chat with your agents in direct messages and channels. To post messages or receive Slack events in workflows instead, see [Connect to Slack](/cheatsheets/connection-guides/connect-to-slack).
+
+You need `agent:update` in the workspace and permission to install apps in your Slack workspace.
+
+## Capabilities
+
+- Direct messages: the agent answers every message.
+- Channels: the agent answers messages that mention it, in channels you invited it to.
+- Threads: each thread is one agent session, so the agent remembers earlier turns in that thread.
+- Channel routing: each channel can have its own agent. The default agent answers direct messages and channels without their own agent.
+- Tool approvals: approve or deny a tool call from the thread. The card then shows who decided.
+
+## Choose a bot
+
+Open `Agents → Channels` and click `Add bot`.
+
+- `Tracecat`: one shared `@Tracecat` bot. Pick the agent for each channel. Recommended.
+- `Custom bot`: a Slack app with its own name and icon that answers for one agent. Add several to run more than one agent in a channel. See [Connect a custom bot](#connect-a-custom-bot).
+
+On self-hosted Tracecat, a platform admin first [registers the Tracecat app](#register-the-platform-slack-app). Until then, `Tracecat` shows `Not set up on this instance`.
+
+## Add Tracecat to Slack
+
+1. In `Agents → Channels`, click `Add bot → Tracecat`.
+2. Under `Agent for DMs and unlisted channels`, choose an agent. The list shows agents with `Use in chat` on.
+3. Click `Continue in Slack`. Select your Slack workspace and click `Allow`.
+
+![Add Tracecat sheet](/img/connection-guides/slack-channels/slack-add-tracecat.png)
+
+Run `/invite @Tracecat` in a channel, then send `@Tracecat What can you help me with?`. Mention the bot in the thread to continue.
+
+## Choose which agent answers
+
+`Agents → Channels` lists every bot in the workspace and the channels it is in. `Everywhere else` sets the default agent, which answers direct messages and channels without their own agent.
+
+- To change the agent for a channel, choose a different agent on its row.
+- To add a channel the bot isn't in yet, click `Add channel to Tracecat for Slack`, pick the channel, choose the agent, and click `Add channel`. Then run `/invite @Tracecat` in that channel.
+- To return a channel to the default agent, click its delete icon.
+
+![Channels table with per-channel agents](/img/connection-guides/slack-channels/slack-channel-routing.png)
+
+New threads use the new agent. Threads already started keep their agent.
+
+## Manage a bot
+
+Click `Manage` on a bot to change its default agent, who can use it, and its connection.
+
+![Manage bot sheet](/img/connection-guides/slack-channels/slack-bot-manage.png)
+
+`Who can use this bot` applies to every agent the bot serves. Members link their Slack account by signing in to Tracecat.
+
+| Option | Who can message | Who can approve tool calls |
+| --- | --- | --- |
+| `Anyone can message; linked members approve` | Anyone in the channel | Linked members |
+| `Only linked members` | Linked members | Linked members |
+| `Anyone in the channel` | Anyone in the channel | Anyone in the channel |
+
+Under `Connection`:
+
+- Click `Pause` to stop replies and `Resume` to restart them.
+- If the status shows `Needs reconnect` or `Update needed`, click `Reconnect` and approve the app in Slack.
+- To connect the Slack workspace to a different Tracecat workspace, first click `Disconnect` in the current one.
+
+<span id="connect-a-slack-app" style={{ display: "block", scrollMarginTop: "var(--scroll-mt)" }} />
+
+## Connect a custom bot
+
+Each custom bot is its own Slack app and counts toward [Slack's installation limit](https://slack.com/help/articles/115002422943-Usage-limits-for-free-workspaces).
+
+1. Open the agent's `Channels` tab. Under `Custom Slack app`, click `Connect`. You can also click `Add bot → Custom bot` in `Agents → Channels` and choose the agent.
+2. Enter a `Bot name`, click `Create in Slack`, and create the app.
+3. From Slack's `Basic Information → App Credentials`, copy the client ID, client secret, and signing secret into Tracecat.
+4. Click `Connect to Slack` and approve. In Slack, invite the bot by name with `/invite`, then mention it to start a thread.
+
+![Custom Slack app dialog](/img/connection-guides/slack-channels/slack-custom-bot.png)
+
+<Accordion title="Socket Mode tokens and manual app setup">
+  For Socket Mode, generate an app-level token with `connections:write` and enter its access and refresh tokens.
+
+  To use an unused app dedicated to this agent, copy the manifest under `Create the app by hand instead`, apply it in Slack, and select `I already have the app` in Tracecat. See [Slack's manifest guide](https://docs.slack.dev/app-manifests/configuring-apps-with-app-manifests/).
+
+  If a custom bot shows `Update needed`, copy the manifest under `Slack settings for this app` to the app's `App Manifest` page in Slack, then click `Reconnect to Slack`.
+</Accordion>
+
+<Accordion title="Earlier setup flow" id="earlier-setup-flow">
+  Some organizations see `Create app` and `Existing App` on the agent's `Channels` tab instead.
+
+  - Choose `Create app` to copy the manifest into Slack. Install the app, then click `Next` in Tracecat.
+  - Choose `Existing App` for an app dedicated to this agent. Add the OAuth redirect URL under `OAuth & Permissions`. Use the endpoint URL for events and interactivity, and subscribe to `app_mention`.
+
+  Enter the credentials and click `Connect to Slack`. If you rotate the endpoint later, update both request URLs in Slack.
+</Accordion>
+
+## Register the platform Slack app
+
+On self-hosted Tracecat, a platform superuser registers the Tracecat app once for the deployment. Every organization then adds it to Slack from [Add Tracecat to Slack](#add-tracecat-to-slack). Tracecat Cloud registers the app for you.
+
+### Prepare your deployment
+
+Set `TRACECAT__PUBLIC_API_URL` on the API service before creating the app, for example `https://tracecat.example.com/api`. The installer's browser must reach this URL. With HTTP (the default), Slack must reach it too.
+
+<Accordion title="Use Socket Mode">
+  Set `TRACECAT__SLACK_INGRESS_MODE=socket` on the API service and apply the change before creating the app. Tracecat connects to Slack over an outbound socket.
+
+  After creating the app, open `Basic Information → App-Level Tokens` in Slack. Generate a token with `connections:write` and copy the access token (`xoxe.xapp-…`) and refresh token into Tracecat.
+</Accordion>
+
+### Register the app
+
+1. Open `Admin → Agent → Slack App` and click `Create in Slack`. Slack opens with everything filled in. Choose a Slack workspace your team owns and click `Create`.
+2. In Tracecat, click `I already have the app`. From Slack's `Basic Information → App Credentials`, copy the app ID, client ID, client secret, and signing secret.
+3. Click `Save`. The card shows `Ready`.
+
+![Platform Slack app credentials](/img/connection-guides/slack-channels/platform-slack-app-credentials.png)
+
+<Accordion title="Manual app setup">
+  For an unused app dedicated to this deployment, copy the manifest under `Create the app by hand instead`, apply it in Slack, and select `I already have the app` in Tracecat.
+
+  For HTTP, use the manifest's request URL for both events and interactivity. If verification fails, save the signing secret in Tracecat and retry in Slack.
+</Accordion>
+
+### Allow other Slack workspaces
+
+Skip this unless Slack workspaces other than the one where you created the app need to add Tracecat. Until you turn on public distribution, only that workspace can add it.
+
+1. Click `Open Manage Distribution`. In Slack, complete the checklist and click `Activate Public Distribution`.
+2. Return to Tracecat and tick `Turn on public distribution (optional)`.
+3. Optional: click `Download logo`, upload it in Slack under `Display Information`, and tick that step.
+
+![Public distribution and icon steps](/img/connection-guides/slack-channels/platform-slack-app-distribution.png)
+
+Slack Marketplace listings require HTTP. See [Slack's distribution requirements](https://docs.slack.dev/app-management/distribution/), [Socket Mode limitations](https://docs.slack.dev/apis/events-api/using-socket-mode/), and [API rate limits](https://docs.slack.dev/apis/web-api/rate-limits/).
+
+## Limitations
+
+- In a channel thread, mention the agent in every message you want it to answer. The agent doesn't receive messages that don't mention it.
+- The agent reads message text only, not files or attachments.
+- While a tool call awaits approval, the agent doesn't accept new messages in that thread.
+- To edit a tool call's arguments before you approve it, use the [agent inbox](/agents/human-in-the-loop#review-tool-calls-in-the-inbox).
+- Each Slack workspace connects to one Tracecat workspace through the Tracecat app.
+
+## Related pages
+
+- See [Connect to Slack](/cheatsheets/connection-guides/connect-to-slack) to post messages and receive Slack events in workflows.
+- See [Human-in-the-loop](/agents/human-in-the-loop) for how tool approvals work across chat, Slack, and the inbox.

@@ -20,15 +20,11 @@ definition:
       type: str | None
       description: Sort by added, name, date, or records. Append -ASC or -DESC for direction.
       default: null
-    base_url:
-      type: str | None
-      description: Base URL of the DeHashed API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.dehashed.base_url || "https://api.dehashed.com" }}/data-wells
+        url: https://api.dehashed.com/data-wells
         method: GET
         headers:
           Accept: application/json

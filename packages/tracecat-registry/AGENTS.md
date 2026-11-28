@@ -174,9 +174,13 @@ SDK-backed or not.
 
 - Treat connection configuration separately from authentication material. Base
   URLs, workspace hosts, account URLs, regions, and similar routing values are
-  not secrets. Expose them as a `base_url`/host action input and resolve them
-  through `inputs.<name> || VARS.<tool_name>.<name> || <official default>` where
-  a default exists. Never put a non-sensitive base URL or host in
+  not secrets. When the provider serves more than one API host (regions,
+  sovereign or FedRAMP clouds, self-hosted, or per-tenant hosts), expose it as a
+  `base_url`/host action input and resolve it through
+  `inputs.<name> || VARS.<tool_name>.<name> || <official default>` where a
+  default exists. When the provider has one stable global API host (GreyNoise,
+  Shodan, abuse.ch URLhaus and ThreatFox), hardcode that host in the request URL
+  and declare no `base_url` input or `VARS` lookup. Never put a non-sensitive base URL or host in
   `RegistrySecret`; this applies to SDK wrappers as well as HTTP templates. A
   template over an SDK wrapper declares the optional input and passes the
   resolved value into a required wrapper argument; the wrapper must not recover
@@ -209,23 +213,34 @@ SDK-backed or not.
     returns: ${{ steps.get_cluster.result }}
   ```
 
-  Public REST endpoint with an official default — copy this fallback order:
+  Regional REST endpoint with an official default — copy this fallback order:
 
   ```yaml
   expects:
     base_url:
       type: str | None
-      description: GreyNoise API base URL.
+      description: Rapid7 Insight platform API base URL for your region.
       default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.greynoise.base_url || "https://api.greynoise.io" }}/v3/gnql
+        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/ias/v1/apps
         method: GET
   ```
 
-  In both examples, `base_url` is ordinary configuration. Do not replace the
+  Single global REST endpoint — hardcode the host:
+
+  ```yaml
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: https://api.greynoise.io/v3/gnql
+        method: GET
+  ```
+
+  In the first two examples, `base_url` is ordinary configuration. Do not replace the
   input or `VARS` lookup with a secret key or an environment-variable lookup.
 - Do not validate or allowlist caller-supplied integration base URLs, hosts, URL
   schemes, or vendor domain suffixes. Pass the configured value to the official
@@ -355,9 +370,11 @@ SDK-backed or not.
   make the native result serializable. Example: `tools/shodan/hosts/lookup_host.yml`.
   **Do not change a shipped action's `returns`** — 521 of 880 templates return `.result.data`, and
   that is a published output contract.
-- **New actions declare REST `base_url` as `str | None` with a `null` default**, resolved
-  `inputs.base_url || VARS.<tool_name>.base_url || <official public URL>`. Omit only the final
-  fallback when the provider has no universal public endpoint. Existing templates that declare it
+- **New actions hardcode a single global API host and declare no `base_url`.** Only when the
+  provider serves more than one host (regions, sovereign clouds, self-hosted, per-tenant) declare
+  REST `base_url` as `str | None` with a `null` default, resolved
+  `inputs.base_url || VARS.<tool_name>.base_url || <official public URL>`, omitting the final
+  fallback when there is no universal public endpoint. Existing templates that declare it
   differently keep their contract.
 - Most actions need no transform at all — 75% of templates pass the request straight through, and
   that is the target. Do not reshape provider input or output to make an action feel tidier.

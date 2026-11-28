@@ -12,7 +12,7 @@ from temporalio.api.history.v1 import HistoryEvent
 from tracecat.admission.types import NotAdmitted, parse_not_admitted
 from tracecat.dsl.action import DSLActivities
 from tracecat.executor.activities import ExecutorActivities
-from tracecat.identifiers import UserID, WorkflowID, WorkspaceID
+from tracecat.identifiers import ScheduleUUID, UserID, WorkflowID, WorkspaceID
 from tracecat.logger import logger
 from tracecat.storage.object import (
     CollectionObject,
@@ -22,6 +22,7 @@ from tracecat.storage.object import (
 )
 from tracecat.temporal.codec import TemporalPayloadCodecError, decode_payloads
 from tracecat.workflow.executions.enums import (
+    TEMPORAL_SCHEDULED_BY_ID,
     ExecutionType,
     TemporalSearchAttr,
     TriggerType,
@@ -377,6 +378,7 @@ def build_query(
     duration_lte_seconds: int | None = None,
     correlation_id: str | None = None,
     trigger_id: uuid.UUID | None = None,
+    scheduled_by: ScheduleUUID | None = None,
     workflow_types: Collection[str] | None = None,
     _include_legacy: bool = True,
 ) -> str:
@@ -454,6 +456,10 @@ def build_query(
 
     if trigger_id is not None:
         query.append(f"{TemporalSearchAttr.TRIGGER_ID.value} = '{trigger_id}'")
+
+    if scheduled_by is not None:
+        # The schedule's Temporal ID, as the schedules bridge creates it.
+        query.append(f"{TEMPORAL_SCHEDULED_BY_ID.name} = '{scheduled_by.to_legacy()}'")
 
     if workflow_types:
         if any("'" in t or "\\" in t for t in workflow_types):

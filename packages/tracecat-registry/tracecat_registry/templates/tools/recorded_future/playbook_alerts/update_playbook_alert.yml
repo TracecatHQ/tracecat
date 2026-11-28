@@ -41,15 +41,11 @@ definition:
       type: list[str] | None
       description: The ids for the types of action taken that should be removed. The possible values can be found in the response from /playbook-alert/metadata/common in the actions_by_category field.
       default: null
-    base_url:
-      type: str | None
-      description: Base URL of the Recorded Future API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.recorded_future.base_url || "https://api.recordedfuture.com" }}/playbook-alert/common/${{ FN.url_encode(inputs.playbook_alert_id) }}
+        url: https://api.recordedfuture.com/playbook-alert/common/${{ FN.url_encode(inputs.playbook_alert_id) }}
         method: PUT
         headers:
           Accept: application/json

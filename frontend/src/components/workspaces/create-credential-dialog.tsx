@@ -876,7 +876,7 @@ export function CreateCredentialDialog({
       toast({
         title: "No keys provided",
         description: "Please provide at least one key value.",
-        variant: "destructive",
+        variant: "warning",
       })
       return
     }

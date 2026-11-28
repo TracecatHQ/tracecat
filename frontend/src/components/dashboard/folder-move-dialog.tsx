@@ -76,7 +76,7 @@ export function FolderMoveDialog({
       toast({
         title: "Error",
         description: "No folder selected or workspace context missing.",
-        variant: "destructive",
+        variant: "warning",
       })
       return
     }
@@ -90,7 +90,7 @@ export function FolderMoveDialog({
         title: "Invalid destination",
         description:
           "Cannot move a folder into itself or one of its subfolders.",
-        variant: "destructive",
+        variant: "warning",
       })
       return
     }

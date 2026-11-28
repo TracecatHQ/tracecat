@@ -33,7 +33,9 @@ from functools import lru_cache
 from ipaddress import AddressValueError
 
 # IP ADDRESS
-IPV4_REGEX = r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b"
+# Reject 4-number slices of longer dotted runs such as OIDs (1.3.6.1.5.5.7.3.1).
+# One trailing number is still allowed for tcpdump's host.port (10.0.0.1.443).
+IPV4_REGEX = r"\b(?<![0-9]\.)(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b(?!\.[0-9]+\.[0-9])"
 
 # Comprehensive IPv6 regex that covers:
 # 1. Full format: 2001:0db8:85a3:0000:0000:8a2e:0370:7334

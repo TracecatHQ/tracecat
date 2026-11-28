@@ -7041,7 +7041,12 @@ async def create_event_source(
     topic to the returned `endpoint_url` (null unless the caller also holds
     `trigger:update`) over HTTPS with raw message delivery
     off. The source accepts messages from that topic only. A workspace has at
-    most one source per topic.
+    most one source per topic. Add `"bucket": "<name or bucket ARN>"` to accept
+    events for that S3 bucket only; a message with an `ObjectCreated:*` record
+    for any other bucket is refused. The pin checks only the bucket name
+    written in each message and is not an ownership check: the topic policy's
+    `aws:SourceArn` and `aws:SourceAccount` conditions remain the ownership
+    controls.
 
     Args:
         workspace_id: The workspace ID.
@@ -7071,17 +7076,19 @@ async def update_event_source(
     """Rename an event source, change its feed, or take it online or offline.
 
     There is no delete: take a source offline instead. Changing where events
-    come from (for `aws_sns`, the topic ARN) resets the subscription to pending.
-    Turning a source online, or changing the feed of a source that stays or
-    becomes online, also needs `workflow:execute` or `agent:execute` for the
-    targets its online triggers run.
+    come from (for `aws_sns`, the topic ARN) resets the subscription to pending;
+    setting or clearing the `bucket` pin does not. Turning a source online, or
+    changing the config of a source that stays or becomes online, also needs
+    `workflow:execute` or `agent:execute` for the targets its online triggers
+    run.
     The kind cannot change. The endpoint URL never changes.
 
     Args:
         workspace_id: The workspace ID.
         source_id: The source ID.
         name: A new display name. Omit to leave unchanged.
-        config: The whole new config. Omit to leave unchanged.
+        config: The whole new config. Omit to leave unchanged. Leave `bucket`
+            out (or null) to clear the pin.
         status: `"online"` or `"offline"`. Omit to leave unchanged.
 
     Returns the saved source as JSON.
@@ -7197,10 +7204,12 @@ async def list_trigger_runs(
 
     Covers runs started since the `TracecatTriggerId` link shipped, by object
     storage triggers and by webhooks and case triggers listed in the Triggers
-    tab. Schedules are not linked yet. Needs `trigger:read`
-    and the trigger kind's read scope (`workflow:read` for webhooks and case
-    triggers); workflow runs also need `workflow:read` and agent runs
-    `agent:read`; with only one, only that kind is listed.
+    tab. A schedule trigger lists every run its schedule started, older ones
+    included, found by Temporal's built-in `TemporalScheduledById`. Needs
+    `trigger:read` and the trigger kind's read scope (`schedule:read` for
+    schedules, `workflow:read` for webhooks and case triggers); workflow runs
+    also need `workflow:read` and agent runs `agent:read`; with only one, only
+    that kind is listed. Schedules start workflow runs only.
 
     Args:
         workspace_id: The workspace ID.
@@ -7281,6 +7290,8 @@ async def get_trigger_run_origin(
     (`schedule:read` for schedules, `workflow:read` for webhooks and case
     triggers). Give exactly one of `wf_exec_id` (also needs `workflow:read`)
     and `session_id` (also needs `agent:read`). A child run answers with its root run's trigger.
+    A run a schedule started answers with the schedule's trigger while the
+    schedule exists, and needs `schedule:read` (null without it).
 
     Args:
         workspace_id: The workspace ID.

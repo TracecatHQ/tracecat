@@ -20,15 +20,11 @@ definition:
         Search for the exact IOC instead of a wildcard search. Default: false
         (wildcard search).
       default: null
-    base_url:
-      type: str | None
-      description: Base URL of the ThreatFox API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.threatfox.base_url || "https://threatfox-api.abuse.ch" }}/api/v1/
+        url: https://threatfox-api.abuse.ch/api/v1/
         method: POST
         headers:
           Auth-Key: ${{ SECRETS.abusech.ABUSECH_API_KEY }}

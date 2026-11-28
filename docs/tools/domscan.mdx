@@ -26,14 +26,6 @@ Domain to analyze.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the DomScan API.
-
-Default: `null`.
-
-</ParamField>
-
 ## Check domain availability
 
 Action ID: `tools.domscan.check_domain_availability`
@@ -49,14 +41,6 @@ Required secrets:
 - `domscan`: required values `DOMSCAN_API_KEY`.
 
 ### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the DomScan API.
-
-Default: `null`.
-
-</ParamField>
 
 <ParamField path="domain" type="string | null">
 
@@ -112,14 +96,6 @@ Domain or subdomain to analyze (e.g. example.com or blog.example.com).
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the DomScan API.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="details" type="boolean | null">
 
 Include detailed breakdown. DomScan defaults to true.
@@ -147,14 +123,6 @@ Required secrets:
 <ParamField path="handle" type="string" required>
 
 Social handle to check, without a leading @.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the DomScan API.
-
-Default: `null`.
 
 </ParamField>
 
@@ -193,14 +161,6 @@ Required secrets:
 <ParamField path="domain" type="string" required>
 
 Domain to analyze for typosquatting risks.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the DomScan API.
-
-Default: `null`.
 
 </ParamField>
 
@@ -247,14 +207,6 @@ Required secrets:
 <ParamField path="domain" type="string" required>
 
 Root domain to search.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the DomScan API.
-
-Default: `null`.
 
 </ParamField>
 
@@ -320,14 +272,6 @@ Domain to search certificate transparency logs for.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the DomScan API.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="cursor" type="string | null">
 
 Offset cursor from pagination.next_cursor in the previous page.
@@ -370,14 +314,6 @@ Reference: [https://domscan.net/docs/coverage](https://domscan.net/docs/coverage
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the DomScan API.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="live" type="string | null">
 
 Set to 1 to include live RDAP endpoint health checks.
@@ -405,14 +341,6 @@ Required secrets:
 <ParamField path="domain" type="string" required>
 
 Domain to query DNS records for.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the DomScan API.
-
-Default: `null`.
 
 </ParamField>
 
@@ -446,14 +374,6 @@ Domain to analyze.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the DomScan API.
-
-Default: `null`.
-
-</ParamField>
-
 ## Get domain reputation
 
 Action ID: `tools.domscan.get_domain_reputation`
@@ -476,14 +396,6 @@ Domain to score for reputation.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the DomScan API.
-
-Default: `null`.
-
-</ParamField>
-
 ## Suggest domains
 
 Action ID: `tools.domscan.suggest_domains`
@@ -503,14 +415,6 @@ Required secrets:
 <ParamField path="keywords" type="string" required>
 
 Comma-separated keywords (max 10).
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the DomScan API.
-
-Default: `null`.
 
 </ParamField>
 

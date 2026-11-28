@@ -177,7 +177,12 @@ async def get_object(
 async def list_objects(
     bucket: Annotated[str, Doc("S3 bucket name.")],
     prefix: Annotated[str | None, Doc("S3 object key prefix.")] = None,
-    limit: Annotated[int, Doc("Maximum number of objects to return.")] = 1000,
+    limit: Annotated[
+        int,
+        Doc(
+            "Maximum number of objects to return in this page. S3 returns at most 1,000."
+        ),
+    ] = 1000,
     endpoint_url: Annotated[
         str | None,
         Doc("Endpoint URL for the AWS S3 service."),
@@ -190,6 +195,13 @@ async def list_objects(
     role_session_name: aws_boto3.RoleSessionName = None,
     external_id: aws_boto3.ExternalId = None,
     duration_seconds: aws_boto3.DurationSeconds = None,
+    continuation_token: Annotated[
+        str | None,
+        Doc(
+            "`NextContinuationToken` from a previous response whose `IsTruncated` "
+            "is true. Pass it to fetch the next page."
+        ),
+    ] = None,
 ) -> ListObjectsV2OutputTypeDef:
     session = await aws_boto3.get_session(
         region_name=region_name,
@@ -199,12 +211,12 @@ async def list_objects(
         duration_seconds=duration_seconds,
     )
     async with session.client("s3", endpoint_url=endpoint_url) as s3_client:  # type: ignore
+        params: dict[str, Any] = {"Bucket": bucket, "MaxKeys": limit}
         if prefix:
-            response = await s3_client.list_objects_v2(
-                Bucket=bucket, Prefix=prefix, MaxKeys=limit
-            )
-        else:
-            response = await s3_client.list_objects_v2(Bucket=bucket, MaxKeys=limit)
+            params["Prefix"] = prefix
+        if continuation_token:
+            params["ContinuationToken"] = continuation_token
+        response = await s3_client.list_objects_v2(**params)
     return response
 
 
@@ -256,42 +268,38 @@ async def copy_objects(
     results = []
 
     async with session.client("s3", endpoint_url=endpoint_url) as s3_client:
-        # List objects with prefix
-        response = await s3_client.list_objects_v2(Bucket=src_bucket, Prefix=prefix)
+        # ListObjectsV2 returns at most 1,000 keys per call, so follow every page.
+        paginator = s3_client.get_paginator("list_objects_v2")
+        async for page in paginator.paginate(Bucket=src_bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                key = obj.get("Key")
+                if not key:
+                    continue
 
-        if "Contents" not in response:
-            return []
-
-        # Copy all objects and collect results
-        for obj in response["Contents"]:
-            key = obj.get("Key")
-            if not key:
-                continue
-
-            try:
-                copy_source = f"{src_bucket}/{key}"
-                copy_response = await s3_client.copy_object(
-                    CopySource=copy_source, Bucket=dst_bucket, Key=key
-                )
-                # Create a new dict with response data plus metadata
-                result = {
-                    **copy_response,
-                    "Key": key,
-                    "SourceBucket": src_bucket,
-                    "DestinationBucket": dst_bucket,
-                }
-                results.append(result)
-            except Exception as e:
-                # Include failed operations in results with error info
-                results.append(
-                    {
+                try:
+                    copy_source = f"{src_bucket}/{key}"
+                    copy_response = await s3_client.copy_object(
+                        CopySource=copy_source, Bucket=dst_bucket, Key=key
+                    )
+                    # Create a new dict with response data plus metadata
+                    result = {
+                        **copy_response,
                         "Key": key,
                         "SourceBucket": src_bucket,
                         "DestinationBucket": dst_bucket,
-                        "Error": str(e),
-                        "Success": False,
                     }
-                )
+                    results.append(result)
+                except Exception as e:
+                    # Include failed operations in results with error info
+                    results.append(
+                        {
+                            "Key": key,
+                            "SourceBucket": src_bucket,
+                            "DestinationBucket": dst_bucket,
+                            "Error": str(e),
+                            "Success": False,
+                        }
+                    )
 
     return results
 

@@ -16,6 +16,16 @@ from tracecat.sandbox.exceptions import SandboxTimeoutError
 from tracecat.sandbox.unsafe_pid_executor import UnsafePidExecutor
 
 
+@pytest.fixture(autouse=True)
+def module_logger_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep caplog working after a test that ran logging ``fileConfig``.
+
+    An in-process alembic run (``alembic/env.py``) disables existing loggers,
+    which hides this module's warnings from ``caplog`` on the same worker.
+    """
+    monkeypatch.setattr(unsafe_pid_executor.module_logger, "disabled", False)
+
+
 def _process_is_running(pid: int) -> bool:
     """Return whether a process is alive, treating zombies as terminated."""
     try:

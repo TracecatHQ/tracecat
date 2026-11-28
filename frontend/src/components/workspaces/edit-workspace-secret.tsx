@@ -608,7 +608,7 @@ export function EditCredentialsDialog({
           title: "Recovery requires all keys",
           description:
             "This secret is corrupted. Re-enter all key names and values before saving.",
-          variant: "destructive",
+          variant: "warning",
         })
         return
       }

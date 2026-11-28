@@ -26,14 +26,6 @@ ThreatFox IOC ID.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the ThreatFox API.
-
-Default: `null`.
-
-</ParamField>
-
 ## List IOC types
 
 Action ID: `tools.threatfox.list_ioc_types`
@@ -50,13 +42,7 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the ThreatFox API.
-
-Default: `null`.
-
-</ParamField>
+This action does not take input fields.
 
 ## List malware families
 
@@ -74,13 +60,7 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the ThreatFox API.
-
-Default: `null`.
-
-</ParamField>
+This action does not take input fields.
 
 ## List recent IOCs
 
@@ -97,14 +77,6 @@ Required secrets:
 - `abusech`: required values `ABUSECH_API_KEY`.
 
 ### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the ThreatFox API.
-
-Default: `null`.
-
-</ParamField>
 
 <ParamField path="days" type="integer | null">
 
@@ -130,13 +102,7 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the ThreatFox API.
-
-Default: `null`.
-
-</ParamField>
+This action does not take input fields.
 
 ## Lookup IOC
 
@@ -157,14 +123,6 @@ Required secrets:
 <ParamField path="ioc" type="string" required>
 
 IOC value to search, such as a URL, domain, IP, IP:port, or hash.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the ThreatFox API.
-
-Default: `null`.
 
 </ParamField>
 
@@ -198,14 +156,6 @@ ThreatFox malware family or Malpedia family name.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the ThreatFox API.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="limit" type="integer | null">
 
 Maximum number of results. ThreatFox defaults to 100 and allows up to 1000.
@@ -236,14 +186,6 @@ ThreatFox tag to query.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the ThreatFox API.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="limit" type="integer | null">
 
 Maximum number of results. ThreatFox defaults to 100 and allows up to 1000.
@@ -271,13 +213,5 @@ Required secrets:
 <ParamField path="file_hash" type="string" required>
 
 MD5 or SHA256 file hash.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the ThreatFox API.
-
-Default: `null`.
 
 </ParamField>

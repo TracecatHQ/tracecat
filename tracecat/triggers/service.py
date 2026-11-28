@@ -177,6 +177,12 @@ def _source_identity(config: EventSourceConfig) -> tuple[str, ...]:
             return (topic_arn,)
 
 
+def _stored_source_config(config: EventSourceConfig) -> dict[str, Any]:
+    """The ``event_source.config`` JSON: unset optional fields are left out,
+    so a source without a pin stores what it did before pins existed."""
+    return config.model_dump(mode="json", exclude={"kind"}, exclude_none=True)
+
+
 def read_event_source(source: EventSource, role: Role) -> EventSourceRead:
     """Build the API view of a source.
 
@@ -261,7 +267,7 @@ class TriggersService(BaseWorkspaceService):
             workspace_id=self.workspace_id,
             kind=params.config.kind.value,
             name=params.name,
-            config=params.config.model_dump(mode="json", exclude={"kind"}),
+            config=_stored_source_config(params.config),
             status=params.status.value,
             subscription_status=SubscriptionStatus.PENDING.value,
             # 256 random bits. The token routes ingest and is never rotated,
@@ -282,9 +288,9 @@ class TriggersService(BaseWorkspaceService):
         """Rename a source, change its feed, or take it online or offline.
 
         Changing where events come from resets the subscription: the new feed
-        has to confirm again. Turning an online source's feed on or pointing it
-        elsewhere changes what the online triggers on it run, so it needs the
-        right to run their online bindings' targets.
+        has to confirm again. Turning an online source's feed on, pointing it
+        elsewhere or changing its pin changes what the online triggers on it
+        run, so it needs the right to run their online bindings' targets.
 
         Raises:
             ScopeDeniedError: If the change needs the right to run a bound
@@ -294,10 +300,14 @@ class TriggersService(BaseWorkspaceService):
         """
         await self._lock_config()
         source = await self.get_event_source(source_id)
+        current = _source_config(source)
         moves_feed = params.config is not None and _source_identity(
             params.config
-        ) != _source_identity(_source_config(source))
-        if _makes_live(source.status, params.status, changed=moves_feed):
+        ) != _source_identity(current)
+        # Clearing or changing a pin changes which events reach the online
+        # triggers, as a new feed does, but the subscription stays.
+        changes_events = params.config is not None and params.config != current
+        if _makes_live(source.status, params.status, changed=changes_events):
             await self._check_can_run_bound(
                 select(ObjectStorageTrigger.trigger_id)
                 .join(
@@ -323,7 +333,7 @@ class TriggersService(BaseWorkspaceService):
             if moves_feed:
                 source.subscription_status = SubscriptionStatus.PENDING.value
                 source.subscription_ref = None
-            source.config = params.config.model_dump(mode="json", exclude={"kind"})
+            source.config = _stored_source_config(params.config)
         await self._commit_source()
         await self.session.refresh(source)
         return source

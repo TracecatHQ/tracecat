@@ -83,6 +83,7 @@ from tracecat.expressions.functions import (
     not_null,
     now,
     or_,
+    parse_csv,
     parse_datetime,
     parse_time,
     pow,
@@ -153,6 +154,12 @@ def test_add_suffix(
         ('{"key": "value"}\n', [{"key": "value"}]),
         ('{"key": "value"}', [{"key": "value"}]),
         ('{"key": "value"}\n{"key": "value"}', [{"key": "value"}, {"key": "value"}]),
+        ('{"a": 1}\r\n{"b": 2}\r\n', [{"a": 1}, {"b": 2}]),
+        ('{"a": 1}\n\n{"b": 2}\n\n', [{"a": 1}, {"b": 2}]),
+        (
+            '{"note": "a\u2028b\u2029c\u0085d"}\n{"note": "ok"}',
+            [{"note": "a\u2028b\u2029c\u0085d"}, {"note": "ok"}],
+        ),
     ],
 )
 def test_deserialize_ndjson(input, expected):
@@ -210,10 +217,31 @@ def test_base64_to_str(input_str: str, expected: str) -> None:
         ("SGVsbG8sIFdvcmxkIQ==", "Hello, World!"),
         ("", ""),
         ("U3BlY2lhbCBjaGFyczogIUAjJCVeJiooKQ==", "Special chars: !@#$%^&*()"),
+        ("eyJzdWIiOiIxMjM0In0", '{"sub":"1234"}'),
+        ("aHR0cDovL2V4YW1wbGUuY29tL2xvZ2luP3g9MQ", "http://example.com/login?x=1"),
+        ("YWJjZA\n", "abcd"),
+        ("YWJj\r\nZA", "abcd"),
+        ("YQ==\n", "a"),
     ],
 )
 def test_b64url_to_str(input_str: str, expected: str) -> None:
     assert b64url_to_str(input_str) == expected
+
+
+@pytest.mark.parametrize(
+    "input,expected",
+    [
+        ("name,ip\nalice,1.2.3.4\n", [{"name": "alice", "ip": "1.2.3.4"}]),
+        ("name,ip\r\nalice,1.2.3.4\r\n", [{"name": "alice", "ip": "1.2.3.4"}]),
+        ("\ufeffname,ip\nalice,1.2.3.4\n", [{"name": "alice", "ip": "1.2.3.4"}]),
+        (
+            'id,note\n1,"line one\nline two"\n',
+            [{"id": "1", "note": "line one\nline two"}],
+        ),
+    ],
+)
+def test_parse_csv(input: str, expected: list[dict[str, str]]) -> None:
+    assert parse_csv(input) == expected
 
 
 @pytest.mark.parametrize(

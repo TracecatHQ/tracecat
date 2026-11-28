@@ -40,7 +40,7 @@ function toastScimError(title: string, error: TracecatApiError) {
     toast({
       title: "Permission denied",
       description: "You don't have permission to manage SCIM provisioning.",
-      variant: "destructive",
+      variant: "warning",
     })
     return
   }

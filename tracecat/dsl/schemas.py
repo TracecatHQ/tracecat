@@ -587,6 +587,8 @@ class RunActionInput(BaseModel):
     """Trusted agent session provenance supplied by the MCP execution boundary."""
     ack_admission: bool = False
     """Signal the run when this attempt is admitted (set on admission probes only)."""
+    wake_on_release: bool = False
+    """If not admitted, queue the run to be woken when units free (actions only)."""
     registry_lock: RegistryLock
     """Registry version lock from workflow definition. Required and must be non-empty."""
 

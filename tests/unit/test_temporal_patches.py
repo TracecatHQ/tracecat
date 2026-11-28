@@ -20,6 +20,7 @@ def test_workflow_patch_ids_are_history_stable() -> None:
         ),
         "AGENT_ACTIONS_ON_SESSION_BACKEND": "dsl-agent-actions-on-session-backend-v1",
         "ADMISSION_RUN_LIMITS": "dsl-admission-run-limits-v1",
+        "ADMISSION_WAKE_ON_RELEASE": "dsl-admission-wake-on-release-v1",
         "PRESET_AGENT_CHANNEL_REPLY": "dsl-preset-agent-channel-reply-v1",
     }
 

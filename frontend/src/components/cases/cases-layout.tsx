@@ -247,7 +247,7 @@ export function CasesLayout({
             console.error(`Failed batch case action (${verb}):`, result.error)
           }
           toast({
-            variant: "destructive",
+            variant: result.error ? "destructive" : "warning",
             title: result.error
               ? succeededIds.size > 0
                 ? `${succeededIds.size} ${verb} before a request failed`

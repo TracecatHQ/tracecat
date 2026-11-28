@@ -1176,7 +1176,7 @@ Default: `null`.
 
 Action ID: `tools.pan_strata.get_job`
 
-Get a configuration job with GET /config/operations/v1/jobs/&#123;id&#125;. Returns normalized status, result, done, and succeeded fields along with the raw job.
+Get a configuration job with GET /config/operations/v1/jobs/&#123;id&#125;.
 
 Reference: [https://pan.dev/scm/api/config/ngfw/operations/get-jobs-by-id/](https://pan.dev/scm/api/config/ngfw/operations/get-jobs-by-id/)
 
@@ -2472,7 +2472,7 @@ Default: `"pre"`.
 
 Action ID: `tools.pan_strata.wait_for_job`
 
-Poll GET /config/operations/v1/jobs/&#123;id&#125; until the job finishes, then return normalized status, result, done, and succeeded fields. Fails when the job fails, unless raise_on_failure is false, or when it does not finish within poll_max_attempts.
+Poll GET /config/operations/v1/jobs/&#123;id&#125; until the job finishes, then return the final response. Fails when the job fails, unless raise_on_failure is false, or when it does not finish within poll_max_attempts.
 
 Reference: [https://pan.dev/scm/api/config/ngfw/operations/get-jobs-by-id/](https://pan.dev/scm/api/config/ngfw/operations/get-jobs-by-id/)
 

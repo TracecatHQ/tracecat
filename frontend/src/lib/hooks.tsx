@@ -1019,7 +1019,7 @@ export function useWorkflowManager(
             toast({
               title: "Cannot update workflow",
               description: detail ?? "The workflow was modified elsewhere.",
-              variant: "destructive",
+              variant: "warning",
             })
             break
           default:
@@ -3715,7 +3715,7 @@ export function useInsertRow() {
           title: "Duplicate value error",
           description:
             "Cannot insert duplicate values in a unique column. Please use unique values.",
-          variant: "destructive",
+          variant: "warning",
         })
       } else {
         toast({
@@ -6499,21 +6499,21 @@ export function useRbacScopes(options?: {
           toast({
             title: "Invalid scope",
             description: String(error.body?.detail ?? error.message),
-            variant: "destructive",
+            variant: "warning",
           })
           break
         case 403:
           toast({
             title: "Permission denied",
             description: "You don't have permission to create scopes.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         case 409:
           toast({
             title: "Scope already exists",
             description: "A scope with this name already exists.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         default:
@@ -6546,21 +6546,21 @@ export function useRbacScopes(options?: {
           toast({
             title: "Cannot delete scope",
             description: String(error.body?.detail ?? error.message),
-            variant: "destructive",
+            variant: "warning",
           })
           break
         case 403:
           toast({
             title: "Permission denied",
             description: "You don't have permission to delete scopes.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         case 404:
           toast({
             title: "Scope not found",
             description: "The scope does not exist.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         default:
@@ -6638,21 +6638,21 @@ export function useRbacRoles(options: { enabled?: boolean } = {}) {
           toast({
             title: "Invalid role",
             description: String(error.body?.detail ?? error.message),
-            variant: "destructive",
+            variant: "warning",
           })
           break
         case 403:
           toast({
             title: "Permission denied",
             description: "You don't have permission to create roles.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         case 409:
           toast({
             title: "Role already exists",
             description: "A role with this name already exists.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         default:
@@ -6690,21 +6690,21 @@ export function useRbacRoles(options: { enabled?: boolean } = {}) {
           toast({
             title: "Cannot modify role",
             description: String(error.body?.detail ?? error.message),
-            variant: "destructive",
+            variant: "warning",
           })
           break
         case 403:
           toast({
             title: "Permission denied",
             description: "You don't have permission to update roles.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         case 404:
           toast({
             title: "Role not found",
             description: "The role does not exist.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         default:
@@ -6738,21 +6738,21 @@ export function useRbacRoles(options: { enabled?: boolean } = {}) {
           toast({
             title: "Cannot delete role",
             description: String(error.body?.detail ?? error.message),
-            variant: "destructive",
+            variant: "warning",
           })
           break
         case 403:
           toast({
             title: "Permission denied",
             description: "You don't have permission to delete roles.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         case 404:
           toast({
             title: "Role not found",
             description: "The role does not exist.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         default:
@@ -6841,21 +6841,21 @@ export function useRbacGroups() {
           toast({
             title: "Invalid group",
             description: String(error.body?.detail ?? error.message),
-            variant: "destructive",
+            variant: "warning",
           })
           break
         case 403:
           toast({
             title: "Permission denied",
             description: "You don't have permission to create groups.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         case 409:
           toast({
             title: "Group already exists",
             description: "A group with this name already exists.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         default:
@@ -6893,14 +6893,14 @@ export function useRbacGroups() {
           toast({
             title: "Permission denied",
             description: "You don't have permission to update groups.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         case 404:
           toast({
             title: "Group not found",
             description: "The group does not exist.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         default:
@@ -6935,14 +6935,14 @@ export function useRbacGroups() {
           toast({
             title: "Permission denied",
             description: "You don't have permission to delete groups.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         case 404:
           toast({
             title: "Group not found",
             description: "The group does not exist.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         default:
@@ -6999,7 +6999,7 @@ export function useRbacGroups() {
           description: [
             ...new Set(failures.map((failure) => failure.reason)),
           ].join("\n"),
-          variant: "destructive",
+          variant: "warning",
         })
         return
       }
@@ -7034,14 +7034,14 @@ export function useRbacGroups() {
           toast({
             title: "Permission denied",
             description: "You don't have permission to remove group members.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         case 404:
           toast({
             title: "Not found",
             description: "The group or member does not exist.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         default:
@@ -7140,28 +7140,28 @@ export function useRbacAssignments(options?: {
           toast({
             title: "Invalid assignment",
             description: String(error.body?.detail ?? error.message),
-            variant: "destructive",
+            variant: "warning",
           })
           break
         case 403:
           toast({
             title: "Permission denied",
             description: "You don't have permission to create assignments.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         case 404:
           toast({
             title: "Not found",
             description: "The group, role, or workspace does not exist.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         case 409:
           toast({
             title: "Assignment already exists",
             description: "This group already has an assignment for this scope.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         default:
@@ -7200,14 +7200,14 @@ export function useRbacAssignments(options?: {
           toast({
             title: "Permission denied",
             description: "You don't have permission to update assignments.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         case 404:
           toast({
             title: "Not found",
             description: "The assignment or role does not exist.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         default:
@@ -7243,14 +7243,14 @@ export function useRbacAssignments(options?: {
           toast({
             title: "Permission denied",
             description: "You don't have permission to delete assignments.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         case 404:
           toast({
             title: "Not found",
             description: "The assignment does not exist.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         default:
@@ -7338,7 +7338,7 @@ export function useRbacUserAssignments(options?: {
           toast({
             title: "Invalid assignment",
             description: String(error.body?.detail ?? error.message),
-            variant: "destructive",
+            variant: "warning",
           })
           break
         case 403:
@@ -7346,21 +7346,21 @@ export function useRbacUserAssignments(options?: {
             title: "Permission denied",
             description:
               "You don't have permission to create user assignments.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         case 404:
           toast({
             title: "Not found",
             description: "The user, role, or workspace does not exist.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         case 409:
           toast({
             title: "Assignment already exists",
             description: "This user already has an assignment for this scope.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         default:
@@ -7398,14 +7398,14 @@ export function useRbacUserAssignments(options?: {
             title: "Permission denied",
             description:
               "You don't have permission to update user assignments.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         case 404:
           toast({
             title: "Not found",
             description: "The assignment or role does not exist.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         default:
@@ -7440,14 +7440,14 @@ export function useRbacUserAssignments(options?: {
             title: "Permission denied",
             description:
               "You don't have permission to delete user assignments.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         case 404:
           toast({
             title: "Not found",
             description: "The assignment does not exist.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         default:

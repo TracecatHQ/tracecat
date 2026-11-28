@@ -25,15 +25,11 @@ definition:
       type: bool | None
       description: Enable or disable entity tags in text fragments.
       default: null
-    base_url:
-      type: str | None
-      description: Base URL of the Recorded Future API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.recorded_future.base_url || "https://api.recordedfuture.com" }}/v2/url/${{ FN.url_encode(inputs.id) }}
+        url: https://api.recordedfuture.com/v2/url/${{ FN.url_encode(inputs.id) }}
         method: GET
         headers:
           Accept: application/json

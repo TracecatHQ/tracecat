@@ -2,6 +2,7 @@
 
 import re
 import uuid
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -15,6 +16,8 @@ from tracecat.auth.types import Role
 from tracecat.triggers.dependencies import require_event_sources_enabled
 from tracecat.triggers.enums import TriggerErrorCode
 from tracecat.triggers.exceptions import TriggerError, trigger_error_handler
+from tracecat.triggers.schemas import EventSourceCreate
+from tracecat.triggers.service import TriggersService
 
 _PREFIXES = (
     "/workspaces/{workspace_id}/event-sources",
@@ -122,3 +125,63 @@ async def test_trigger_errors_answer_with_their_status_and_code(
     assert response.status_code == status_code
     body: dict[str, Any] = orjson.loads(response.body)
     assert body == {"detail": {"code": code.value, "message": "Wrong"}}
+
+
+@pytest.mark.anyio
+async def test_event_source_api_saves_and_shows_the_bucket_pin(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    """The route takes a bucket ARN, the service gets the name, and the
+    response shows it; a value that is not a bucket is refused before the
+    service runs."""
+    path = f"/workspaces/{test_admin_role.workspace_id}/event-sources"
+    topic = "arn:aws:sns:us-east-1:123456789012:bucket-events"
+    now = "2026-11-27T00:00:00Z"
+    saved: list[Any] = []
+
+    async def _create(_: TriggersService, params: EventSourceCreate) -> Any:
+        saved.append(params)
+        return SimpleNamespace(
+            id=uuid.uuid4(),
+            kind="aws_sns",
+            name=params.name,
+            config=params.config.model_dump(
+                mode="json", exclude={"kind"}, exclude_none=True
+            ),
+            status="online",
+            subscription_status="pending",
+            subscription_ref=None,
+            endpoint_token="t" * 43,
+            created_at=now,
+            updated_at=now,
+        )
+
+    entitled = AsyncMock(return_value=True)
+    with (
+        patch("tracecat.tiers.access.is_org_entitled", new=entitled),
+        patch.object(TriggersService, "create_event_source", new=_create),
+    ):
+        created = client.post(
+            path,
+            json={
+                "name": "bucket",
+                "config": {
+                    "kind": "aws_sns",
+                    "topic_arn": topic,
+                    "bucket": "arn:aws:s3:::uploads-bucket",
+                },
+            },
+        )
+        refused = client.post(
+            path,
+            json={
+                "name": "bucket",
+                "config": {"kind": "aws_sns", "topic_arn": topic, "bucket": "A/B"},
+            },
+        )
+
+    assert created.status_code == 201, created.text
+    assert created.json()["config"]["bucket"] == "uploads-bucket"
+    assert saved[0].config.bucket == "uploads-bucket"
+    assert refused.status_code == 422
+    assert len(saved) == 1

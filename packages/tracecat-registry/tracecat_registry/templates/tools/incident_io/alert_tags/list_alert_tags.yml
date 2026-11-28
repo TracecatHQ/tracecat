@@ -26,15 +26,11 @@ definition:
       type: str | None
       description: Filter to tags whose name contains this value (case-insensitive)
       default: null
-    base_url:
-      type: str | None
-      description: incident.io API base URL.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/alert_tags
+        url: https://api.incident.io/v2/alert_tags
         method: GET
         headers:
           Accept: application/json

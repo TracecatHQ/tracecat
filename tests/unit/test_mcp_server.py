@@ -10468,6 +10468,84 @@ async def test_event_source_tools_need_the_entitlement(
     assert service.opened
 
 
+def _stored_source(params: Any, source_id: uuid.UUID) -> SimpleNamespace:
+    """An event source row as the service saves it from create or update params."""
+    now = datetime.now(UTC)
+    return SimpleNamespace(
+        id=source_id,
+        kind="aws_sns",
+        name=params.name or "bucket",
+        config=params.config.model_dump(
+            mode="json", exclude={"kind"}, exclude_none=True
+        ),
+        status="online",
+        subscription_status="confirmed",
+        subscription_ref=None,
+        endpoint_token="t" * 43,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+@pytest.mark.anyio
+async def test_event_source_tools_set_show_and_clear_the_bucket_pin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_id = uuid.uuid4()
+    saved: list[Any] = []
+
+    async def _create(params: Any) -> SimpleNamespace:
+        saved.append(params)
+        return _stored_source(params, source_id)
+
+    async def _update(_: uuid.UUID, params: Any) -> SimpleNamespace:
+        saved.append(params)
+        return _stored_source(params, source_id)
+
+    _patch_triggers(
+        monkeypatch, create_event_source=_create, update_event_source=_update
+    )
+    tools = {tool.name: tool for tool in await mcp_server.mcp.list_tools()}
+    assert "bucket" in json.dumps(tools["create_event_source"].parameters)
+
+    # Through the tool's own argument validation, as an MCP client sends it.
+    created = await mcp_server.mcp.call_tool(
+        "create_event_source",
+        {
+            "workspace_id": str(uuid.uuid4()),
+            "name": "bucket",
+            "config": {**_SNS_CONFIG, "bucket": "arn:aws:s3:::uploads-bucket"},
+        },
+    )
+    assert created.structured_content is not None
+    assert created.structured_content["config"]["bucket"] == "uploads-bucket"
+    assert saved[-1].config.bucket == "uploads-bucket"
+
+    # The argument check refuses it before the service runs.
+    with pytest.raises(McpError, match="Not an S3 bucket name"):
+        await mcp_server.mcp.call_tool(
+            "create_event_source",
+            {
+                "workspace_id": str(uuid.uuid4()),
+                "name": "bucket",
+                "config": {**_SNS_CONFIG, "bucket": "Not A Bucket"},
+            },
+        )
+
+    cleared = await mcp_server.mcp.call_tool(
+        "update_event_source",
+        {
+            "workspace_id": str(uuid.uuid4()),
+            "source_id": str(source_id),
+            "config": _SNS_CONFIG,
+        },
+    )
+    assert cleared.structured_content is not None
+    assert cleared.structured_content["config"].get("bucket") is None
+    assert saved[-1].config.bucket is None
+    assert len(saved) == 2
+
+
 @pytest.mark.anyio
 async def test_trigger_tools_leave_the_entitlement_to_the_service(
     monkeypatch: pytest.MonkeyPatch,

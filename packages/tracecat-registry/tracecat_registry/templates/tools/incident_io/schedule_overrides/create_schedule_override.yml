@@ -30,15 +30,11 @@ definition:
     user:
       type: dict[str, Any]
       description: '`user` object. Fields: email, id, slack_user_id.'
-    base_url:
-      type: str | None
-      description: incident.io API base URL.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/schedule_overrides
+        url: https://api.incident.io/v2/schedule_overrides
         method: POST
         headers:
           Accept: application/json

@@ -10,7 +10,8 @@ known to be a genuine SNS message from the source's pinned topic:
 3. The signed ``TopicArn`` must equal the pinned topic. A valid signature
    only proves the message came from SNS, not from this topic.
 4. Verify the signature, the certificate origin and the message's age.
-5. Act on the message type. Notifications go to the generic ingest service;
+5. Act on the message type. Notifications are read by the S3 layer, which
+   also applies the source's bucket pin, then go to the generic ingest service;
    subscription confirmations are SNS only and handled here.
 """
 
@@ -89,7 +90,10 @@ async def _handle_notification(
 ) -> IngestResult:
     require_online(source)
     parsed = parse_s3_message(
-        envelope.message, account=topic.account, received_at=received_at
+        envelope.message,
+        account=topic.account,
+        received_at=received_at,
+        source_config=source.config,
     )
     return await ingest_events(source, parsed)
 

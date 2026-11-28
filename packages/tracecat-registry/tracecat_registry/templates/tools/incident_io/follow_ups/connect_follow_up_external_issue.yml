@@ -25,15 +25,11 @@ definition:
     url:
       type: str
       description: URL of the issue in the external provider
-    base_url:
-      type: str | None
-      description: incident.io API base URL.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v3/follow_ups/${{ FN.url_encode(inputs.id) }}/actions/connect_external_issue
+        url: https://api.incident.io/v3/follow_ups/${{ FN.url_encode(inputs.id) }}/actions/connect_external_issue
         method: POST
         headers:
           Accept: application/json

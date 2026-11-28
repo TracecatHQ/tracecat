@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from temporalio.exceptions import ActivityError, ApplicationError, CancelledError
@@ -733,7 +733,7 @@ async def test_run_throttle_keeps_a_fan_out_at_the_org_limit_without_bounces() -
     await _resolve_limits_from(workflow, RunLimitsSnapshot(max_concurrent_actions=5))
     executor = _FakeExecutor(limit=5)
     task = ActionStatement(ref="item", action="core.transform.reshape")
-    arg = cast(RunActionInput, SimpleNamespace())
+    arg = cast(RunActionInput, MagicMock())
 
     with patch(
         "tracecat.dsl.workflow.workflow.execute_activity",
@@ -747,6 +747,80 @@ async def test_run_throttle_keeps_a_fan_out_at_the_org_limit_without_bounces() -
     assert executor.busy == 0
     assert executor.attempts == 200
     assert executor.max_in_use == 5
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("limit", "wake_recorded", "wake_enabled"),
+    [
+        (5, True, True),
+        (5, False, False),  # recorded before the wake
+        (None, True, False),  # no limit: never refused, so never queued
+        (0, True, False),  # 0 or less is no limit, as in the gate
+        (-1, True, False),
+    ],
+)
+async def test_wake_needs_its_marker_and_a_limit(
+    limit: int | None, wake_recorded: bool, wake_enabled: bool
+) -> None:
+    workflow = _build_workflow()
+    asked: list[str] = []
+
+    def patched(patch_id: str) -> bool:
+        asked.append(patch_id)
+        return patch_id != WorkflowPatch.ADMISSION_WAKE_ON_RELEASE or wake_recorded
+
+    with (
+        patch("tracecat.dsl.workflow.workflow.patched", side_effect=patched),
+        patch(
+            "tracecat.dsl.workflow.workflow.execute_local_activity",
+            new=AsyncMock(return_value=RunLimitsSnapshot(max_concurrent_actions=limit)),
+        ),
+    ):
+        await workflow._resolve_run_limits()
+
+    assert workflow._admission_wake_enabled is wake_enabled
+    assert workflow._action_admission.wake_enabled is wake_enabled
+    # A run that can't be refused records no marker.
+    has_limit = limit is not None and limit > 0
+    assert (WorkflowPatch.ADMISSION_WAKE_ON_RELEASE in asked) is has_limit
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("wake_enabled", [True, False])
+async def test_only_a_waking_run_asks_to_be_queued(wake_enabled: bool) -> None:
+    workflow = _build_workflow()
+    if wake_enabled:
+        await _resolve_limits_from(
+            workflow, RunLimitsSnapshot(max_concurrent_actions=5)
+        )
+    arg = MagicMock()
+    sent = MagicMock()
+    arg.model_copy.return_value = sent
+    execute_activity = AsyncMock(return_value={"ok": True})
+    task = ActionStatement(ref="item", action="core.transform.reshape")
+
+    with patch("tracecat.dsl.workflow.workflow.execute_activity", new=execute_activity):
+        await workflow._execute_action_activity_once(task, cast(RunActionInput, arg))
+
+    sent_call = execute_activity.await_args
+    assert sent_call is not None
+    run_input = sent_call.kwargs["args"][0]
+    if wake_enabled:
+        arg.model_copy.assert_called_once_with(update={"wake_on_release": True})
+        assert run_input is sent
+    else:
+        arg.model_copy.assert_not_called()
+        assert run_input is arg
+
+
+def test_wake_signal_for_a_run_without_the_wake_is_ignored() -> None:
+    workflow = _build_workflow()
+    workflow._action_admission._active = 1  # pyright: ignore[reportPrivateUsage]
+
+    workflow._on_admission_wake()
+
+    assert workflow._action_admission._woken is False  # pyright: ignore[reportPrivateUsage]
 
 
 def test_resolve_child_loop_batch_plan_uses_dispatch_window(

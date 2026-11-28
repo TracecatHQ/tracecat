@@ -72,6 +72,11 @@ import {
   RunningLine,
 } from "@/components/chat/message-part"
 import { SlackSyncButton } from "@/components/chat/slack-sync-button"
+import {
+  buildTranscriptOutline,
+  getOutlineId,
+  TranscriptOutlineContext,
+} from "@/components/chat/transcript-outline"
 import { SessionChannelThreadContext } from "@/components/chat/user-bubble"
 import { getIcon, ProviderIcon } from "@/components/icons"
 import { MentionHint } from "@/components/mentions/mention-hint"
@@ -601,6 +606,19 @@ export function ChatSessionPane({
   // Allow input when ready OR in error state (so user can retry after transient failures)
   const canSubmit = status === "ready" || status === "error"
   const isGeneratingTurn = status === "submitted" || status === "streaming"
+  // A transcript that is only being opened should appear already scrolled to
+  // its end: animate height changes only once a turn has run in this chat, so
+  // late layout (markdown, code blocks) cannot replay a scroll on every open.
+  const [turnStarted, setTurnStarted] = useState({
+    chatId: chat?.id,
+    value: isGeneratingTurn,
+  })
+  if (turnStarted.chatId !== chat?.id) {
+    setTurnStarted({ chatId: chat?.id, value: isGeneratingTurn })
+  } else if (isGeneratingTurn && !turnStarted.value) {
+    setTurnStarted({ chatId: chat?.id, value: true })
+  }
+  const animateResize = turnStarted.value && status !== "streaming"
   const capabilities =
     chat && "capabilities" in chat ? (chat.capabilities ?? {}) : {}
   const { pending, refreshPending, withdraw } = usePendingMessages({
@@ -1159,6 +1177,18 @@ export function ChatSessionPane({
     () => groupThread(transformedMessages),
     [transformedMessages]
   )
+  const reportOutline = useContext(TranscriptOutlineContext)
+  useEffect(() => {
+    // Prompts with nothing visible are not rendered, so they have no target.
+    reportOutline?.(
+      buildTranscriptOutline(
+        threadBlocks.filter(
+          (block) =>
+            block.kind !== "prompt" || messageHasVisibleParts(block.message)
+        )
+      )
+    )
+  }, [reportOutline, threadBlocks])
   // The latest turn's undecided calls, answered from the prompt box.
   const composerApprovals = useMemo(() => {
     const lastBlock = threadBlocks.at(-1)
@@ -1667,7 +1697,10 @@ export function ChatSessionPane({
         <div className="flex min-h-0 flex-1 flex-col">
           <Conversation
             className="flex-1"
-            resize={status === "streaming" ? "instant" : "smooth"}
+            resize={animateResize ? "smooth" : "instant"}
+            // Re-pin when the transcript first fills in, so messages that
+            // load after mount also paint at the end.
+            scrollKey={`${chat?.id}:${messages.length > 0}`}
           >
             <ConversationContent className={chatContentCenterClass}>
               <SessionChannelThreadContext.Provider
@@ -1688,7 +1721,11 @@ export function ChatSessionPane({
                       return null
                     }
                     return (
-                      <div key={message.id} className="group relative">
+                      <div
+                        key={message.id}
+                        data-outline-id={getOutlineId(block)}
+                        className="group relative"
+                      >
                         <MessageParts
                           message={message}
                           status={status}
@@ -1713,6 +1750,7 @@ export function ChatSessionPane({
                   return (
                     <div
                       key={`turn-${block.startIndex}`}
+                      data-outline-id={getOutlineId(block)}
                       className="group relative"
                     >
                       {verbosityPolicy.showSources &&

@@ -141,7 +141,7 @@ describe("useRbacGroups addGroupMembers", () => {
         "The group or user does not exist.",
         "Failed to add member",
       ].join("\n"),
-      variant: "destructive",
+      variant: "warning",
     })
   })
 })

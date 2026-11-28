@@ -23,9 +23,14 @@ definition:
       type: dict[str, Any]
       description: Group properties to update as defined in the Microsoft Graph group resource.
     base_url:
-      type: enum["https://graph.microsoft.com", "https://graph.microsoft.us"]
-      description: Base URL for the Microsoft Graph API.
-      default: https://graph.microsoft.com
+      type: str | None
+      description: >-
+        Microsoft Graph host, without the API version. If omitted, uses the
+        workspace variable `microsoft_entra.base_url`, then
+        https://graph.microsoft.com. National clouds: https://graph.microsoft.us
+        (US Government L4) and https://dod-graph.microsoft.us (US Government L5
+        DOD).
+      default: null
     api_version:
       type: str
       description: Microsoft Graph API version.
@@ -34,7 +39,7 @@ definition:
     - ref: update_group
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/${{ inputs.api_version }}/groups/${{ FN.url_encode(inputs.group_id) }}
+        url: ${{ inputs.base_url || VARS.microsoft_entra.base_url || "https://graph.microsoft.com" }}/${{ inputs.api_version }}/groups/${{ FN.url_encode(inputs.group_id) }}
         method: PATCH
         headers:
           Authorization: Bearer ${{ SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_USER_TOKEN || SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_SERVICE_TOKEN }}

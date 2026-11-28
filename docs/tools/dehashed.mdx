@@ -26,14 +26,6 @@ SHA-256 hash of the password to check.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the DeHashed API.
-
-Default: `null`.
-
-</ParamField>
-
 ## List data wells
 
 Action ID: `tools.dehashed.list_data_wells`
@@ -43,14 +35,6 @@ List data wells. Calls GET /data-wells directly. This endpoint does not require 
 Reference: [https://app.dehashed.com/documentation/api](https://app.dehashed.com/documentation/api)
 
 ### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the DeHashed API.
-
-Default: `null`.
-
-</ParamField>
 
 <ParamField path="count" type="integer | null">
 
@@ -95,14 +79,6 @@ Required secrets:
 <ParamField path="query" type="string" required>
 
 DeHashed search query. Use DeHashed search syntax, such as email:"user@example.com", username:"someuser", or a bare quoted value to match across fields.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the DeHashed API.
-
-Default: `null`.
 
 </ParamField>
 

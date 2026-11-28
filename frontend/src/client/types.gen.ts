@@ -2225,6 +2225,10 @@ export type AwsSnsSourceConfig = {
    * ARN of the customer's SNS topic. The source accepts no other.
    */
   topic_arn: string
+  /**
+   * Accept events for this S3 bucket only. A bucket name or ARN (in the topic's partition), saved as the name. Null or omitted accepts every bucket that publishes to the topic. It checks the bucket named in each message, so it adds to the topic policy's `aws:SourceArn` and `aws:SourceAccount` conditions and does not replace them.
+   */
+  bucket?: string | null
 }
 
 /**
@@ -11145,6 +11149,7 @@ export type RunActionInput = {
   session_id?: string | null
   agent_session_id?: string | null
   ack_admission?: boolean
+  wake_on_release?: boolean
   registry_lock: RegistryLock
 }
 

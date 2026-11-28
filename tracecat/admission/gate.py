@@ -31,7 +31,7 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from tracecat import config
-from tracecat.admission.leases import MAX_LEASE_TTL_SECONDS, LeaseStore
+from tracecat.admission.leases import MAX_LEASE_TTL_SECONDS, LeaseStore, Waiter
 from tracecat.admission.limits import LimitUnavailableError, resolve_limit
 from tracecat.admission.types import (
     UNKNOWN_COUNT,
@@ -139,10 +139,22 @@ class Lease:
                 lease_id=self.lease_id,
             )
 
-    async def release(self) -> None:
-        """Release the lease. Never raises; expiry covers a failed release."""
+    async def release(self, *, pop_waiter: bool = False) -> Waiter | None:
+        """Release the lease. Never raises; expiry covers a failed release.
+
+        Args:
+            pop_waiter: Also pop the oldest run blocked at the limit, if this
+                release freed units. Only a caller that wakes it should pop.
+
+        Returns:
+            The popped run to wake, or ``None``.
+        """
         try:
             async with asyncio.timeout(RELEASE_TIMEOUT_SECONDS):
+                if pop_waiter:
+                    return await self.store.release_and_pop_waiter(
+                        self.org_id, self.resource, self.lease_id, units=self.units
+                    )
                 await self.store.release(
                     self.org_id, self.resource, self.lease_id, units=self.units
                 )
@@ -155,6 +167,7 @@ class Lease:
                 units=self.units,
                 error=str(e),
             )
+        return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,6 +200,7 @@ async def _try_admit(
     lease_id: str,
     units: int,
     deadline: datetime,
+    waiter: Waiter | None,
 ) -> tuple[Admitted | Busy | Unenforced | Deferred | _Unlimited, Lease | None]:
     try:
         limit = await resolve_limit(org_id, resource)
@@ -215,6 +229,7 @@ async def _try_admit(
                 units=units,
                 limit=limit,
                 ttl_seconds=_ttl_seconds(deadline),
+                waiter=waiter,
             )
     except Exception as e:
         if _is_local_failure(e, store):
@@ -235,7 +250,10 @@ async def _try_admit(
 async def _release_quietly(
     org_id: OrganizationID, resource: ConcurrencyResource, lease_id: str, units: int
 ) -> None:
-    """Best-effort release of a lease whose acquire reply may have been lost."""
+    """Best-effort release of a lease whose acquire reply may have been lost.
+
+    It never pops a waiter: nothing here can deliver the wake.
+    """
     try:
         async with asyncio.timeout(RELEASE_TIMEOUT_SECONDS):
             store = await LeaseStore.create()
@@ -268,8 +286,13 @@ async def acquire(
     lease_id: str,
     units: int,
     deadline: datetime,
+    waiter: Waiter | None = None,
 ) -> Lease | None:
     """Take a lease, or return ``None`` when the work should run uncounted.
+
+    Args:
+        waiter: The run to queue for a wake on release if the organization is
+            at its limit.
 
     Raises:
         NotAdmittedError: The organization is at its limit, or the attempt was
@@ -295,6 +318,7 @@ async def acquire(
             lease_id=lease_id,
             units=max(1, units),
             deadline=deadline,
+            waiter=waiter,
         )
         match admission:
             case _Unlimited():

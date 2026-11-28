@@ -18,15 +18,11 @@ definition:
     tags:
       type: list[str]
       description: The complete set of tag names for this alert
-    base_url:
-      type: str | None
-      description: incident.io API base URL.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/alerts/${{ FN.url_encode(inputs.id) }}/actions/set_tags
+        url: https://api.incident.io/v2/alerts/${{ FN.url_encode(inputs.id) }}/actions/set_tags
         method: POST
         headers:
           Accept: application/json

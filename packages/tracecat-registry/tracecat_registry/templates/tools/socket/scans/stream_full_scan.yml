@@ -52,15 +52,11 @@ definition:
         pre-computed scan. When results are not yet cached, returns 202 Accepted and enqueues a
         background job.
       default: null
-    base_url:
-      type: str | None
-      description: Base URL of the Socket API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.socket.base_url || "https://api.socket.dev" }}/v0/orgs/${{ FN.url_encode(inputs.org_slug) }}/full-scans/${{ FN.url_encode(inputs.full_scan_id) }}
+        url: https://api.socket.dev/v0/orgs/${{ FN.url_encode(inputs.org_slug) }}/full-scans/${{ FN.url_encode(inputs.full_scan_id) }}
         method: GET
         headers:
           Accept: ${{ inputs.accept }}

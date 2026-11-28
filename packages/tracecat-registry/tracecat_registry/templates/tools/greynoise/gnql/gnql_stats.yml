@@ -19,15 +19,11 @@ definition:
       description: >-
         Number of top aggregates to grab. Minimum 1, maximum 10000. GreyNoise defaults to 1000.
       default: null
-    base_url:
-      type: str | None
-      description: GreyNoise API base URL.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.greynoise.base_url || "https://api.greynoise.io" }}/v3/gnql/stats
+        url: https://api.greynoise.io/v3/gnql/stats
         method: GET
         headers:
           key: ${{ SECRETS.greynoise.GREYNOISE_API_KEY }}

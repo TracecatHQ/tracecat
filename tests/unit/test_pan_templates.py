@@ -310,3 +310,49 @@ def test_panos_job_parser() -> None:
         parse(text=text, job_id="5", raise_on_failure=True)
     job = parse(text=text, job_id="5", raise_on_failure=False)
     assert job["done"] and not job["succeeded"] and job["details"] == ["bad config"]
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [
+        "pan_os/objects/address_groups/get_address_group",
+        "pan_os/objects/address_groups/list_address_groups",
+        "pan_os/objects/addresses/get_address",
+        "pan_os/objects/addresses/list_addresses",
+        "pan_os/objects/external_dynamic_lists/list_external_dynamic_lists",
+        "pan_os/objects/tags/list_tags",
+        "pan_os/policies/security_rules/get_security_rule",
+        "pan_os/policies/security_rules/list_security_rules",
+        "pan_strata/objects/address_groups/get_address_group",
+        "pan_strata/objects/addresses/get_address",
+        "pan_strata/operations/get_job",
+        "pan_strata/operations/wait_for_job",
+        "pan_strata/security/security_rules/get_security_rule",
+    ],
+)
+def test_single_request_actions_return_full_result(rel: str) -> None:
+    definition = TemplateAction.from_yaml(TEMPLATES / f"{rel}.yml").definition
+    (request,) = [s for s in definition.steps if s.action.startswith("core.http_")]
+    assert definition.returns == f"${{{{ steps.{request.ref}.result }}}}"
+    assert "ignore_status_codes" not in request.args
+
+
+@pytest.mark.parametrize(
+    ("status", "result", "raise_on_failure", "raises"),
+    [
+        ("FIN", "OK", True, False),
+        ("FIN", "FAIL", True, True),
+        ("PUSHFAIL", "OK", True, True),
+        ("FIN", "FAIL", False, False),
+    ],
+)
+def test_scm_wait_for_job_raises_on_failed_job(
+    status: str, result: str, raise_on_failure: bool, raises: bool
+) -> None:
+    check = _script("pan_strata/operations/wait_for_job", "check")
+    response = {"data": {"data": [{"status_str": status, "result_str": result}]}}
+    if raises:
+        with pytest.raises(ValueError, match="finished with status"):
+            check(response, "1", raise_on_failure)
+    else:
+        assert check(response, "1", raise_on_failure) is None
