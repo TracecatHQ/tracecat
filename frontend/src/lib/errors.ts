@@ -182,7 +182,7 @@ export function showFallbackErrorToast(
 ): void {
   toast({
     description: description ?? getApiErrorDetail(error) ?? "Please try again.",
-    variant: "destructive",
+    variant: isManagedResourceLockedError(error) ? "warning" : "destructive",
   })
 }
 

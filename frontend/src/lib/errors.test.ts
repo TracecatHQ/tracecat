@@ -156,7 +156,7 @@ describe("chainError", () => {
 
     expect(mockToast).toHaveBeenCalledWith({
       description: "Managed by Tracecat. Detach to edit.",
-      variant: "destructive",
+      variant: "warning",
     })
   })
 

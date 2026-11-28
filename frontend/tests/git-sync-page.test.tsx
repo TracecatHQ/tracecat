@@ -13,7 +13,6 @@ import type {
   WorkspaceSyncExportPreview,
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
-import { Toast, ToastProvider, ToastViewport } from "@/components/ui/toast"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { GitSyncView } from "@/components/workspace-sync/git-sync-view"
@@ -414,16 +413,10 @@ describe("GitSyncView connected", () => {
       })
     }
     const toastOptions = jest.mocked(toast).mock.calls[0][0]
-    render(
-      <ToastProvider>
-        <Toast open>{toastOptions.action}</Toast>
-        <ToastViewport />
-      </ToastProvider>
-    )
-    expect(screen.getByRole("link", { name: "View PR" })).toHaveAttribute(
-      "href",
-      prUrl
-    )
+    expect(toastOptions.action).toMatchObject({
+      "aria-label": "Open pull request",
+      href: prUrl,
+    })
   })
 
   it("compares later previews against a branch it just created", async () => {

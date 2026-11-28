@@ -368,7 +368,7 @@ export function WebhookControls({
         toast({
           title: "Invalid IP allowlist entry",
           description: result.error,
-          variant: "destructive",
+          variant: "warning",
         })
         return
       }
@@ -1033,7 +1033,7 @@ export function CaseTriggerControls({
         toast({
           title: "Select case events",
           description: "Choose at least one case event before enabling.",
-          variant: "destructive",
+          variant: "warning",
         })
         return
       }
@@ -1394,7 +1394,7 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
       toast({
         title: "Cannot create schedule",
         description: "You must commit the workflow before creating a schedule.",
-        variant: "destructive",
+        variant: "warning",
       })
       return
     }

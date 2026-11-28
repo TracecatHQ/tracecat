@@ -21,7 +21,6 @@ import {
   workflowsPublishWorkflow,
   workflowsUpdateWorkflow,
 } from "@/client"
-import { ToastAction } from "@/components/ui/toast"
 import { toast } from "@/components/ui/use-toast"
 import {
   ExportErrorMessage,
@@ -185,20 +184,12 @@ export function WorkflowProvider({
       toast({
         title,
         description: response.message,
-        action: response.pr_url ? (
-          <ToastAction
-            altText="Open pull request"
-            onClick={() =>
-              window.open(
-                response.pr_url ?? "",
-                "_blank",
-                "noopener,noreferrer"
-              )
+        action: response.pr_url
+          ? {
+              children: "View PR",
+              href: response.pr_url,
             }
-          >
-            View PR
-          </ToastAction>
-        ) : undefined,
+          : undefined,
       })
       queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
     },
@@ -301,7 +292,7 @@ export function WorkflowProvider({
             description:
               detail ??
               "There was a conflict updating the workflow. Please try again.",
-            variant: "destructive",
+            variant: "warning",
           })
           break
         default:

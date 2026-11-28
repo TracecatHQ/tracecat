@@ -203,7 +203,7 @@ export function ApprovalRequestPart({
           const overrideArgs = parseOverrideArgs(decision.overrideArgs)
           if (!overrideArgs) {
             toast({
-              variant: "destructive",
+              variant: "warning",
               title: "Invalid override args",
               description: `Override args for ${approval.tool_name} must be a JSON object.`,
             })
