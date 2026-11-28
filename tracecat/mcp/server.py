@@ -4250,6 +4250,8 @@ async def create_workflow(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `POST /workflows`.
+        check_scopes(role, "workflow:create")
         if definition_yaml is not None:
             _ensure_inline_workflow_yaml_size(definition_yaml)
             import_data = _build_import_data_from_workflow_yaml(
@@ -4272,6 +4274,9 @@ async def create_workflow(
             description=workflow.description,
             status=workflow.status,
         )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except WorkflowEditError as e:
         raise _workflow_edit_error_to_tool_error(e) from e
     except ToolError:
@@ -4303,6 +4308,8 @@ async def get_workflow(
     try:
         workflow_id = WorkflowUUID.new(workflow_id)
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /workflows/{id}`.
+        check_scopes(role, "workflow:read")
         async with WorkflowsManagementService.with_session(role=role) as svc:
             workflow = await svc.get_workflow(workflow_id)
             if not workflow:
@@ -4331,6 +4338,9 @@ async def get_workflow(
                     update=inline.model_dump(exclude_none=True)
                 )
             return payload
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except WorkflowEditError as e:
         raise _workflow_edit_error_to_tool_error(e) from e
     except ToolError:
@@ -4359,6 +4369,8 @@ async def _load_workflow_edit_document(
     """Load the same draft document ``get_workflow`` returns, without metadata."""
     wf_id = WorkflowUUID.new(workflow_id)
     _, role = await _resolve_workspace_role(workspace_id)
+    # The same scope as `GET /workflows/{id}/draft`.
+    check_scopes(role, "workflow:read")
     async with WorkflowsManagementService.with_session(role=role) as svc:
         workflow = await svc.get_workflow(wf_id)
         if not workflow:
@@ -4417,6 +4429,9 @@ async def list_workflow_actions(
                 for index, action in enumerate(document.definition.actions)
             ],
         )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except WorkflowEditError as e:
         raise _workflow_edit_error_to_tool_error(e) from e
     except ToolError:
@@ -4464,6 +4479,9 @@ async def get_workflow_graph(
             mermaid=mermaid,
             actions=graph_actions,
         )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except WorkflowEditError as e:
         raise _workflow_edit_error_to_tool_error(e) from e
     except ToolError:
@@ -4520,6 +4538,9 @@ async def get_workflow_action(
             action=action,
             layout=layout,
         )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except WorkflowEditError as e:
         raise _workflow_edit_error_to_tool_error(e) from e
     except ToolError:
@@ -4760,6 +4781,10 @@ async def update_workflow(
     try:
         workflow_id = WorkflowUUID.new(workflow_id)
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `PATCH /workflows/{id}` and `PUT /workflows/{id}/draft`,
+        # checked before anything is written. Every section this tool writes
+        # (metadata, definition, layout, schedules, case trigger) needs it.
+        check_scopes(role, "workflow:update")
         update_kwargs: dict[str, Any] = {}
         if title is not None:
             update_kwargs["title"] = title
@@ -4802,6 +4827,9 @@ async def update_workflow(
                 message=f"Workflow {workflow_id} updated successfully",
                 mode=mode,
             )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except WorkflowEditError as e:
         raise _workflow_edit_error_to_tool_error(e) from e
     except ToolError:
@@ -4825,6 +4853,8 @@ async def list_workflows(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /workflows`.
+        check_scopes(role, "workflow:read")
         limit = _normalize_limit(limit, default=50, max_limit=200)
         async with WorkflowsManagementService.with_session(role=role) as svc:
             page = await svc.list_workflows(
@@ -4852,6 +4882,9 @@ async def list_workflows(
                 has_more=page.has_more,
                 has_previous=page.has_previous,
             )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -4885,6 +4918,8 @@ async def list_workflow_tree(
             raise ToolError("depth must be >= 0")
 
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /folders/directory`.
+        check_scopes(role, "workflow:read")
         root_path = _normalize_folder_path_arg(path)
 
         def build_item(
@@ -5708,6 +5743,8 @@ async def validate_workflow(
     try:
         workflow_id = WorkflowUUID.new(workflow_id)
         _, role = await _resolve_workspace_role(workspace_id)
+        # Validation reads the draft: the same scope as `GET /workflows/{id}/draft`.
+        check_scopes(role, "workflow:read")
         async with WorkflowsManagementService.with_session(role=role) as svc:
             workflow = await svc.get_workflow(workflow_id)
             if not workflow:
@@ -5734,6 +5771,9 @@ async def validate_workflow(
                 return ValidationResponse(valid=False, errors=errors)
 
             return ValidationResponse(valid=True, errors=[])
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ToolError:
         raise
     except ValueError as e:
@@ -5891,6 +5931,8 @@ async def publish_workflow(
     try:
         workflow_id = WorkflowUUID.new(workflow_id)
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `POST /workflows/{id}/commit`.
+        check_scopes(role, "workflow:update")
         async with WorkflowsManagementService.with_session(role=role) as svc:
             try:
                 result = await svc.publish_workflow(workflow_id)
@@ -5910,6 +5952,9 @@ async def publish_workflow(
             message="Workflow published successfully",
             version=result.version,
         )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ToolError:
         raise
     except ValueError as e:
@@ -5955,6 +6000,8 @@ async def run_workflow(
     try:
         workflow_id = WorkflowUUID.new(workflow_id)
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `POST /workflow-executions` and `.../draft`.
+        check_scopes(role, "workflow:execute")
         async with WorkflowsManagementService.with_session(role=role) as svc:
             response = await svc.run_workflow(
                 workflow_id,
@@ -5968,6 +6015,9 @@ async def run_workflow(
             execution_id=response["wf_exec_id"],
             message=response["message"],
         )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ToolError:
         raise
     except TracecatNotFoundError as e:
@@ -6001,6 +6051,8 @@ async def _draft_actions_by_ref(
     from tracecat.workflow.actions.service import WorkflowActionService
 
     _, role = await _resolve_workspace_role(workspace_id)
+    # The same scope as `GET /actions`.
+    check_scopes(role, "workflow:read")
     async with WorkflowActionService.with_session(role=role) as svc:
         return {action.ref: action for action in await svc.list_actions(wf_id)}
 
@@ -6083,6 +6135,9 @@ async def list_workflow_action_runs(
             locked_run_available=locked_run_available,
             runs=runs,
         )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ToolError:
         raise
     except ValueError as e:
@@ -6122,6 +6177,8 @@ async def lock_workflow_action(
     try:
         wf_id = WorkflowUUID.new(workflow_id)
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `POST /actions/{id}`.
+        check_scopes(role, "workflow:update")
         async with WorkflowActionService.with_session(role=role) as svc:
             actions = {a.ref: a for a in await svc.list_actions(wf_id)}
             if ref not in actions:
@@ -6147,6 +6204,9 @@ async def lock_workflow_action(
                 ref=ref,
                 locked_execution_id=action.locked_execution_id,
             )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ToolError:
         raise
     except TracecatValidationError as e:
@@ -6182,6 +6242,8 @@ async def list_workflow_executions(
     try:
         workflow_id = WorkflowUUID.new(workflow_id)
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /workflow-executions`.
+        check_scopes(role, "workflow:read")
         limit = _normalize_limit(limit, default=20, max_limit=100)
 
         exec_service = await WorkflowExecutionsService.connect(role=role)
@@ -6197,6 +6259,9 @@ async def list_workflow_executions(
             has_more=executions.has_more,
             has_previous=executions.has_previous,
         )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -6250,6 +6315,9 @@ async def rerun_workflow_execution(
     """
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `POST /workflow-executions/{id}/rerun` and its
+        # `/rerun/preview`, so a dry run needs it too.
+        check_scopes(role, "workflow:execute")
         async with WorkflowsManagementService.with_session(role=role) as svc:
             result = await svc.rerun_workflow_execution(
                 execution_id,
@@ -6271,6 +6339,9 @@ async def rerun_workflow_execution(
             message=result.message,
             plan=result.plan,
         )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ToolError:
         raise
     except TracecatNotFoundError as e:
@@ -6304,6 +6375,8 @@ async def _load_execution_with_events(
 ) -> tuple[Any, list[WorkflowExecutionEventCompact[Any, Any, Any]]]:
     """Resolve an execution in the workspace and its compact event history."""
     _, role = await _resolve_workspace_role(workspace_id)
+    # The same scope as `GET /workflow-executions/{id}/compact`.
+    check_scopes(role, "workflow:read")
 
     # Verify the execution's workflow belongs to this workspace
     try:
@@ -6377,6 +6450,9 @@ async def get_workflow_execution(
             history_length=execution.history_length,
             events=events,
         )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ToolError:
         raise
     except ValueError as e:
@@ -6546,6 +6622,9 @@ async def get_execution_action_result(
             truncated=window.truncated,
             next_offset=window.next_offset,
         )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ToolError:
         raise
     except ValueError as e:
@@ -6573,6 +6652,8 @@ async def get_webhook(
     try:
         workflow_id = WorkflowUUID.new(workflow_id)
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /workflows/{id}/webhook`.
+        check_scopes(role, "workflow:read")
         async with get_async_session_context_manager() as session:
             webhook = await webhook_service.get_webhook(
                 session=session,
@@ -6582,6 +6663,9 @@ async def get_webhook(
             if webhook is None:
                 raise ToolError(f"Webhook not found for workflow {workflow_id}")
             return WebhookRead.model_validate(webhook, from_attributes=True)
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ToolError:
         raise
     except ValueError as e:
@@ -6617,6 +6701,8 @@ async def update_webhook(
     try:
         workflow_id = WorkflowUUID.new(workflow_id)
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `PATCH /workflows/{id}/webhook`.
+        check_scopes(role, "workflow:update")
         update_kwargs: dict[str, Any] = {}
         if status is not None:
             update_kwargs["status"] = status
@@ -6642,6 +6728,9 @@ async def update_webhook(
         return MCPMessageResponse(
             message=f"Webhook for workflow {workflow_id} updated successfully"
         )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ToolError:
         raise
     except ValueError as e:
@@ -7514,6 +7603,8 @@ async def list_workflow_tags(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /tags`.
+        check_scopes(role, "tag:read")
         async with TagsService.with_session(role=role) as svc:
             tags = await svc.list_tags()
             page = _paginate_items(
@@ -7527,6 +7618,9 @@ async def list_workflow_tags(
                 cursor=cursor,
             )
             return page
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -7643,6 +7737,8 @@ async def list_tags_for_workflow(
     try:
         workflow_id = WorkflowUUID.new(workflow_id)
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /workflows/{id}/tags`.
+        check_scopes(role, "workflow:read")
         async with WorkflowTagsService.with_session(role=role) as svc:
             tags = await svc.list_tags_for_workflow(workflow_id)
             page = _paginate_items(
@@ -7657,6 +7753,9 @@ async def list_tags_for_workflow(
                 filters={"workflow_id": workflow_id},
             )
             return page
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -7684,11 +7783,16 @@ async def add_workflow_tag(
         workflow_id = WorkflowUUID.new(workflow_id)
         tag_id = _coerce_uuid_arg(tag_id, "tag_id")
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `POST /workflows/{id}/tags`.
+        check_scopes(role, "workflow:update")
         async with WorkflowTagsService.with_session(role=role) as svc:
             await svc.add_workflow_tag(workflow_id, tag_id)
             return MCPMessageResponse(
                 message=f"Workflow tag {tag_id} added to workflow {workflow_id}"
             )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -7716,12 +7820,17 @@ async def remove_workflow_tag(
         workflow_id = WorkflowUUID.new(workflow_id)
         tag_id = _coerce_uuid_arg(tag_id, "tag_id")
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `DELETE /workflows/{id}/tags/{tag_id}`.
+        check_scopes(role, "workflow:update")
         async with WorkflowTagsService.with_session(role=role) as svc:
             wf_tag = await svc.get_workflow_tag(workflow_id, tag_id)
             await svc.remove_workflow_tag(wf_tag)
             return MCPMessageResponse(
                 message=f"Workflow tag {tag_id} removed from workflow {workflow_id}"
             )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except NoResultFound:
         raise ToolError(
             f"Workflow tag {tag_id!r} is not attached to workflow {workflow_id}"
@@ -7763,6 +7872,8 @@ async def list_cases(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /cases`.
+        check_scopes(role, "case:read")
         async with CasesService.with_session(role=role) as svc:
             result = await svc.list_cases(
                 limit=_normalize_limit(
@@ -7775,6 +7886,9 @@ async def list_cases(
                 sort=cast(Any, sort),
             )
             return result
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -8174,6 +8288,8 @@ async def get_case(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /cases/{id}`.
+        check_scopes(role, "case:read")
         async with CasesService.with_session(role=role) as svc:
             case = await svc.get_case(case_id)
             if case is None:
@@ -8204,6 +8320,9 @@ async def get_case(
                 parent=hierarchy.parent if hierarchy else None,
                 num_sub_cases=hierarchy.num_sub_cases if hierarchy else 0,
             )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ToolError:
         raise
     except ValueError as e:
@@ -8538,6 +8657,8 @@ async def list_case_comments(
     try:
         case_id = _coerce_uuid_arg(case_id, "case_id")
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /cases/{id}/comments`.
+        check_scopes(role, "case:read")
         async with CasesService.with_session(role=role) as svc:
             case = await svc.get_case(case_id)
             if case is None:
@@ -8545,6 +8666,9 @@ async def list_case_comments(
             comments_svc = CaseCommentsService(session=svc.session, role=role)
             comments = await comments_svc.list_comments(case)
             return [_case_comment_payload(c) for c in comments]
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ToolError:
         raise
     except ValueError as e:
@@ -8573,6 +8697,8 @@ async def list_case_comment_threads(
     try:
         case_id = _coerce_uuid_arg(case_id, "case_id")
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /cases/{id}/comments/threads`.
+        check_scopes(role, "case:read")
         async with CasesService.with_session(role=role) as svc:
             case = await svc.get_case(case_id)
             if case is None:
@@ -8580,6 +8706,9 @@ async def list_case_comment_threads(
             comments_svc = CaseCommentsService(session=svc.session, role=role)
             threads = await comments_svc.list_comment_threads(case)
             return [_case_comment_thread_payload(t) for t in threads]
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ToolError:
         raise
     except ValueError as e:
@@ -8755,9 +8884,14 @@ async def list_case_tasks(
     try:
         case_id = _coerce_uuid_arg(case_id, "case_id")
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /cases/{id}/tasks`.
+        check_scopes(role, "case:read")
         async with CaseTasksService.with_session(role=role) as svc:
             tasks = await svc.list_tasks(case_id)
             return [_case_task_payload(t) for t in tasks]
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -8782,9 +8916,14 @@ async def get_case_task(
     try:
         task_id = _coerce_uuid_arg(task_id, "task_id")
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /cases/{id}/tasks`.
+        check_scopes(role, "case:read")
         async with CaseTasksService.with_session(role=role) as svc:
             task = await svc.get_task(task_id)
             return _case_task_payload(task)
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except TracecatNotFoundError as e:
         raise ToolError(str(e)) from e
     except ValueError as e:
@@ -8967,6 +9106,8 @@ async def run_case_task(
         case_id = _coerce_uuid_arg(case_id, "case_id")
         task_id = _coerce_uuid_arg(task_id, "task_id")
         ws_id, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `POST /workflow-executions`, which also runs a case task's workflow.
+        check_scopes(role, "workflow:execute")
         # Fetch the task and validate it belongs to the case
         async with CaseTasksService.with_session(role=role) as svc:
             task = await svc.get_task(task_id)
@@ -9033,6 +9174,9 @@ async def run_case_task(
             message=response["message"],
             task_id=task_id,
         )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ToolError:
         raise
     except TracecatNotFoundError as e:
@@ -9073,6 +9217,8 @@ async def list_case_events(
     try:
         case_id = _coerce_uuid_arg(case_id, "case_id")
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /cases/{id}/events`.
+        check_scopes(role, "case:read")
         async with CasesService.with_session(role=role) as svc:
             case = await svc.get_case(case_id)
             if case is None:
@@ -9120,6 +9266,9 @@ async def list_case_events(
                 ]
 
             return CaseEventsResponse(events=events, users=users)
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ToolError:
         raise
     except ValueError as e:
@@ -9147,6 +9296,8 @@ async def list_case_tags(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /case-tags`.
+        check_scopes(role, "case:read")
         async with CaseTagsService.with_session(role=role) as svc:
             tags = await svc.list_workspace_tags()
             page = _paginate_items(
@@ -9160,6 +9311,9 @@ async def list_case_tags(
                 cursor=cursor,
             )
             return page
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -9185,9 +9339,14 @@ async def create_case_tag(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `POST /case-tags`.
+        check_scopes(role, "case:create")
         async with CaseTagsService.with_session(role=role) as svc:
             tag = await svc.create_tag(TagCreate(name=name, color=color))
             return _case_tag_payload(tag)
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -9215,6 +9374,8 @@ async def update_case_tag(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `PATCH /case-tags/{id}`.
+        check_scopes(role, "case:update")
         async with CaseTagsService.with_session(role=role) as svc:
             tag = await svc.get_tag_by_ref_or_id(tag_id)
             updated = await svc.update_tag(
@@ -9222,6 +9383,9 @@ async def update_case_tag(
                 _build_tag_update_params(name=name, color=color),
             )
             return _case_tag_payload(updated)
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except NoResultFound:
         raise ToolError(f"Case tag {tag_id!r} not found") from None
     except ValueError as e:
@@ -9244,10 +9408,15 @@ async def delete_case_tag(workspace_id: uuid.UUID, tag_id: str) -> MCPMessageRes
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `DELETE /case-tags/{id}`.
+        check_scopes(role, "case:delete")
         async with CaseTagsService.with_session(role=role) as svc:
             tag = await svc.get_tag_by_ref_or_id(tag_id)
             await svc.delete_tag(tag)
             return MCPMessageResponse(message=f"Case tag {tag_id} deleted successfully")
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except NoResultFound:
         raise ToolError(f"Case tag {tag_id!r} not found") from None
     except ValueError as e:
@@ -9271,6 +9440,8 @@ async def list_tags_for_case(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /cases/{id}/tags`.
+        check_scopes(role, "case:read")
         async with CaseTagsService.with_session(role=role) as svc:
             tags = await svc.list_tags_for_case(case_id)
             page = _paginate_items(
@@ -9285,6 +9456,9 @@ async def list_tags_for_case(
                 filters={"case_id": case_id},
             )
             return page
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -9314,9 +9488,14 @@ async def add_case_tag(
     try:
         case_id = _coerce_uuid_arg(case_id, "case_id")
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `POST /cases/{id}/tags`.
+        check_scopes(role, "case:update")
         async with CaseTagsService.with_session(role=role) as svc:
             tag = await svc.add_case_tag(case_id, tag_identifier)
             return _case_tag_payload(tag)
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except NoResultFound as e:
         raise ToolError(str(e)) from e
     except ValueError as e:
@@ -9346,11 +9525,16 @@ async def remove_case_tag(
     try:
         case_id = _coerce_uuid_arg(case_id, "case_id")
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `DELETE /cases/{id}/tags/{tag_id}`.
+        check_scopes(role, "case:update")
         async with CaseTagsService.with_session(role=role) as svc:
             await svc.remove_case_tag(case_id, tag_identifier)
             return MCPMessageResponse(
                 message=f"Case tag {tag_identifier} removed from case {case_id}"
             )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except (NoResultFound, TracecatNotFoundError) as e:
         raise ToolError(str(e)) from e
     except ValueError as e:
@@ -9375,6 +9559,8 @@ async def list_case_fields(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /case-fields`.
+        check_scopes(role, "case:read")
         async with CaseFieldsService.with_session(role=role) as svc:
             page = _paginate_items(
                 await svc.list_field_definitions(),
@@ -9387,6 +9573,9 @@ async def list_case_fields(
                 cursor=cursor,
             )
             return page
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -9967,6 +10156,8 @@ async def list_tables(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /tables`.
+        check_scopes(role, "table:read")
         async with TablesService.with_session(role=role) as svc:
             tables = await svc.list_tables()
             page = _paginate_items(
@@ -9983,6 +10174,9 @@ async def list_tables(
                 cursor=cursor,
             )
             return page
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -10036,6 +10230,8 @@ async def get_table(workspace_id: uuid.UUID, table_id: uuid.UUID) -> TableRespon
     try:
         table_id = _coerce_uuid_arg(table_id, "table_id")
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /tables/{id}`.
+        check_scopes(role, "table:read")
         async with TablesService.with_session(role=role) as svc:
             table = await svc.get_table(table_id)
             index_columns = await svc.get_index(table)
@@ -10055,6 +10251,9 @@ async def get_table(workspace_id: uuid.UUID, table_id: uuid.UUID) -> TableRespon
                     for column in table.columns
                 ],
             )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -10731,6 +10930,8 @@ async def search_table_rows(
     try:
         table_id = _coerce_uuid_arg(table_id, "table_id")
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /tables/{id}/rows`.
+        check_scopes(role, "table:read")
         limit = _normalize_limit(limit, default=100, max_limit=1000)
         async with TablesService.with_session(role=role) as svc:
             table = await svc.get_table(table_id)
@@ -10747,6 +10948,9 @@ async def search_table_rows(
                 has_more=page.has_more,
                 has_previous=page.has_previous,
             )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -10777,6 +10981,8 @@ async def export_csv(
         table_id = _coerce_uuid_arg(table_id, "table_id")
         _require_remote_mcp_context(ctx, tool_name="export_csv")
         _, role = await _resolve_workspace_role(workspace_id)
+        # Exporting reads the rows: the same scope as `GET /tables/{id}/rows`.
+        check_scopes(role, "table:read")
         async with TablesService.with_session(role=role) as svc:
             table = await svc.get_table(table_id)
             columns = [c.name for c in table.columns if c.name not in SYSTEM_COLUMNS]
@@ -10832,6 +11038,9 @@ async def export_csv(
             }
         )
         return result_payload
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ToolError:
         raise
     except ValueError as e:
@@ -11357,6 +11566,8 @@ async def list_integrations(workspace_id: uuid.UUID) -> IntegrationsInventoryRes
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /integrations`, `/mcp-integrations` and `/providers`.
+        check_scopes(role, "integration:read")
         inventory = await _build_integrations_inventory(role)
         truncated_sections, truncation = _truncate_named_sections(
             {
@@ -11372,6 +11583,9 @@ async def list_integrations(workspace_id: uuid.UUID) -> IntegrationsInventoryRes
                 "truncation": truncation,
             }
         )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ToolError:
         raise
     except ValueError as e:
@@ -12588,6 +12802,8 @@ async def list_skills(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /agent/skills`.
+        check_scopes(role, "agent:read")
         async with SkillService.with_session(role=role) as svc:
             return await svc.list_skills(
                 CursorPaginationParams(
@@ -12599,6 +12815,9 @@ async def list_skills(
                     cursor=cursor,
                 )
             )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ToolError:
         raise
     except ValidationError as e:
@@ -13004,6 +13223,8 @@ async def list_agent_presets(
     """
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /agent/presets`.
+        check_scopes(role, "agent:read")
         async with AgentPresetService.with_session(role=role) as svc:
             presets = await svc.list_presets()
         page = _paginate_items(
@@ -13023,6 +13244,9 @@ async def list_agent_presets(
             cursor=cursor,
         )
         return page
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ToolError:
         raise
     except Exception as e:
@@ -13294,6 +13518,8 @@ async def run_agent_preset(
     """
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `POST /agent/sessions`.
+        check_scopes(role, "agent:execute")
         timeout = min(max(timeout_seconds, 10), 300)
 
         # Resolve preset
@@ -13334,6 +13560,9 @@ async def run_agent_preset(
             "0-0",
             stream_id,
         )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ToolError:
         raise
     except Exception as e:
