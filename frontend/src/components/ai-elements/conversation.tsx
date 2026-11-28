@@ -1,22 +1,63 @@
 "use client"
 
 import { ArrowDownIcon } from "lucide-react"
-import type { ComponentProps } from "react"
-import { useCallback } from "react"
+import type { ComponentProps, ReactNode } from "react"
+import { useCallback, useLayoutEffect } from "react"
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
-export type ConversationProps = ComponentProps<typeof StickToBottom>
+export type ConversationProps = Omit<
+  ComponentProps<typeof StickToBottom>,
+  "children"
+> & {
+  children?: ReactNode
+  /**
+   * Identity of the transcript on screen. When it changes, the view jumps to
+   * the newest message instead of animating there from the old position.
+   */
+  scrollKey?: string
+}
 
-export const Conversation = ({ className, ...props }: ConversationProps) => (
+/**
+ * Pins a transcript to its end before the browser paints. The library does
+ * this from a resize observer one frame later, so a transcript that already
+ * has content would otherwise paint once at the top and then jump.
+ */
+function ConversationScrollAnchor({ scrollKey }: { scrollKey?: string }) {
+  const { scrollRef, scrollToBottom } = useStickToBottomContext()
+
+  useLayoutEffect(() => {
+    const scrollElement = scrollRef.current
+    if (!scrollElement) {
+      return
+    }
+    scrollElement.scrollTop = scrollElement.scrollHeight
+    // Also re-engages the bottom lock when the previous transcript was left
+    // scrolled up.
+    void scrollToBottom("instant")
+  }, [scrollKey, scrollRef, scrollToBottom])
+
+  return null
+}
+
+export const Conversation = ({
+  className,
+  children,
+  scrollKey,
+  ...props
+}: ConversationProps) => (
   <StickToBottom
     className={cn("relative flex-1 overflow-y-auto", className)}
-    initial="smooth"
+    initial="instant"
     resize="smooth"
     role="log"
     {...props}
-  />
+  >
+    {children}
+    {/* After the content, so its scroll element is attached first. */}
+    <ConversationScrollAnchor scrollKey={scrollKey} />
+  </StickToBottom>
 )
 
 export type ConversationContentProps = ComponentProps<

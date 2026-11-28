@@ -156,7 +156,7 @@ function mapInboxStatusToAgentStatus(
  * Converts an InboxItemRead to the InboxSessionItem format expected by UI components.
  * This bridges the inbox API with inbox UI components.
  */
-function inboxItemToSessionItem(item: InboxItemRead): InboxSessionItem {
+export function inboxItemToSessionItem(item: InboxItemRead): InboxSessionItem {
   const temporalStatusRaw =
     typeof item.metadata?.temporal_status === "string"
       ? item.metadata.temporal_status
@@ -192,7 +192,15 @@ function inboxItemToSessionItem(item: InboxItemRead): InboxSessionItem {
         ? item.metadata.last_error
         : null,
     channelThread: item.channel_thread ?? null,
+    tools: stringList(item.metadata?.tools),
+    mcpIntegrations: stringList(item.metadata?.mcp_integrations),
   }
+}
+
+function stringList(value: unknown): string[] | undefined {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : undefined
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -326,6 +334,93 @@ function useInboxGroupQuery({
     placeholderData: (previousData, previousQuery) =>
       previousQuery?.queryKey[3] === caseId ? previousData : undefined,
   })
+}
+
+/** How often a case's agent sessions list refreshes while it is on screen. */
+export const CASE_AGENT_SESSIONS_POLL_MS = 10000
+
+/** Agent sessions fetched per page in a case's agent sessions list. */
+const CASE_AGENT_SESSIONS_PAGE_SIZE = 20
+
+/** Result of {@link useCaseAgentSessions}. */
+export interface UseCaseAgentSessionsResult {
+  sessions: InboxSessionItem[]
+  isLoading: boolean
+  error: Error | null
+  hasMore: boolean
+  isLoadingMore: boolean
+  loadMore: () => void
+}
+
+/**
+ * Every agent session associated with one case, newest activity first.
+ *
+ * One request per page across all statuses, unlike {@link useInbox}, which
+ * runs a query per status group. Polls only the first page, only while the
+ * tab is visible, and stops once more pages are loaded.
+ */
+export function useCaseAgentSessions({
+  caseId,
+  workspaceId,
+  enabled = true,
+}: {
+  caseId: string
+  workspaceId: string
+  enabled?: boolean
+}): UseCaseAgentSessionsResult {
+  const query = useInfiniteQuery<
+    InboxListItemsResponse,
+    TracecatApiError,
+    InfiniteData<InboxListItemsResponse>,
+    readonly unknown[],
+    string | null
+  >({
+    queryKey: ["inbox-items", workspaceId, "case-sessions", caseId],
+    queryFn: ({ pageParam }) =>
+      inboxListItems({
+        workspaceId,
+        limit: CASE_AGENT_SESSIONS_PAGE_SIZE,
+        cursor: pageParam,
+        caseId,
+        orderBy: "updated_at",
+        sort: "desc",
+      }),
+    initialPageParam: null,
+    getNextPageParam: (lastPage) =>
+      lastPage.has_more && lastPage.next_cursor ? lastPage.next_cursor : null,
+    enabled: enabled && Boolean(workspaceId) && Boolean(caseId),
+    retry: retryHandler,
+    meta: { suppressErrorToast: true },
+    refetchInterval: (query) => {
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden"
+      ) {
+        return false
+      }
+      const pageCount = query.state.data?.pages.length ?? 0
+      return pageCount > 1 ? false : CASE_AGENT_SESSIONS_POLL_MS
+    },
+  })
+
+  const sessions = useMemo(
+    () =>
+      query.data?.pages.flatMap((page) =>
+        page.items.map(inboxItemToSessionItem)
+      ) ?? [],
+    [query.data]
+  )
+
+  return {
+    sessions,
+    isLoading: query.isLoading,
+    error: query.error,
+    hasMore: query.hasNextPage,
+    isLoadingMore: query.isFetchingNextPage,
+    loadMore: () => {
+      void query.fetchNextPage()
+    },
+  }
 }
 
 export function useInbox(options: UseInboxOptions = {}): UseInboxResult {

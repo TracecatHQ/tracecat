@@ -166,7 +166,9 @@ async def test_grouped_reverse_page_uses_canonical_order_and_swapped_cursors(
     ) -> dict[uuid.UUID, InboxGroup]:
         return {session.id: group for session in sessions}
 
-    async def enrich(sessions: Sequence[AgentSession]) -> list[InboxItemRead]:
+    async def enrich(
+        sessions: Sequence[AgentSession], *, include_tools: bool = False
+    ) -> list[InboxItemRead]:
         return _items_for_sessions(sessions)
 
     monkeypatch.setattr(provider, "_classify_sessions_for_group", classify)
@@ -265,7 +267,9 @@ async def test_ungrouped_reverse_returns_rows_adjacent_to_cursor(
     session = _RecordingSession([scan_rows])
     provider = AgentRunsInboxProvider(cast(AsyncSession, session), _role(workspace_id))
 
-    async def enrich(sessions: Sequence[AgentSession]) -> list[InboxItemRead]:
+    async def enrich(
+        sessions: Sequence[AgentSession], *, include_tools: bool = False
+    ) -> list[InboxItemRead]:
         return _items_for_sessions(sessions)
 
     monkeypatch.setattr(provider, "_enrich_sessions", enrich)
@@ -392,6 +396,14 @@ async def test_ungrouped_list_applies_entity_type_and_date_filters() -> None:
     assert "case_agent_session_interaction.agent_session_id = agent_session.id" in (
         compiled
     )
+    # The case-scoped list is the only one that loads the sessions' tools.
+    assert "agent_session.tools" in compiled
+    assert "agent_session.mcp_integrations" in compiled
+
+    await provider.list_items(limit=10)
+    unscoped = str(session.statements[-1].compile())
+    assert "agent_session.tools" not in unscoped
+    assert "agent_session.mcp_integrations" not in unscoped
 
 
 @pytest.mark.parametrize("group", list(InboxGroup))
@@ -665,3 +677,69 @@ async def test_list_includes_installed_backend_runs() -> None:
     assert "agent_session.harness_type IN" in compiled
     assert "agent_session.backend_id !=" in compiled
     assert registry.DEFAULT_AGENT_BACKEND in statement.params.values()
+
+
+@pytest.mark.anyio
+async def test_preset_tools_resolve_pinned_and_current_versions() -> None:
+    """A preset session's tools come from its pinned or current version."""
+
+    class _Rows:
+        def __init__(self, rows: list[tuple[Any, ...]]) -> None:
+            self._rows = rows
+
+        def all(self) -> list[tuple[Any, ...]]:
+            return self._rows
+
+    class _Session:
+        def __init__(self, results: list[list[tuple[Any, ...]]]) -> None:
+            self._results = results
+
+        async def execute(self, stmt: Any) -> _Rows:
+            return _Rows(self._results.pop(0))
+
+    workspace_id = uuid.uuid4()
+    created_at = datetime(2026, 1, 1, tzinfo=UTC)
+    pinned = _agent_session("pinned", created_at, workspace_id=workspace_id)
+    pinned.agent_preset_id = uuid.uuid4()
+    pinned.agent_preset_version_id = uuid.uuid4()
+    unpinned = _agent_session("unpinned", created_at, workspace_id=workspace_id)
+    unpinned.agent_preset_id = uuid.uuid4()
+    plain = _agent_session("plain", created_at, workspace_id=workspace_id)
+    current_version_id = uuid.uuid4()
+
+    session = _Session(
+        [
+            [(unpinned.agent_preset_id, current_version_id)],
+            [
+                (pinned.agent_preset_version_id, ["core.http_request"], ["mcp-1"]),
+                (current_version_id, None, None),
+            ],
+        ]
+    )
+    provider = AgentRunsInboxProvider(cast(AsyncSession, session), _role(workspace_id))
+
+    assert await provider._preset_tools_by_session([pinned, unpinned, plain]) == {
+        pinned.id: (["core.http_request"], ["mcp-1"]),
+        unpinned.id: ([], []),
+    }
+
+
+@pytest.mark.anyio
+async def test_enrich_reads_preset_tools_only_with_agent_read() -> None:
+    """Without `agent:read`, a row carries only the session's own tools."""
+    workspace_id = uuid.uuid4()
+    session = _RecordingSession()
+    provider = AgentRunsInboxProvider(cast(AsyncSession, session), _role(workspace_id))
+    agent_session = _agent_session(
+        "preset", datetime(2026, 1, 1, tzinfo=UTC), workspace_id=workspace_id
+    )
+    agent_session.tools = ["core.cases.get_case"]
+    agent_session.agent_preset_id = uuid.uuid4()
+
+    items = await provider._enrich_sessions([agent_session], include_tools=True)
+
+    assert items[0].metadata is not None
+    assert items[0].metadata["tools"] == ["core.cases.get_case"]
+    assert not any(
+        "FROM agent_preset" in str(stmt.compile()) for stmt in session.statements
+    )

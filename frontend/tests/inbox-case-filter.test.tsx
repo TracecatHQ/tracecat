@@ -8,14 +8,10 @@ import {
 } from "@testing-library/react"
 import type { ReactNode } from "react"
 import { type InboxListItemsResponse, inboxListItems } from "@/client"
-import { CaseAgentRunsAction } from "@/components/cases/case-agent-runs-action"
+import { CaseAgentSessionsPanel } from "@/components/cases/case-agent-sessions-panel"
 import { InboxHeader } from "@/components/inbox/inbox-header"
-import { useInbox } from "@/hooks/use-inbox"
-import {
-  getCaseAgentRunsHref,
-  getInboxHrefWithoutCaseFilter,
-  parseInboxCaseId,
-} from "@/lib/inbox"
+import { useCaseAgentSessions, useInbox } from "@/hooks/use-inbox"
+import { getInboxHrefWithoutCaseFilter, parseInboxCaseId } from "@/lib/inbox"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 const mockUseScopeCheck = jest.fn<boolean | undefined, [string]>()
@@ -25,6 +21,7 @@ let mockEntitlementsLoading = false
 jest.mock("@/client", () => ({
   approvalsDeleteApproval: jest.fn(),
   inboxListItems: jest.fn(),
+  mcpIntegrationsListMcpIntegrations: jest.fn(),
 }))
 
 jest.mock("@/components/auth/scope-guard", () => ({
@@ -38,6 +35,30 @@ jest.mock("@/hooks/use-entitlements", () => ({
     isLoading: mockEntitlementsLoading,
   }),
 }))
+
+jest.mock("@/components/inbox/inbox-chat", () => {
+  const { useContext, useEffect } = jest.requireActual("react")
+  const { TranscriptOutlineContext } = jest.requireActual(
+    "@/components/chat/transcript-outline"
+  )
+  return {
+    // Reports a one-entry outline, as the real transcript does.
+    InboxChat: ({ session }: { session: { id: string } }) => {
+      const report = useContext(TranscriptOutlineContext)
+      useEffect(() => {
+        report?.([
+          {
+            id: `prompt-${session.id}`,
+            kind: "prompt",
+            label: `Prompt of ${session.id}`,
+            toolCallCount: 0,
+          },
+        ])
+      }, [report, session.id])
+      return <div data-testid="transcript">{session.id}</div>
+    },
+  }
+})
 
 jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-test",
@@ -83,9 +104,6 @@ describe("Inbox case filtering", () => {
     expect(parseInboxCaseId(CASE_ID)).toBe(CASE_ID)
     expect(parseInboxCaseId("not-a-case-id")).toBeNull()
     expect(parseInboxCaseId(null)).toBeNull()
-    expect(getCaseAgentRunsHref("workspace-test", CASE_ID)).toBe(
-      `/workspaces/workspace-test/inbox?caseId=${CASE_ID}`
-    )
     expect(
       getInboxHrefWithoutCaseFilter(
         "/workspaces/workspace-test/inbox",
@@ -200,33 +218,139 @@ describe("Inbox case filtering", () => {
     expect(onClearCaseFilter).toHaveBeenCalledTimes(1)
   })
 
-  it("links entitled Inbox readers from a case and hides the action otherwise", () => {
-    const { rerender } = render(
-      <CaseAgentRunsAction caseId={CASE_ID} workspaceId="workspace-test" />
+  it("loads a case's sessions in one request per page", async () => {
+    const mockListItems = jest.mocked(inboxListItems)
+    mockListItems.mockImplementation((data) => {
+      const response = data.cursor
+        ? { ...EMPTY_PAGE, items: [{ ...CASE_ITEM, id: "inbox-item-2" }] }
+        : {
+            items: [CASE_ITEM],
+            has_more: true,
+            next_cursor: "next-cursor",
+          }
+      return Promise.resolve(response) as unknown as ReturnType<
+        typeof inboxListItems
+      >
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+
+    const { result, rerender } = renderHook(
+      ({ enabled }: { enabled: boolean }) =>
+        useCaseAgentSessions({
+          caseId: CASE_ID,
+          workspaceId: "workspace-test",
+          enabled,
+        }),
+      {
+        initialProps: { enabled: false },
+        wrapper: createWrapper(queryClient),
+      }
+    )
+    expect(mockListItems).not.toHaveBeenCalled()
+
+    rerender({ enabled: true })
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1))
+    expect(mockListItems).toHaveBeenCalledTimes(1)
+    expect(mockListItems.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ caseId: CASE_ID, cursor: null })
+    )
+    expect(mockListItems.mock.calls[0][0].group).toBeUndefined()
+    expect(result.current.hasMore).toBe(true)
+
+    act(() => result.current.loadMore())
+    await waitFor(() => expect(result.current.sessions).toHaveLength(2))
+    expect(mockListItems).toHaveBeenCalledTimes(2)
+    expect(mockListItems).toHaveBeenLastCalledWith(
+      expect.objectContaining({ caseId: CASE_ID, cursor: "next-cursor" })
+    )
+    expect(result.current.hasMore).toBe(false)
+  })
+
+  it("lists a case's sessions and mounts only the selected transcript", async () => {
+    jest.mocked(inboxListItems).mockResolvedValue({
+      ...EMPTY_PAGE,
+      items: [
+        {
+          ...CASE_ITEM,
+          metadata: {
+            tools: ["core__cases__create_comment", "core__cases__get_case"],
+            mcp_integrations: [],
+          },
+        },
+        {
+          ...CASE_ITEM,
+          id: "inbox-item-2",
+          source_id: "agent-session-2",
+          title: "Older run",
+        },
+      ],
+    } as never)
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+
+    render(
+      <CaseAgentSessionsPanel caseId={CASE_ID} workspaceId="workspace-test" />,
+      { wrapper: createWrapper(queryClient) }
     )
 
-    expect(
-      screen.getByRole("link", { name: "View agent runs" })
-    ).toHaveAttribute(
-      "href",
-      `/workspaces/workspace-test/inbox?caseId=${CASE_ID}`
+    // The newest session is selected until the user picks another.
+    const newest = await screen.findByRole("button", { name: /Case run/ })
+    expect(newest).toHaveAttribute("aria-current", "true")
+    expect(screen.getAllByTestId("transcript")).toHaveLength(1)
+    expect(screen.getByTestId("transcript")).toHaveTextContent(
+      "agent-session-1"
     )
 
-    mockUseScopeCheck.mockReturnValue(false)
-    rerender(
-      <CaseAgentRunsAction caseId={CASE_ID} workspaceId="workspace-test" />
+    // One icon per tool namespace, and the selected session's outline.
+    expect(screen.getAllByTitle("core.cases")).toHaveLength(1)
+    expect(
+      screen.getByRole("button", { name: /Prompt of agent-session-1/ })
+    ).toBeInTheDocument()
+
+    const older = screen.getByRole("button", { name: /Older run/ })
+    fireEvent.click(older)
+    expect(older).toHaveAttribute("aria-current", "true")
+    expect(newest).not.toHaveAttribute("aria-current")
+    expect(screen.getAllByTestId("transcript")).toHaveLength(1)
+    expect(screen.getByTestId("transcript")).toHaveTextContent(
+      "agent-session-2"
     )
     expect(
-      screen.queryByRole("link", { name: "View agent runs" })
+      screen.queryByRole("button", { name: /Prompt of agent-session-1/ })
     ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: /Prompt of agent-session-2/ })
+    ).toBeInTheDocument()
+
+    // The chevron collapses the selected session's outline.
+    fireEvent.click(screen.getByRole("button", { name: "Collapse session" }))
+    expect(
+      screen.queryByRole("button", { name: /Prompt of agent-session-2/ })
+    ).not.toBeInTheDocument()
+  })
+
+  it("does not request sessions without the scope or entitlement", () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    mockUseScopeCheck.mockReturnValue(false)
+    const { unmount } = render(
+      <CaseAgentSessionsPanel caseId={CASE_ID} workspaceId="workspace-test" />,
+      { wrapper: createWrapper(queryClient) }
+    )
+    expect(screen.getByRole("status")).toHaveTextContent(/cannot view/)
+    unmount()
 
     mockUseScopeCheck.mockReturnValue(true)
     mockCaseAddonsEnabled = false
-    rerender(
-      <CaseAgentRunsAction caseId={CASE_ID} workspaceId="workspace-test" />
+    render(
+      <CaseAgentSessionsPanel caseId={CASE_ID} workspaceId="workspace-test" />,
+      { wrapper: createWrapper(queryClient) }
     )
-    expect(
-      screen.queryByRole("link", { name: "View agent runs" })
-    ).not.toBeInTheDocument()
+    expect(screen.getByRole("status")).toHaveTextContent(/Enterprise/)
+    expect(inboxListItems).not.toHaveBeenCalled()
   })
 })

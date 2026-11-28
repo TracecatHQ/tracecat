@@ -167,6 +167,10 @@ export interface InboxSessionItem {
   lastError: string | null
   /** The channel of the session's linked provider thread, if any. */
   channelThread: InboxChannelThread | null
+  /** Tools the session was given. Only the case-scoped list returns them. */
+  tools?: string[]
+  /** MCP integration IDs the session was given. Case-scoped list only. */
+  mcpIntegrations?: string[]
 }
 
 export function enrichAgentSession(

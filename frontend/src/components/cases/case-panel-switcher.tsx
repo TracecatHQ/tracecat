@@ -58,21 +58,23 @@ export interface CasePanelSwitcherProps {
    * count text, and no shortcut hints — digit shortcuts bind route-side only.
    */
   compact?: boolean
+  /** Stack the tabs top to bottom (the route view's left rail). */
+  orientation?: "horizontal" | "vertical"
   /** Extra classes for the tablist row (optical alignment at the call site). */
   className?: string
 }
 
 /**
- * The case panel switcher: a right-alignable row of icon tabs, one per panel.
+ * The case panel switcher: a row or column of icon tabs, one per panel.
  *
  * Hand-rolled tablist rather than Radix `Tabs`: the tabpanel lives ~200 lines
  * away in `case-panel-view.tsx`, and Radix would drag the title, tags, and
  * comments into one `<Tabs>` root while activating on every arrow press.
  * Roving tabindex with manual activation — arrows move focus without
  * selecting, Enter/Space activate. Icon-only at every width by design, and no
- * overflow scroll: compact's six buttons total 154px (6×24 + 5×2), which fits
- * even the embedded panel's 280px floor, while the route band's 232px (6×32 +
- * 5×8) sits in a row that spans the full panel width. Knows nothing of
+ * overflow scroll: compact's eight buttons total 206px (8×24 + 7×2), which fits
+ * even the embedded panel's 280px floor, while the route band's 312px (8×32 +
+ * 7×8) sits in a row that spans the full panel width. Knows nothing of
  * routing, queries, or entitlements — the view resolves those and passes
  * results in; every panel always gets a button, and an entitlement-locked
  * press is the view's `onPanelChange` to intercept.
@@ -84,15 +86,19 @@ export function CasePanelSwitcher({
   taskProgress,
   tasks,
   compact = false,
+  orientation = "horizontal",
   className,
 }: CasePanelSwitcherProps) {
+  const vertical = orientation === "vertical"
+  const previousKey = vertical ? "ArrowUp" : "ArrowLeft"
+  const nextKey = vertical ? "ArrowDown" : "ArrowRight"
   const tablistRef = useRef<HTMLDivElement>(null)
 
   function handleTablistKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     const { key } = event
     if (
-      key !== "ArrowLeft" &&
-      key !== "ArrowRight" &&
+      key !== previousKey &&
+      key !== nextKey &&
       key !== "Home" &&
       key !== "End"
     ) {
@@ -111,7 +117,7 @@ export function CasePanelSwitcher({
       nextIndex = 0
     } else if (key === "End") {
       nextIndex = tabs.length - 1
-    } else if (key === "ArrowLeft") {
+    } else if (key === previousKey) {
       nextIndex = (currentIndex - 1 + tabs.length) % tabs.length
     } else {
       nextIndex = (currentIndex + 1) % tabs.length
@@ -127,9 +133,10 @@ export function CasePanelSwitcher({
       ref={tablistRef}
       role="tablist"
       aria-label="Case sections"
-      aria-orientation="horizontal"
+      aria-orientation={orientation}
       className={cn(
         "flex items-center",
+        vertical && "flex-col",
         compact ? "gap-0.5" : "gap-2",
         className
       )}
@@ -145,6 +152,7 @@ export function CasePanelSwitcher({
           taskProgress={definition.key === "tasks" ? taskProgress : undefined}
           tasks={definition.key === "tasks" ? tasks : undefined}
           compact={compact}
+          vertical={vertical}
         />
       ))}
     </div>
@@ -159,6 +167,7 @@ interface CasePanelTabButtonProps {
   taskProgress?: CaseTaskProgress
   tasks?: CaseTaskRead[]
   compact: boolean
+  vertical: boolean
 }
 
 function CasePanelTabButton({
@@ -169,12 +178,15 @@ function CasePanelTabButton({
   taskProgress,
   tasks,
   compact,
+  vertical,
 }: CasePanelTabButtonProps) {
   const Icon = definition.icon
   // Zero tasks and still-loading both render the plain icon: an empty ring
   // plus `0/0` is noise and would flash on every case open.
   const showRing = (taskProgress?.total ?? 0) > 0
-  const showCount = showRing && !compact
+  // The vertical rail is one icon wide, so the count moves to the hover card.
+  const showCount = showRing && !compact && !vertical
+  const hoverCardSide = vertical ? "right" : "bottom"
   // The hover card is mouse-only and never announced, so it cannot be the
   // accessible name; the count also folds in here for AT.
   const ariaLabel =
@@ -193,7 +205,7 @@ function CasePanelTabButton({
       // the card's padding is just the 4px gutter around the list. Width stays
       // the default w-64 — fixed, so a long title truncates instead of
       // stretching the card to the panel's width.
-      <HoverCardContent side="bottom" align="start" className="w-64 p-1">
+      <HoverCardContent side={hoverCardSide} align="start" className="w-64 p-1">
         {/* Two caps, one height: max-h-56 on the root clips the card, and the
             same cap on Radix's viewport is what actually makes it scroll — a
             percentage height (`size-full`) against the root's auto height
@@ -223,11 +235,11 @@ function CasePanelTabButton({
   } else {
     hoverCardContent = (
       <HoverCardContent
-        side="bottom"
+        side={hoverCardSide}
         className="flex w-auto items-center gap-1.5 px-2 py-1"
       >
         <span className="text-xs">{definition.label}</span>
-        {compact && showRing && taskProgress && (
+        {!showCount && showRing && taskProgress && (
           <span className="text-xs tabular-nums text-muted-foreground">
             {taskProgress.done}/{taskProgress.total}
           </span>

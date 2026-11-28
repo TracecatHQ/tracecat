@@ -32,16 +32,37 @@
 .ag-body-horizontal-scroll-viewport,
 .ag-body-vertical-scroll-viewport,
 .ag-body-viewport {
-  scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
-  transition: scrollbar-color 150ms;
+  &::-webkit-scrollbar-thumb {
+    background-color: transparent;
+  }
 }
 
 .ag-root-wrapper:hover {
   .ag-body-horizontal-scroll-viewport,
   .ag-body-vertical-scroll-viewport,
   .ag-body-viewport {
-    scrollbar-color: hsl(var(--border)) transparent;
+    &::-webkit-scrollbar-thumb {
+      background-color: hsl(var(--border));
+    }
+  }
+}
+
+/* Firefox has no scrollbar pseudo-elements. */
+@supports not selector(::-webkit-scrollbar) {
+  .ag-body-horizontal-scroll-viewport,
+  .ag-body-vertical-scroll-viewport,
+  .ag-body-viewport {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    transition: scrollbar-color 150ms;
+  }
+
+  .ag-root-wrapper:hover {
+    .ag-body-horizontal-scroll-viewport,
+    .ag-body-vertical-scroll-viewport,
+    .ag-body-viewport {
+      scrollbar-color: hsl(var(--border)) transparent;
+    }
   }
 }
 

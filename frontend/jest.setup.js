@@ -48,6 +48,7 @@ jest.mock("use-stick-to-bottom", () => {
     StickToBottom,
     useStickToBottomContext: () => ({
       isAtBottom: true,
+      scrollRef: { current: null },
       scrollToBottom: jest.fn(),
     }),
   }
