@@ -24,6 +24,11 @@ import { InboxChat } from "@/components/inbox/inbox-chat"
 import { Spinner } from "@/components/loading/spinner"
 import { UpdatedAtTimestamp } from "@/components/timestamps"
 import { Button } from "@/components/ui/button"
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Tooltip,
@@ -234,7 +239,7 @@ const CaseAgentSessionRow = memo(function CaseAgentSessionRow({
               </Tooltip>
             )}
           </span>
-          <span className="flex w-11 shrink-0 justify-end">
+          <span className="flex w-11 shrink-0 justify-start">
             <UpdatedAtTimestamp updatedAt={session.updated_at} />
           </span>
         </button>
@@ -435,49 +440,83 @@ export function CaseAgentSessionsPanel({
   const selectedOutline =
     outline?.sessionId === selectedSession.id ? outline.entries : EMPTY_OUTLINE
 
-  return (
-    <div className={cn("flex h-full min-h-0", embedded && "flex-col")}>
-      <nav
-        aria-label="Agent sessions"
-        className={cn(
-          "no-scrollbar @container shrink-0 overflow-y-auto p-2",
-          embedded ? "max-h-40 border-b" : "w-80 max-w-[40%] border-r"
-        )}
-      >
-        <ul className="flex flex-col gap-0.5">
-          {sessions.map((session) => {
-            const selected = session.id === selectedSession.id
-            return (
-              <CaseAgentSessionRow
-                key={session.id}
-                session={session}
-                selected={selected}
-                expanded={selected && outlineOpen}
-                outline={selected ? selectedOutline : EMPTY_OUTLINE}
-                mcpIntegrationMap={mcpIntegrationMap}
-                onSelect={handleSelect}
-                onToggle={handleToggle}
-                onJump={handleJump}
-              />
-            )
-          })}
-        </ul>
-        {hasMore && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="mt-1 h-7 text-xs text-muted-foreground"
-            onClick={loadMore}
-            disabled={isLoadingMore}
-          >
-            {isLoadingMore && <Spinner className="mr-1.5 size-3" />}
-            Show more
-          </Button>
-        )}
-      </nav>
-      <div ref={transcriptRef} className="min-h-0 min-w-0 flex-1">
-        {transcript}
+  const sessionList = (
+    <>
+      <ul className="flex flex-col gap-0.5">
+        {sessions.map((session) => {
+          const selected = session.id === selectedSession.id
+          return (
+            <CaseAgentSessionRow
+              key={session.id}
+              session={session}
+              selected={selected}
+              expanded={selected && outlineOpen}
+              outline={selected ? selectedOutline : EMPTY_OUTLINE}
+              mcpIntegrationMap={mcpIntegrationMap}
+              onSelect={handleSelect}
+              onToggle={handleToggle}
+              onJump={handleJump}
+            />
+          )
+        })}
+      </ul>
+      {hasMore && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="mt-1 h-7 text-xs text-muted-foreground"
+          onClick={loadMore}
+          disabled={isLoadingMore}
+        >
+          {isLoadingMore && <Spinner className="mr-1.5 size-3" />}
+          Show more
+        </Button>
+      )}
+    </>
+  )
+
+  // The embedded case panel is too narrow for two columns.
+  if (embedded) {
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <nav
+          aria-label="Agent sessions"
+          className="no-scrollbar @container max-h-40 shrink-0 overflow-y-auto border-b p-2"
+        >
+          {sessionList}
+        </nav>
+        <div ref={transcriptRef} className="min-h-0 min-w-0 flex-1">
+          {transcript}
+        </div>
       </div>
-    </div>
+    )
+  }
+
+  return (
+    <ResizablePanelGroup
+      direction="horizontal"
+      autoSaveId="case-agent-sessions"
+      className="h-full min-h-0"
+    >
+      <ResizablePanel
+        defaultSize={32}
+        minSize={18}
+        maxSize={50}
+        className="min-w-56"
+      >
+        <nav
+          aria-label="Agent sessions"
+          className="no-scrollbar @container h-full overflow-y-auto p-2"
+        >
+          {sessionList}
+        </nav>
+      </ResizablePanel>
+      <ResizableHandle />
+      <ResizablePanel defaultSize={68} minSize={50}>
+        <div ref={transcriptRef} className="h-full min-h-0 min-w-0">
+          {transcript}
+        </div>
+      </ResizablePanel>
+    </ResizablePanelGroup>
   )
 }
