@@ -18,15 +18,11 @@ definition:
       type: str | None
       description: A comma-separated list of properties to get summary information on. Property names can also be in the format of "property:count", where "count" is the number of facets that will be returned for a property (i.e. "country:100" to get the top 100 countries for a search query).
       default: null
-    base_url:
-      type: str | None
-      description: Shodan REST API base URL.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.shodan.base_url || "https://api.shodan.io" }}/shodan/host/count
+        url: https://api.shodan.io/shodan/host/count
         method: GET
         params:
           key: ${{ SECRETS.shodan.SHODAN_API_KEY }}

@@ -24,15 +24,11 @@ definition:
       description: >-
         Should we send Slack channel notifications to inform responders of this update? Note that
         this won't work if the Slack channel has already been archived.
-    base_url:
-      type: str | None
-      description: incident.io API base URL.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/incidents/${{ FN.url_encode(inputs.id) }}/actions/edit
+        url: https://api.incident.io/v2/incidents/${{ FN.url_encode(inputs.id) }}/actions/edit
         method: POST
         headers:
           Accept: application/json

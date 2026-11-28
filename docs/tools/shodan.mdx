@@ -26,14 +26,6 @@ Shodan search query. The provided string is used to search the database of banne
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Shodan REST API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="facets" type="string | null">
 
 A comma-separated list of properties to get summary information on. Property names can also be in the format of "property:count", where "count" is the number of facets that will be returned for a property (i.e. "country:100" to get the top 100 countries for a search query).
@@ -61,14 +53,6 @@ Required secrets:
 <ParamField path="ip" type="string" required>
 
 Host IP address.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Shodan REST API base URL.
-
-Default: `null`.
 
 </ParamField>
 
@@ -110,14 +94,6 @@ Comma-separated list of hostnames; example "google.com,bing.com"
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Shodan REST API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 ## Reverse DNS
 
 Action ID: `tools.shodan.reverse_dns`
@@ -140,14 +116,6 @@ Comma-separated list of IP addresses; example "74.125.227.230,204.79.197.200"
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Shodan REST API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 ## Search exploits
 
 Action ID: `tools.shodan.search_exploits`
@@ -167,14 +135,6 @@ Required secrets:
 <ParamField path="query" type="string" required>
 
 Search query used to search the database of known exploits. Possible search filters are: author, bid, code, cve, date, description, msb, osvdb, platform, port, title and type.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Shodan Exploits REST API base URL.
-
-Default: `null`.
 
 </ParamField>
 
@@ -213,14 +173,6 @@ Required secrets:
 <ParamField path="query" type="string" required>
 
 Shodan search query. The provided string is used to search the database of banners in Shodan, with the additional option to provide filters inside the search query using a "filter:value" format. For example, the following search query would find Apache Web servers located in Germany: "apache country:DE".
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Shodan REST API base URL.
-
-Default: `null`.
 
 </ParamField>
 

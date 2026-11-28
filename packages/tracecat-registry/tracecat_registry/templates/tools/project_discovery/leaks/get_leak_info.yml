@@ -14,15 +14,11 @@ definition:
     leakid:
       type: str
       description: 32-character MD5 hash identifying the leak (from list_leaks).
-    base_url:
-      type: str | None
-      description: ProjectDiscovery Cloud API base URL.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.project_discovery.base_url || "https://api.projectdiscovery.io" }}/v1/leaks/info
+        url: https://api.projectdiscovery.io/v1/leaks/info
         method: POST
         headers:
           X-Api-Key: ${{ SECRETS.project_discovery.PDCP_API_KEY }}

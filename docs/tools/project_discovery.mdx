@@ -76,14 +76,6 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-ProjectDiscovery Cloud API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="cloudlist_config_ids" type="array[string] | null">
 
 Cloudlist config IDs.
@@ -268,14 +260,6 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-ProjectDiscovery Cloud API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="disable_global_alert_config" type="boolean | null">
 
 Disable the global alert config.
@@ -444,14 +428,6 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-ProjectDiscovery Cloud API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="domain" type="string | null">
 
 Domain name to fetch associated domains. If omitted, returns associated domains for all your verified domains.
@@ -524,14 +500,6 @@ Domain to get leak statistics for.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-ProjectDiscovery Cloud API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="unmask_email" type="boolean | null">
 
 Unmask email addresses in the results.
@@ -553,14 +521,6 @@ Reference: [https://docs.projectdiscovery.io/api-reference/leaks/get-email-stats
 <ParamField path="email" type="string" required>
 
 Email to get stats for.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-ProjectDiscovery Cloud API base URL.
-
-Default: `null`.
 
 </ParamField>
 
@@ -594,14 +554,6 @@ Enumeration ID.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-ProjectDiscovery Cloud API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="team_id" type="string | null">
 
 Retrieve the Team ID from: https://cloud.projectdiscovery.io/settings/team
@@ -629,14 +581,6 @@ Required secrets:
 <ParamField path="enumerate_id" type="string" required>
 
 Enumeration ID.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-ProjectDiscovery Cloud API base URL.
-
-Default: `null`.
 
 </ParamField>
 
@@ -894,14 +838,6 @@ Required secrets:
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-ProjectDiscovery Cloud API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 ## Get scan
 
 Action ID: `tools.project_discovery.get_scan`
@@ -921,14 +857,6 @@ Required secrets:
 <ParamField path="scan_id" type="string" required>
 
 Scan ID.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-ProjectDiscovery Cloud API base URL.
-
-Default: `null`.
 
 </ParamField>
 
@@ -962,14 +890,6 @@ Vulnerability ID.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-ProjectDiscovery Cloud API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="fields" type="string | null">
 
 template data fields
@@ -994,13 +914,7 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-ProjectDiscovery Cloud API base URL.
-
-Default: `null`.
-
-</ParamField>
+This action does not take input fields.
 
 ## Get vulnerability timeline
 
@@ -1021,14 +935,6 @@ Required secrets:
 <ParamField path="vulnerability_id" type="string" required>
 
 Vulnerability ID.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-ProjectDiscovery Cloud API base URL.
-
-Default: `null`.
 
 </ParamField>
 
@@ -1055,14 +961,6 @@ Required secrets:
 - `project_discovery`: required values `PDCP_API_KEY`.
 
 ### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-ProjectDiscovery Cloud API base URL.
-
-Default: `null`.
-
-</ParamField>
 
 <ParamField path="cname" type="string | null">
 
@@ -1296,14 +1194,6 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-ProjectDiscovery Cloud API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="custom_filter" type="string | null">
 
 custom query to filter. double encode the query string.
@@ -1423,14 +1313,6 @@ Required secrets:
 - `project_discovery`: required values `PDCP_API_KEY`.
 
 ### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-ProjectDiscovery Cloud API base URL.
-
-Default: `null`.
-
-</ParamField>
 
 <ParamField path="country" type="string | null">
 
@@ -1595,14 +1477,6 @@ Required secrets:
 <ParamField path="asset_metadata" type="boolean | null">
 
 Asset details for the vulnerability.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-ProjectDiscovery Cloud API base URL.
 
 Default: `null`.
 
@@ -1776,14 +1650,6 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-ProjectDiscovery Cloud API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="is_internal" type="boolean | null">
 
 filter by internal scans
@@ -1864,14 +1730,6 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-ProjectDiscovery Cloud API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="event_type" type="string | null">
 
 comma separated event_type e.g. event_type=vul_status,vul_status_change
@@ -1950,14 +1808,6 @@ Enumeration ID to rescan.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-ProjectDiscovery Cloud API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="team_id" type="string | null">
 
 Retrieve the Team ID from: https://cloud.projectdiscovery.io/settings/team
@@ -1988,14 +1838,6 @@ Scan ID to rescan.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-ProjectDiscovery Cloud API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="team_id" type="string | null">
 
 Retrieve the Team ID from: https://cloud.projectdiscovery.io/settings/team
@@ -2019,14 +1861,6 @@ Required secrets:
 - `project_discovery`: required values `PDCP_API_KEY`.
 
 ### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-ProjectDiscovery Cloud API base URL.
-
-Default: `null`.
-
-</ParamField>
 
 <ParamField path="facet_size" type="integer | null">
 

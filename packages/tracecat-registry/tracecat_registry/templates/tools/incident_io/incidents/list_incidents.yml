@@ -158,10 +158,6 @@ definition:
         value defaults to `{"one_of": ["standard", "retrospective"] }`, meaning that test and
         tutorial incidents are not included. Value for the `one_of` operator.
       default: null
-    base_url:
-      type: str | None
-      description: incident.io API base URL.
-      default: null
   steps:
     - ref: build_params
       action: core.script.run_python
@@ -210,7 +206,7 @@ definition:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/incidents
+        url: https://api.incident.io/v2/incidents
         method: GET
         headers:
           Accept: application/json

@@ -74,15 +74,11 @@ definition:
         invite-only (private). For more information on Private Incidents see our
         [docs](https://docs.incident.io/incidents/sensitive-incidents). Allowed values: `public`,
         `private`.
-    base_url:
-      type: str | None
-      description: incident.io API base URL.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/incidents
+        url: https://api.incident.io/v2/incidents
         method: POST
         headers:
           Accept: application/json
