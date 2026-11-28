@@ -16,11 +16,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import yaml
 from fastmcp import Client, FastMCP
+from fastmcp.client.transports import StreamableHttpTransport
 from fastmcp.exceptions import AuthorizationError, ToolError
 from fastmcp.server.middleware.middleware import MiddlewareContext
 from fastmcp.tools import ToolResult
+from fastmcp.utilities.tests import run_server_async
 from mcp import McpError
-from mcp.types import CallToolRequestParams
+from mcp.types import CallToolRequestParams, TextContent
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -58,6 +60,12 @@ from tracecat.agent.skill.schemas import (
 )
 from tracecat.agent.stream.events import StreamDelta, StreamEnd
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import (
+    ADMIN_SCOPES,
+    EDITOR_SCOPES,
+    INTAKE_SCOPES,
+    VIEWER_SCOPES,
+)
 from tracecat.cases.enums import CaseFieldReadType, CaseVerdict, CaseViewVisibility
 from tracecat.cases.schemas import CaseFieldRead
 from tracecat.cases.search_schemas import CaseCriteria, CaseQuery, CaseSearchRequest
@@ -72,6 +80,7 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.expressions.common import ExprType
+from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.integrations.enums import (
     IntegrationStatus,
     MCPAuthType,
@@ -87,6 +96,7 @@ from tracecat.mcp.middleware import (
     MCPLoggingMiddleware,
 )
 from tracecat.pagination import CursorPaginatedResponse, PageParams
+from tracecat.service import BaseOrgService
 from tracecat.storage.object import ExternalObject, ObjectRef
 from tracecat.tables.service import TablesService
 from tracecat.triggers.enums import TriggerTargetType
@@ -196,6 +206,25 @@ def _fake_ctx(
     return SimpleNamespace(session_id=session_id, transport=transport)
 
 
+def _workspace_member_role(
+    scopes: frozenset[str], workspace_id: uuid.UUID | None = None
+) -> Role:
+    """A workspace member's role with ``scopes``, as an MCP caller resolves to."""
+    return Role(
+        type="user",
+        service_id="tracecat-mcp",
+        workspace_id=workspace_id or uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=scopes,
+    )
+
+
+def _editor_role(workspace_id: uuid.UUID | None = None) -> Role:
+    """A workspace Editor, who holds every scope the edit and run tools need."""
+    return _workspace_member_role(EDITOR_SCOPES, workspace_id)
+
+
 @pytest.fixture
 def resolved_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
     workspace_id = uuid.uuid4()
@@ -204,7 +233,7 @@ def resolved_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
         service_id="tracecat-mcp",
         workspace_id=workspace_id,
         organization_id=uuid.uuid4(),
-        scopes=frozenset({"case:read"}),
+        scopes=EDITOR_SCOPES,
     )
 
     async def _resolve(_workspace_id: Any) -> tuple[uuid.UUID, Role]:
@@ -3445,7 +3474,7 @@ async def test_publish_workflow_builtin_registry_not_ready_returns_validation_fa
 
     workspace_id = uuid.uuid4()
     workflow_id = uuid.uuid4()
-    role = SimpleNamespace()
+    role = _editor_role()
 
     # The publish orchestration lives in WorkflowsManagementService.publish_workflow;
     # the MCP tool just renders its WorkflowPublishResult. Simulate the
@@ -3473,7 +3502,7 @@ async def test_publish_workflow_builtin_registry_not_ready_returns_validation_fa
             self.session = object()
 
         async def publish_workflow(self, wf_id):
-            assert wf_id == mcp_server.WorkflowUUID.new(workflow_id)
+            assert wf_id == WorkflowUUID.new(workflow_id)
             return failure
 
     async def _resolve(_workspace_id):
@@ -4658,7 +4687,7 @@ async def test_get_case(monkeypatch):
     ws_id = uuid.uuid4()
 
     async def _resolve(_workspace_id):
-        return ws_id, SimpleNamespace()
+        return ws_id, _editor_role()
 
     case_id = uuid.uuid4()
     now = datetime.now(UTC)
@@ -4764,7 +4793,7 @@ async def test_get_case_includes_hierarchy(monkeypatch):
     )
 
     async def _resolve(_workspace_id):
-        return uuid.uuid4(), SimpleNamespace()
+        return uuid.uuid4(), _editor_role()
 
     async def _get_case(_case_id, **_kwargs):
         return case
@@ -4967,7 +4996,7 @@ async def test_run_case_task(monkeypatch):
     ws_id = uuid.uuid4()
 
     async def _resolve(_workspace_id):
-        return ws_id, SimpleNamespace()
+        return ws_id, _editor_role()
 
     case_id = uuid.uuid4()
     task_id = uuid.uuid4()
@@ -6030,8 +6059,8 @@ async def test_list_workflow_tree_paginates_items(
 ) -> None:
     workspace_id = uuid.uuid4()
 
-    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
-        return workspace_id, SimpleNamespace()
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, Role]:
+        return workspace_id, _editor_role()
 
     class _Item:
         def __init__(self, payload: dict[str, Any]) -> None:
@@ -6341,8 +6370,8 @@ async def test_list_workflow_tree_stops_reading_when_page_is_full(
     workspace_id = uuid.uuid4()
     calls: list[str] = []
 
-    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
-        return workspace_id, SimpleNamespace()
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, Role]:
+        return workspace_id, _editor_role()
 
     class _FolderService:
         async def get_directory_items(
@@ -6487,8 +6516,8 @@ async def test_folder_tools_map_service_errors_to_clean_tool_errors(
 ) -> None:
     workspace_id = uuid.uuid4()
 
-    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
-        return workspace_id, SimpleNamespace(workspace_id=workspace_id)
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, Role]:
+        return workspace_id, _editor_role(workspace_id)
 
     class _WorkflowFolderService:
         async def get_directory_items(self, path: str, **_kwargs: Any) -> list[Any]:
@@ -7106,7 +7135,7 @@ def test_destructive_case_tools_removed():
 @pytest.mark.anyio
 async def test_export_csv_remote_returns_download_metadata(monkeypatch):
     async def _resolve(_workspace_id):
-        return uuid.uuid4(), SimpleNamespace(workspace_id=uuid.uuid4())
+        return uuid.uuid4(), _editor_role()
 
     table_id = uuid.uuid4()
     uploaded: dict[str, Any] = {}
@@ -7238,13 +7267,13 @@ async def test_run_agent_preset_uses_session_stream_cursor(
     expected_start_id: str,
 ) -> None:
     workspace_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id)
+    role = _editor_role(workspace_id)
     preset = SimpleNamespace(id=uuid.uuid4())
     version = SimpleNamespace(id=uuid.uuid4())
     session = SimpleNamespace(id=uuid.uuid4(), last_stream_id=last_stream_id)
     created_session_request: dict[str, Any] = {}
 
-    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, Role]:
         return workspace_id, role
 
     class _PresetService(_PresetReadBuilder):
@@ -7353,7 +7382,7 @@ async def test_list_integrations_returns_mcp_and_provider_inventory(
 ) -> None:
     workspace_id = uuid.uuid4()
     current_user_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id, user_id=current_user_id)
+    role = _editor_role(workspace_id).model_copy(update={"user_id": current_user_id})
     # An authorization_code integration connected by another workspace member.
     # Public MCP must report workspace-level status, not the caller's own row.
     other_user_integration = SimpleNamespace(
@@ -7389,7 +7418,7 @@ async def test_list_integrations_returns_mcp_and_provider_inventory(
         grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
     )
 
-    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, Role]:
         return workspace_id, role
 
     class _SlackProvider:
@@ -7593,23 +7622,28 @@ async def test_get_workflow_authoring_context_truncates_embedded_collections(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("integration_read", [True, False])
 async def test_get_agent_preset_authoring_context_includes_output_type_guidance(
     monkeypatch: pytest.MonkeyPatch,
+    integration_read: bool,
 ) -> None:
+    """The integration inventory is read only with `integration:read`, as
+    `GET /integrations` needs; the rest of the context stays the same."""
     workspace_id = uuid.uuid4()
-    role = SimpleNamespace(
-        workspace_id=workspace_id,
-        scopes=frozenset({"variable:read", "secret:read"}),
-    )
+    scopes = {"agent:read", "variable:read", "secret:read"}
+    if integration_read:
+        scopes.add("integration:read")
+    role = _workspace_member_role(frozenset(scopes), workspace_id)
 
-    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, Role]:
         return workspace_id, role
 
     async def _secret_inventory(_role: Any) -> dict[str, set[str]]:
         return {"slack": {"TOKEN"}}
 
-    async def _integrations_inventory(_role: Any) -> Any:
-        return mcp_server.IntegrationsInventoryResponse()
+    _integrations_inventory = AsyncMock(
+        return_value=mcp_server.IntegrationsInventoryResponse()
+    )
 
     class _Model:
         def __init__(self, name: str, provider: str) -> None:
@@ -7684,6 +7718,8 @@ async def test_get_agent_preset_authoring_context_includes_output_type_guidance(
     assert payload["output_type_context"]["accepts_json_schema"] is True
     assert payload["output_type_context"]["examples"]["structured"]["type"] == "object"
     assert payload["truncation"]["collections"]["models"]["truncated"] is False
+    assert _integrations_inventory.await_count == (1 if integration_read else 0)
+    assert payload["integrations"]["mcp_integrations"] == []
 
 
 @pytest.mark.anyio
@@ -9722,7 +9758,7 @@ def _patch_execution_read(
     execution_id = f"{wf_id.short()}:exec-{uuid.uuid4().hex[:8]}"
 
     async def _resolve(_workspace_id):
-        return uuid.uuid4(), SimpleNamespace()
+        return uuid.uuid4(), _editor_role()
 
     class _WorkflowService:
         async def get_workflow(self, _wf_id):
@@ -10737,7 +10773,7 @@ async def test_list_triggers_passes_its_filters_to_the_service(
     assert call.kwargs == {
         "kind": mcp_server.TriggerKind.OBJECT_STORAGE,
         "source_id": source_id,
-        "workflow_id": mcp_server.WorkflowUUID.new(workflow_id),
+        "workflow_id": WorkflowUUID.new(workflow_id),
         "agent_preset_id": preset_id,
     }
 
@@ -10958,8 +10994,8 @@ async def test_lock_workflow_action_locks_and_unlocks(
     workflow_id = mcp_server.WorkflowUUID.new_uuid4()
     updates: list[Any] = []
 
-    async def _resolve(_workspace_id: Any) -> tuple[uuid.UUID, SimpleNamespace]:
-        return workspace_id, SimpleNamespace(workspace_id=workspace_id)
+    async def _resolve(_workspace_id: Any) -> tuple[uuid.UUID, Role]:
+        return workspace_id, _editor_role(workspace_id)
 
     async def _load(_ws: Any, _exec_id: str) -> tuple[Any, list[Any]]:
         return None, [SimpleNamespace(action_ref="a", status="COMPLETED")]
@@ -11000,8 +11036,8 @@ async def test_lock_workflow_action_rejects_unusable_run(
     workspace_id = uuid.uuid4()
     updates: list[Any] = []
 
-    async def _resolve(_workspace_id: Any) -> tuple[uuid.UUID, SimpleNamespace]:
-        return workspace_id, SimpleNamespace(workspace_id=workspace_id)
+    async def _resolve(_workspace_id: Any) -> tuple[uuid.UUID, Role]:
+        return workspace_id, _editor_role(workspace_id)
 
     async def _load(_ws: Any, _exec_id: str) -> tuple[Any, list[Any]]:
         if status is None:
@@ -11673,3 +11709,453 @@ async def test_case_trigger_tools_need_the_route_scopes(
     saved = await _saved_case_trigger(session, workflow_id)
     assert saved.status == "online"
     assert saved.event_types == ["case_closed"]
+
+
+# ---------------------------------------------------------------------------
+# Tools require the same scopes as the matching API routes
+# ---------------------------------------------------------------------------
+
+
+def _execution_id() -> str:
+    return generate_exec_id(WorkflowUUID.new_uuid4())
+
+
+_READ = (INTAKE_SCOPES, VIEWER_SCOPES)
+"""A role without the read scope (Intake) and one with it (Viewer)."""
+_WRITE = (VIEWER_SCOPES, EDITOR_SCOPES)
+"""A role without the edit, create and run scopes (Viewer) and one with them."""
+_DELETE = (EDITOR_SCOPES, ADMIN_SCOPES)
+"""A role without the delete scopes (Editor) and one with them (Admin)."""
+
+# tool -> (arguments besides `workspace_id`, required scope, (refused, allowed))
+_SCOPED_TOOL_CALLS: dict[
+    str, tuple[dict[str, Any], str, tuple[frozenset[str], frozenset[str]]]
+] = {
+    "get_workflow": ({"workflow_id": str(uuid.uuid4())}, "workflow:read", _READ),
+    "list_workflows": ({}, "workflow:read", _READ),
+    "list_workflow_tree": ({}, "workflow:read", _READ),
+    "list_workflow_actions": (
+        {"workflow_id": str(uuid.uuid4())},
+        "workflow:read",
+        _READ,
+    ),
+    "get_workflow_graph": ({"workflow_id": str(uuid.uuid4())}, "workflow:read", _READ),
+    "get_workflow_action": (
+        {"workflow_id": str(uuid.uuid4()), "ref": "a"},
+        "workflow:read",
+        _READ,
+    ),
+    "validate_workflow": ({"workflow_id": str(uuid.uuid4())}, "workflow:read", _READ),
+    "list_workflow_action_runs": (
+        {"workflow_id": str(uuid.uuid4()), "ref": "a"},
+        "workflow:read",
+        _READ,
+    ),
+    "list_workflow_executions": (
+        {"workflow_id": str(uuid.uuid4())},
+        "workflow:read",
+        _READ,
+    ),
+    "get_workflow_execution": (
+        {"execution_id": _execution_id()},
+        "workflow:read",
+        _READ,
+    ),
+    "get_execution_action_result": (
+        {"execution_id": _execution_id(), "action_ref": "a"},
+        "workflow:read",
+        _READ,
+    ),
+    "get_webhook": ({"workflow_id": str(uuid.uuid4())}, "workflow:read", _READ),
+    "list_tags_for_workflow": (
+        {"workflow_id": str(uuid.uuid4())},
+        "workflow:read",
+        _READ,
+    ),
+    "create_workflow": ({"title": "New workflow"}, "workflow:create", _WRITE),
+    "update_workflow": (
+        {"workflow_id": str(uuid.uuid4()), "title": "Renamed"},
+        "workflow:update",
+        _WRITE,
+    ),
+    "publish_workflow": ({"workflow_id": str(uuid.uuid4())}, "workflow:update", _WRITE),
+    "lock_workflow_action": (
+        {"workflow_id": str(uuid.uuid4()), "ref": "a", "execution_id": None},
+        "workflow:update",
+        _WRITE,
+    ),
+    "update_webhook": (
+        {"workflow_id": str(uuid.uuid4()), "status": "offline"},
+        "workflow:update",
+        _WRITE,
+    ),
+    "add_workflow_tag": (
+        {"workflow_id": str(uuid.uuid4()), "tag_id": str(uuid.uuid4())},
+        "workflow:update",
+        _WRITE,
+    ),
+    "remove_workflow_tag": (
+        {"workflow_id": str(uuid.uuid4()), "tag_id": str(uuid.uuid4())},
+        "workflow:update",
+        _WRITE,
+    ),
+    "run_workflow": ({"workflow_id": str(uuid.uuid4())}, "workflow:execute", _WRITE),
+    "rerun_workflow_execution": (
+        {"execution_id": _execution_id()},
+        "workflow:execute",
+        _WRITE,
+    ),
+    "list_workflow_tags": ({}, "tag:read", _READ),
+    "list_cases": ({}, "case:read", _READ),
+    "get_case": ({"case_id": str(uuid.uuid4())}, "case:read", _READ),
+    "list_case_comments": ({"case_id": str(uuid.uuid4())}, "case:read", _READ),
+    "list_case_comment_threads": ({"case_id": str(uuid.uuid4())}, "case:read", _READ),
+    "list_case_tasks": ({"case_id": str(uuid.uuid4())}, "case:read", _READ),
+    "get_case_task": ({"task_id": str(uuid.uuid4())}, "case:read", _READ),
+    "list_case_events": ({"case_id": str(uuid.uuid4())}, "case:read", _READ),
+    "list_case_tags": ({}, "case:read", _READ),
+    "list_tags_for_case": ({"case_id": str(uuid.uuid4())}, "case:read", _READ),
+    "list_case_fields": ({}, "case:read", _READ),
+    "create_case_tag": ({"name": "triage"}, "case:create", _WRITE),
+    "update_case_tag": ({"tag_id": "triage", "name": "Triage"}, "case:update", _WRITE),
+    "add_case_tag": (
+        {"case_id": str(uuid.uuid4()), "tag_identifier": "triage"},
+        "case:update",
+        _WRITE,
+    ),
+    "remove_case_tag": (
+        {"case_id": str(uuid.uuid4()), "tag_identifier": "triage"},
+        "case:update",
+        _WRITE,
+    ),
+    "delete_case_tag": ({"tag_id": "triage"}, "case:delete", _DELETE),
+    "run_case_task": (
+        {"case_id": str(uuid.uuid4()), "task_id": str(uuid.uuid4())},
+        "workflow:execute",
+        _WRITE,
+    ),
+    "list_tables": ({}, "table:read", _READ),
+    "get_table": ({"table_id": str(uuid.uuid4())}, "table:read", _READ),
+    "search_table_rows": ({"table_id": str(uuid.uuid4())}, "table:read", _READ),
+    "export_csv": (
+        {"table_id": str(uuid.uuid4()), "ctx": _fake_ctx()},
+        "table:read",
+        _READ,
+    ),
+    "list_integrations": ({}, "integration:read", _READ),
+    "list_skills": ({}, "agent:read", _READ),
+    "get_agent_preset_authoring_context": ({}, "agent:read", _READ),
+    "list_agent_presets": ({}, "agent:read", _READ),
+    "run_agent_preset": (
+        {"preset_slug": "triage", "prompt": "hello"},
+        "agent:execute",
+        _WRITE,
+    ),
+}
+
+
+def _record_service_entry(monkeypatch: pytest.MonkeyPatch, role: Role) -> MagicMock:
+    """Resolve every tool call to ``role`` and record each way into a service.
+
+    Every workspace service is opened through ``with_session``; the executions
+    service through ``connect``; the webhook helpers through a raw session.
+    The recorders hold no service, so a call that gets past the scope check
+    fails right after it opened one.
+    """
+
+    async def _resolve(_workspace_id: Any) -> tuple[uuid.UUID | None, Role]:
+        return role.workspace_id, role
+
+    entry = MagicMock()
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(BaseOrgService, "with_session", entry.service_with_session)
+    monkeypatch.setattr(
+        mcp_server.WorkflowExecutionsService, "connect", entry.executions_connect
+    )
+    monkeypatch.setattr(
+        mcp_server, "get_async_session_context_manager", entry.raw_session
+    )
+    return entry
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("tool_name", "arguments", "scope", "refused_scopes"),
+    [
+        (name, arguments, scope, refused)
+        for name, (arguments, scope, (refused, _)) in _SCOPED_TOOL_CALLS.items()
+    ],
+    ids=list(_SCOPED_TOOL_CALLS),
+)
+async def test_tool_refuses_a_role_without_the_route_scope_before_any_service(
+    monkeypatch: pytest.MonkeyPatch,
+    tool_name: str,
+    arguments: dict[str, Any],
+    scope: str,
+    refused_scopes: frozenset[str],
+) -> None:
+    """A role without the matching API route's scope is refused with the
+    standard message, and no service or database session is opened."""
+    assert scope not in refused_scopes
+    entry = _record_service_entry(monkeypatch, _workspace_member_role(refused_scopes))
+
+    with pytest.raises(ToolError, match=f"^Missing required scope: {scope}$"):
+        await _tool(getattr(mcp_server, tool_name))(
+            workspace_id=str(uuid.uuid4()), **arguments
+        )
+
+    assert entry.mock_calls == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("tool_name", "arguments", "scope", "allowed_scopes"),
+    [
+        (name, arguments, scope, allowed)
+        for name, (arguments, scope, (_, allowed)) in _SCOPED_TOOL_CALLS.items()
+    ],
+    ids=list(_SCOPED_TOOL_CALLS),
+)
+async def test_tool_lets_a_role_with_the_route_scope_reach_its_service(
+    monkeypatch: pytest.MonkeyPatch,
+    tool_name: str,
+    arguments: dict[str, Any],
+    scope: str,
+    allowed_scopes: frozenset[str],
+) -> None:
+    """The positive control for the refusal test: the same call from a role
+    that holds the scope passes the check and opens its service."""
+    assert scope in allowed_scopes
+    entry = _record_service_entry(monkeypatch, _workspace_member_role(allowed_scopes))
+
+    try:
+        await _tool(getattr(mcp_server, tool_name))(
+            workspace_id=str(uuid.uuid4()), **arguments
+        )
+    except ToolError as e:
+        assert "Missing required scope" not in str(e)
+
+    assert entry.mock_calls, f"{tool_name} never opened a service"
+
+
+@pytest.mark.anyio
+async def test_rerun_workflow_execution_dry_run_requires_workflow_execute(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A dry run needs `workflow:execute` too, as `/rerun/preview` does."""
+    entry = _record_service_entry(monkeypatch, _workspace_member_role(VIEWER_SCOPES))
+
+    with pytest.raises(ToolError, match="^Missing required scope: workflow:execute$"):
+        await _tool(mcp_server.rerun_workflow_execution)(
+            workspace_id=str(uuid.uuid4()),
+            execution_id=_execution_id(),
+            dry_run=True,
+        )
+
+    assert entry.mock_calls == []
+
+
+_UPDATED_DEFINITION_YAML = """\
+definition:
+  title: Viewer edit
+  description: Changed by MCP
+  entrypoint:
+    ref: start
+  actions:
+    - ref: start
+      action: core.transform.reshape
+      args:
+        value: edited
+"""
+
+
+def _patch_workflows_session(
+    monkeypatch: pytest.MonkeyPatch, session: AsyncSession, role: Role
+) -> AsyncMock:
+    """Run the workflow tools on the test session as ``role``.
+
+    Returns a stand-in for the rerun service method, which needs Temporal.
+    """
+
+    async def _resolve(workspace_id: Any) -> tuple[Any, Role]:
+        return workspace_id, role
+
+    def _with_session(*, role: Role):
+        return _AsyncContext(mcp_server.WorkflowsManagementService(session, role=role))
+
+    rerun = AsyncMock(side_effect=TracecatNotFoundError("Execution not found"))
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService, "with_session", _with_session
+    )
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService, "rerun_workflow_execution", rerun
+    )
+    return rerun
+
+
+async def _seed_workflow(session: AsyncSession, role: Role) -> uuid.UUID:
+    workflow = Workflow(
+        title="Scope check workflow",
+        description="Before",
+        status="offline",
+        workspace_id=role.workspace_id,
+    )
+    session.add(workflow)
+    await session.commit()
+    return workflow.id
+
+
+async def _saved_workflow(session: AsyncSession, workflow_id: uuid.UUID) -> Workflow:
+    session.expire_all()
+    return (
+        await session.execute(select(Workflow).where(Workflow.id == workflow_id))
+    ).scalar_one()
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_update_workflow_requires_workflow_update_scope(
+    session: AsyncSession, svc_role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Viewer's `update_workflow` (metadata and definition) is refused and
+    the saved workflow is unchanged; an Editor's same call is saved."""
+    workflow_id = await _seed_workflow(session, svc_role)
+    viewer = svc_role.model_copy(update={"scopes": VIEWER_SCOPES})
+    _patch_workflows_session(monkeypatch, session, viewer)
+    update = _tool(mcp_server.update_workflow)
+
+    with pytest.raises(ToolError, match="^Missing required scope: workflow:update$"):
+        await update(
+            workspace_id=str(svc_role.workspace_id),
+            workflow_id=str(workflow_id),
+            title="Renamed by a viewer",
+            definition_yaml=_UPDATED_DEFINITION_YAML,
+        )
+
+    saved = await _saved_workflow(session, workflow_id)
+    assert saved.title == "Scope check workflow"
+    assert saved.description == "Before"
+    assert saved.actions == []
+
+    editor = svc_role.model_copy(update={"scopes": EDITOR_SCOPES})
+    _patch_workflows_session(monkeypatch, session, editor)
+    await update(
+        workspace_id=str(svc_role.workspace_id),
+        workflow_id=str(workflow_id),
+        title="Renamed by an editor",
+    )
+
+    saved = await _saved_workflow(session, workflow_id)
+    assert saved.title == "Renamed by an editor"
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_viewer_edit_then_rerun_changes_nothing_and_starts_no_run(
+    session: AsyncSession, svc_role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Viewer's draft edit is refused, and so is the draft rerun (the
+    default) that would run it: no run is started. An Editor's rerun reaches
+    the rerun service."""
+    workflow_id = await _seed_workflow(session, svc_role)
+    viewer = svc_role.model_copy(update={"scopes": VIEWER_SCOPES})
+    rerun = _patch_workflows_session(monkeypatch, session, viewer)
+    connect = MagicMock()
+    monkeypatch.setattr(mcp_server.WorkflowExecutionsService, "connect", connect)
+    execution_id = generate_exec_id(WorkflowUUID.new(workflow_id))
+
+    with pytest.raises(ToolError, match="^Missing required scope: workflow:update$"):
+        await _tool(mcp_server.update_workflow)(
+            workspace_id=str(svc_role.workspace_id),
+            workflow_id=str(workflow_id),
+            definition_yaml=_UPDATED_DEFINITION_YAML,
+        )
+    with pytest.raises(ToolError, match="^Missing required scope: workflow:execute$"):
+        await _tool(mcp_server.rerun_workflow_execution)(
+            workspace_id=str(svc_role.workspace_id),
+            execution_id=execution_id,
+        )
+
+    saved = await _saved_workflow(session, workflow_id)
+    assert saved.description == "Before"
+    assert saved.actions == []
+    rerun.assert_not_awaited()
+    connect.assert_not_called()
+
+    editor = svc_role.model_copy(update={"scopes": EDITOR_SCOPES})
+    rerun = _patch_workflows_session(monkeypatch, session, editor)
+    with pytest.raises(ToolError, match="Execution not found"):
+        await _tool(mcp_server.rerun_workflow_execution)(
+            workspace_id=str(svc_role.workspace_id),
+            execution_id=execution_id,
+        )
+    rerun.assert_awaited_once()
+    assert rerun.await_args is not None
+    assert rerun.await_args.kwargs["use_draft"] is True
+
+
+@pytest.mark.anyio
+async def test_viewer_scope_refusals_over_http_log_a_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Over the real HTTP path (tools/call handler and middlewares), a
+    Viewer's edit and rerun come back as tool errors naming the missing
+    scope, reach no service, and log no ERROR. A read the Viewer may make
+    does reach its service, so the recorders are live."""
+    entry = _record_service_entry(monkeypatch, _workspace_member_role(VIEWER_SCOPES))
+    server = FastMCP("scope-refusals")
+    for tool in (
+        mcp_server.update_workflow,
+        mcp_server.rerun_workflow_execution,
+        mcp_server.get_workflow,
+    ):
+        server.tool(_tool(tool))
+    server.add_middleware(
+        MCPErrorHandlingMiddleware(include_traceback=False, transform_errors=True)
+    )
+    server.add_middleware(MCPLoggingMiddleware(methods=["tools/call"]))
+    records = _Records()
+    fastmcp_logger = logging.getLogger("fastmcp")
+    fastmcp_logger.addHandler(records)
+    workspace_id = str(uuid.uuid4())
+    try:
+        async with run_server_async(server) as url:
+            async with Client(StreamableHttpTransport(url)) as client:
+                edit = await client.call_tool(
+                    "update_workflow",
+                    {
+                        "workspace_id": workspace_id,
+                        "workflow_id": str(uuid.uuid4()),
+                        "title": "Renamed by a viewer",
+                    },
+                    raise_on_error=False,
+                )
+                rerun = await client.call_tool(
+                    "rerun_workflow_execution",
+                    {"workspace_id": workspace_id, "execution_id": _execution_id()},
+                    raise_on_error=False,
+                )
+                refusal_logs = list(records.records)
+                assert entry.mock_calls == []
+
+                await client.call_tool(
+                    "get_workflow",
+                    {"workspace_id": workspace_id, "workflow_id": str(uuid.uuid4())},
+                    raise_on_error=False,
+                )
+    finally:
+        fastmcp_logger.removeHandler(records)
+
+    def _text(result: Any) -> list[str]:
+        return [
+            block.text for block in result.content if isinstance(block, TextContent)
+        ]
+
+    assert edit.is_error
+    assert _text(edit) == ["Missing required scope: workflow:update"]
+    assert rerun.is_error
+    assert _text(rerun) == ["Missing required scope: workflow:execute"]
+    assert refusal_logs, "the refusals were not logged at all"
+    assert max(record.levelno for record in refusal_logs) == logging.WARNING
+    entry.service_with_session.assert_called()
