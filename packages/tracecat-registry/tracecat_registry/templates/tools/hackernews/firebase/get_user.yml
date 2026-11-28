@@ -11,15 +11,11 @@ definition:
     user_id:
       type: str
       description: Case-sensitive Hacker News username.
-    base_url:
-      type: str | None
-      description: Base URL of the Hacker News Firebase API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.hackernews.base_url || "https://hacker-news.firebaseio.com" }}/v0/user/${{ FN.url_encode(inputs.user_id) }}.json
+        url: https://hacker-news.firebaseio.com/v0/user/${{ FN.url_encode(inputs.user_id) }}.json
         method: GET
         headers:
           Accept: application/json

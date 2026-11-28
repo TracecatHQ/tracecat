@@ -17,15 +17,11 @@ definition:
       type: str | None
       description: DNS record type to query, one of A, AAAA, MX, NS, TXT, SOA, CNAME, CAA, PTR, or SRV. DomScan defaults to A.
       default: null
-    base_url:
-      type: str | None
-      description: Base URL of the DomScan API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.domscan.base_url || "https://domscan.net" }}/v1/dns
+        url: https://domscan.net/v1/dns
         method: GET
         headers:
           x-api-key: ${{ SECRETS.domscan.DOMSCAN_API_KEY }}

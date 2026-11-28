@@ -34,15 +34,11 @@ definition:
       type: bool
       description: Whether DeHashed should remove duplicate results.
       default: false
-    base_url:
-      type: str | None
-      description: Base URL of the DeHashed API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.dehashed.base_url || "https://api.dehashed.com" }}/v2/search
+        url: https://api.dehashed.com/v2/search
         method: POST
         headers:
           Accept: application/json

@@ -26,14 +26,6 @@ The email address name for which you to find associated information.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Hunter API.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="clearbit_format" type="string | null">
 
 As more customers switch to Clearbit, we've updated the Enrichment API to support the same Clearbit schema. Any value you provide will now be formatted to match Clearbit's schema for consistency.
@@ -64,14 +56,6 @@ The domain name for which you to find associated information.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Hunter API.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="clearbit_format" type="string | null">
 
 As more customers switch to Clearbit, we've updated the Enrichment API to support the same Clearbit schema. Any value you provide will now be formatted to match Clearbit's schema for consistency.
@@ -99,14 +83,6 @@ Required secrets:
 <ParamField path="aggregations" type="boolean | null">
 
 Set to `true` or `false` to include a breakdown of the domain's email addresses in `meta.aggregations`: the number of personal email addresses per department, the number of decision makers, and the split between personal and generic addresses. The counts reflect the filters applied to the search. Omitted by default.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Hunter API.
 
 Default: `null`.
 
@@ -216,14 +192,6 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Hunter API.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="company" type="string | null">
 
 The company name for which you want to know how many email addresses we have. For example, "stripe". Note that you'll get better results by supplying the domain name as we won't have to find it. If you send a request with both the domain and the company name, we'll use the domain name. It doesn't need to be in lowercase. It must be composed of at least 3 characters. Required unless domain is provided.
@@ -263,14 +231,6 @@ Required secrets:
 - `hunter`: required values `HUNTER_API_KEY`.
 
 ### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Hunter API.
-
-Default: `null`.
-
-</ParamField>
 
 <ParamField path="company" type="string | null">
 
@@ -350,14 +310,6 @@ The email address you want to verify.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Hunter API.
-
-Default: `null`.
-
-</ParamField>
-
 ## Find person
 
 Action ID: `tools.hunter.find_person`
@@ -373,14 +325,6 @@ Required secrets:
 - `hunter`: required values `HUNTER_API_KEY`.
 
 ### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-Base URL of the Hunter API.
-
-Default: `null`.
-
-</ParamField>
 
 <ParamField path="clearbit_format" type="string | null">
 

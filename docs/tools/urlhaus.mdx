@@ -20,14 +20,6 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="base_url" type="string | null">
-
-URLhaus API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="limit" type="integer">
 
 Maximum number of payloads to return. URLhaus allows up to 1000.
@@ -82,14 +74,6 @@ Host, domain, or IPv4 address to lookup.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-URLhaus API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 ## Lookup payload
 
 Action ID: `tools.urlhaus.lookup_payload`
@@ -112,14 +96,6 @@ MD5 or SHA256 hash of the payload to lookup.
 
 </ParamField>
 
-<ParamField path="base_url" type="string | null">
-
-URLhaus API base URL.
-
-Default: `null`.
-
-</ParamField>
-
 ## Lookup URL
 
 Action ID: `tools.urlhaus.lookup_url`
@@ -139,13 +115,5 @@ Required secrets:
 <ParamField path="url" type="string" required>
 
 URL to lookup.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-URLhaus API base URL.
-
-Default: `null`.
 
 </ParamField>

@@ -18,15 +18,11 @@ definition:
       type: int | None
       description: Maximum number of results. ThreatFox defaults to 100 and allows up to 1000.
       default: 100
-    base_url:
-      type: str | None
-      description: Base URL of the ThreatFox API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.threatfox.base_url || "https://threatfox-api.abuse.ch" }}/api/v1/
+        url: https://threatfox-api.abuse.ch/api/v1/
         method: POST
         headers:
           Auth-Key: ${{ SECRETS.abusech.ABUSECH_API_KEY }}

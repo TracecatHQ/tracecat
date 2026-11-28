@@ -38,15 +38,11 @@ definition:
       type: int | None
       description: The maximum duration of the request in seconds. Setting a longer duration allows us to refine the results and provide more accurate data. It must range between 3 and 20. The default is 10.
       default: null
-    base_url:
-      type: str | None
-      description: Base URL of the Hunter API.
-      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.hunter.base_url || "https://api.hunter.io" }}/v2/email-finder
+        url: https://api.hunter.io/v2/email-finder
         method: GET
         headers:
           Accept: application/json
