@@ -83,8 +83,7 @@
               "agents/secrets-variables",
               "agents/human-in-the-loop",
               "agents/timeouts",
-              "agents/ai-slackbot",
-              "agents/channels"
+              "agents/ai-slackbot"
             ]
           }
         ]
@@ -380,7 +379,8 @@
               "cheatsheets/connection-guides/connect-to-aws",
               "cheatsheets/connection-guides/connect-to-google-workspace",
               "cheatsheets/connection-guides/connect-to-slack",
-              "cheatsheets/connection-guides/connect-to-teams"
+              "cheatsheets/connection-guides/connect-to-teams",
+              "cheatsheets/connection-guides/connect-to-slack-channels"
             ]
           }
         ]
@@ -423,8 +423,7 @@
               "manage-platform/ip-allowlist",
               "manage-platform/custom-roles",
               "manage-platform/service-accounts",
-              "manage-platform/tunnels",
-              "manage-platform/slack-app"
+              "manage-platform/tunnels"
             ]
           },
           {
@@ -475,6 +474,14 @@
     {
       "source": "/automations/integrations/chatops",
       "destination": "/cheatsheets/connection-guides/connect-to-slack"
+    },
+    {
+      "source": "/manage-platform/slack-app",
+      "destination": "/cheatsheets/connection-guides/connect-to-slack-channels"
+    },
+    {
+      "source": "/agents/channels",
+      "destination": "/cheatsheets/connection-guides/connect-to-slack-channels"
     },
     {
       "source": "/tools/google_secops_detection",
