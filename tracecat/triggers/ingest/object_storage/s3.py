@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
+from typing import Any
 from urllib.parse import unquote_plus
 
 import orjson
@@ -28,6 +30,8 @@ MAX_OBJECT_KEY_BYTES = 1024
 MAX_EVENT_PAYLOAD_BYTES = 16 * 1024
 
 _CREATED_PREFIX = "ObjectCreated:"
+# The source config key of the bucket pin: the one bucket a source accepts.
+BUCKET_PIN_KEY = "bucket"
 
 
 def _malformed(message: str) -> IngestError:
@@ -84,7 +88,11 @@ def _to_event(
 
 
 def parse_s3_message(
-    message: str, *, account: str, received_at: datetime
+    message: str,
+    *,
+    account: str,
+    received_at: datetime,
+    source_config: Mapping[str, Any],
 ) -> ParsedMessage:
     """Read the object-created events from an S3 notification.
 
@@ -92,10 +100,24 @@ def parse_s3_message(
     S3 sends when notifications are configured, and every other event name,
     count as ignored.
 
+    If the source pins a bucket, a created record for any other bucket refuses
+    the whole message, so none of its events is queued. The check reads the
+    record's ``s3.bucket.name``. S3 records carry no account ID (the bucket
+    owner appears only as a legacy retail customer ID), so there is no account
+    pin: the topic ARN already fixes the topic owner's account.
+
+    Args:
+        message: The notification text.
+        account: The account that owns the topic, stored on each event.
+        received_at: When the delivery arrived.
+        source_config: The source's stored config, read for the bucket pin.
+
     Raises:
-        IngestError: ``MALFORMED`` if the message is not an S3 notification.
-            Retrying cannot fix it, so the caller answers 4xx.
+        IngestError: ``MALFORMED`` if the message is not an S3 notification,
+            or ``BUCKET_MISMATCH`` for a record from another bucket than the pin.
+            Retrying cannot fix either, so the caller answers 4xx.
     """
+    bucket_pin = source_config.get(BUCKET_PIN_KEY)
     try:
         data = orjson.loads(message)
     except orjson.JSONDecodeError:
@@ -127,5 +149,10 @@ def parse_s3_message(
             record = S3CreatedRecord.model_validate(raw)
         except ValidationError:
             raise _malformed("S3 record is missing object fields") from None
+        if bucket_pin is not None and record.s3.bucket.name != bucket_pin:
+            raise IngestError(
+                IngestErrorCode.BUCKET_MISMATCH,
+                "Bucket is not the one this source accepts",
+            )
         events.append(_to_event(record, account=account, received_at=received_at))
     return ParsedMessage(events=events, ignored=ignored)

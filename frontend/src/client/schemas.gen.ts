@@ -8022,6 +8022,20 @@ export const $AwsSnsSourceConfig = {
         "ARN of the customer's SNS topic. The source accepts no other.",
       examples: ["arn:aws:sns:us-east-1:123456789012:bucket-events"],
     },
+    bucket: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Bucket",
+      description:
+        "Accept events for this S3 bucket only. A bucket name or ARN (in the topic's partition), saved as the name. Null or omitted accepts every bucket that publishes to the topic. It checks the bucket named in each message, so it adds to the topic policy's `aws:SourceArn` and `aws:SourceAccount` conditions and does not replace them.",
+      examples: ["my-bucket"],
+    },
   },
   type: "object",
   required: ["kind", "topic_arn"],

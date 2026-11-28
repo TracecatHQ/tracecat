@@ -52,8 +52,10 @@ pytestmark = [pytest.mark.usefixtures("db"), pytest.mark.anyio]
 TOPIC = "arn:aws:sns:us-east-1:123456789012:bucket-events"
 
 
-def _sns(topic: str = TOPIC) -> AwsSnsSourceConfig:
-    return AwsSnsSourceConfig(kind=EventSourceKind.AWS_SNS, topic_arn=topic)
+def _sns(topic: str = TOPIC, bucket: str | None = None) -> AwsSnsSourceConfig:
+    return AwsSnsSourceConfig(
+        kind=EventSourceKind.AWS_SNS, topic_arn=topic, bucket=bucket
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -201,6 +203,89 @@ async def test_changing_the_topic_resets_the_subscription(
     assert moved.subscription_status == SubscriptionStatus.PENDING
     assert moved.subscription_ref is None
     assert moved.config == {"topic_arn": f"{TOPIC}-2"}
+
+
+@pytest.mark.parametrize(
+    ("given", "saved"),
+    [
+        ("my-bucket", "my-bucket"),
+        ("  logs.example-1  ", "logs.example-1"),
+        ("arn:aws:s3:::my-bucket", "my-bucket"),
+        ("", None),
+        ("   ", None),
+        (None, None),
+    ],
+)
+def test_bucket_pin_takes_a_name_or_arn(given: str | None, saved: str | None) -> None:
+    assert _sns(bucket=given).bucket == saved
+
+
+@pytest.mark.parametrize(
+    "given",
+    [
+        "My-Bucket",
+        "ab",
+        "a" * 64,
+        "-bucket",
+        "bucket-",
+        "bucket/key",
+        "arn:aws:s3:::my-bucket/key",
+        "arn:aws:s3:us-east-1:123456789012:my-bucket",
+        "arn:aws:sns:us-east-1:123456789012:my-bucket",
+        "arn:aws:s3:::Bad_Bucket",
+        "a..b",
+        "192.168.5.4",
+        "xn--bucket",
+        "my-bucket-s3alias",
+        "my-bucket--ol-s3",
+    ],
+)
+def test_bucket_pin_refuses_what_is_not_a_bucket(given: str) -> None:
+    with pytest.raises(ValueError):
+        _sns(bucket=given)
+
+
+def test_bucket_arn_must_be_in_the_topic_partition() -> None:
+    """Names are unique per partition, so a name saved from another
+    partition's ARN would match a different bucket."""
+    gov_topic = "arn:aws-us-gov:sns:us-gov-west-1:123456789012:bucket-events"
+    cn_topic = "arn:aws-cn:sns:cn-north-1:123456789012:bucket-events"
+
+    assert _sns(gov_topic, "arn:aws-us-gov:s3:::my-bucket").bucket == "my-bucket"
+    assert _sns(cn_topic, "arn:aws-cn:s3:::my-bucket").bucket == "my-bucket"
+    for topic, bucket in [
+        (TOPIC, "arn:aws-cn:s3:::my-bucket"),
+        (TOPIC, "arn:aws-us-gov:s3:::my-bucket"),
+        (cn_topic, "arn:aws:s3:::my-bucket"),
+    ]:
+        with pytest.raises(ValueError, match="another AWS partition"):
+            _sns(topic, bucket)
+
+
+async def test_bucket_pin_is_set_shown_and_cleared(service: TriggersService) -> None:
+    source = await service.create_event_source(
+        EventSourceCreate(name="bucket", config=_sns(bucket="arn:aws:s3:::my-bucket"))
+    )
+    assert source.config == {"topic_arn": TOPIC, "bucket": "my-bucket"}
+    assert read_event_source(source, service.role).config == _sns(bucket="my-bucket")
+    source.subscription_status = SubscriptionStatus.CONFIRMED.value
+    source.subscription_ref = f"{TOPIC}:sub"
+    await service.session.commit()
+
+    # The pin narrows the feed; the subscription to the topic stays.
+    moved = await service.update_event_source(
+        source.id, EventSourceUpdate(config=_sns(bucket="other-bucket"))
+    )
+    assert moved.config == {"topic_arn": TOPIC, "bucket": "other-bucket"}
+    assert moved.subscription_status == SubscriptionStatus.CONFIRMED
+
+    cleared = await service.update_event_source(
+        source.id, EventSourceUpdate(config=_sns())
+    )
+    # Stored as a source that never had a pin.
+    assert cleared.config == {"topic_arn": TOPIC}
+    assert cleared.subscription_status == SubscriptionStatus.CONFIRMED
+    assert read_event_source(cleared, service.role).config.bucket is None
 
 
 async def test_list_event_sources_pages_newest_first(service: TriggersService) -> None:
@@ -670,6 +755,21 @@ async def test_turning_on_or_repointing_what_runs_a_target_needs_its_scope(
         await configurer.update_event_source(
             source.id, EventSourceUpdate(config=_sns(f"{TOPIC}-attacker"))
         )
+    # Setting or clearing the bucket pin changes which events reach the agent.
+    with pytest.raises(ScopeDeniedError):
+        await configurer.update_event_source(
+            source.id, EventSourceUpdate(config=_sns(bucket="my-bucket"))
+        )
+    # Saving the config unchanged does not.
+    await configurer.update_event_source(source.id, EventSourceUpdate(config=_sns()))
+    await service.update_event_source(
+        source.id, EventSourceUpdate(config=_sns(bucket="my-bucket"))
+    )
+    with pytest.raises(ScopeDeniedError):
+        await configurer.update_event_source(
+            source.id, EventSourceUpdate(config=_sns())
+        )
+    await service.update_event_source(source.id, EventSourceUpdate(config=_sns()))
     await service.update_event_source(
         source.id, EventSourceUpdate(status=TriggerStatus.OFFLINE)
     )

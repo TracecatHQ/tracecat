@@ -114,7 +114,7 @@ export function EventSourcePanel({
       </div>
 
       {provider ? (
-        <provider.Setup source={source} />
+        <provider.Setup workspaceId={workspaceId} source={source} />
       ) : (
         <p className="text-xs text-muted-foreground">
           This version of Tracecat can't show setup steps for {source.kind}{" "}

@@ -25,6 +25,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Header, Request, Response, status
 from fastapi.responses import JSONResponse
+from opentelemetry import metrics
 from starlette.requests import ClientDisconnect
 
 from tracecat.exceptions import TracecatException
@@ -64,6 +65,10 @@ _RESPONSE_BY_CODE: dict[IngestErrorCode, tuple[int, str]] = {
         status.HTTP_403_FORBIDDEN,
         "Topic is not the one this source accepts",
     ),
+    IngestErrorCode.BUCKET_MISMATCH: (
+        status.HTTP_403_FORBIDDEN,
+        "Bucket is not the one this source accepts",
+    ),
     IngestErrorCode.SIGNATURE_INVALID: (
         status.HTTP_403_FORBIDDEN,
         "SNS signature could not be verified",
@@ -89,6 +94,11 @@ _RESPONSE_BY_CODE: dict[IngestErrorCode, tuple[int, str]] = {
         "Temporarily unavailable",
     ),
 }
+
+_REFUSED = metrics.get_meter("tracecat.triggers").create_counter(
+    "triggers.ingest.refused",
+    description="Ingest requests refused, by provider and refusal code.",
+)
 
 # Machine-to-machine; left out of the OpenAPI schema and the generated client.
 router = APIRouter(
@@ -158,7 +168,11 @@ async def ingest_sns_message(
             received_at=received_at,
         )
     except IngestError as e:
+        # The reason is fixed text; it never holds the token or an object key.
         logger.info("SNS message refused", code=e.code.value, reason=str(e))
+        _REFUSED.add(
+            1, {"provider": EventSourceKind.AWS_SNS.value, "code": e.code.value}
+        )
         return _error_response(e)
     except TracecatException as e:
         # The app-wide handler would echo the exception text to this public,
