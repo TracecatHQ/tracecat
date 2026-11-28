@@ -83,30 +83,4 @@ definition:
           Authorization: Bearer ${{ SECRETS.pan_strata_oauth.PAN_STRATA_SERVICE_TOKEN }}
           Accept: application/json
         params: ${{ steps.build_request.result.params }}
-        ignore_status_codes:
-          - 404
-    - ref: normalize
-      action: core.script.run_python
-      args:
-        inputs:
-          response: ${{ steps.get.result }}
-          kind: security rule
-          ident: ${{ inputs.rule_id || inputs.name }}
-        script: |
-          def _first(response):
-              if response.get("status_code") == 404:
-                  return None
-              data = response.get("data")
-              if isinstance(data, dict) and isinstance(data.get("data"), list):
-                  data = data["data"][0] if data["data"] else None
-              if isinstance(data, dict) and data.get("id"):
-                  return data
-              return None
-
-
-          def main(response, kind, ident):
-              found = _first(response)
-              if found is None:
-                  raise ValueError(f"{kind} {ident} not found: {{response.get('data')}}")
-              return found
-  returns: ${{ steps.normalize.result }}
+  returns: ${{ steps.get.result }}
