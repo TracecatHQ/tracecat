@@ -250,6 +250,7 @@ def _build_approved_tool_run_input(
     execution_id: uuid.UUID,
     logical_time: datetime,
     agent_session_id: uuid.UUID,
+    environment: str = "default",
     tool_tunnels: dict[str, str] | None = None,
 ):
     action_name = normalize_mcp_tool_name(tool_call.tool_name)
@@ -261,6 +262,7 @@ def _build_approved_tool_run_input(
         run_id=run_id,
         execution_id=execution_id,
         logical_time=logical_time,
+        environment=environment,
         agent_session_id=agent_session_id,
         tunnel=(tool_tunnels or {}).get(action_name),
     )
@@ -340,6 +342,7 @@ def _start_registry_tool_call(
     service_role: Role,
     logical_time: datetime,
     agent_session_id: uuid.UUID,
+    environment: str = "default",
     tool_tunnels: dict[str, str] | None = None,
 ) -> workflow.ActivityHandle[Any]:
     """Execute an approved registry action on the executor task queue."""
@@ -354,6 +357,7 @@ def _start_registry_tool_call(
                 execution_id=workflow.uuid4(),
                 logical_time=logical_time,
                 agent_session_id=agent_session_id,
+                environment=environment,
                 tool_tunnels=tool_tunnels,
             ),
             service_role,
@@ -587,6 +591,7 @@ class DurableAgentWorkflow:
         self._status: Literal["running", "waiting_for_results", "done"] = "running"
         self._turn: int = 0
         self.session_id = args.agent_args.session_id
+        self.environment = args.environment
         self.active_stream_id = args.agent_args.active_stream_id
         self.harness_type = args.harness_type or "claude_code"
         self.agent_preset_id = args.agent_preset_id
@@ -781,6 +786,7 @@ class DurableAgentWorkflow:
             user_id=self.role.user_id,
             allowed_actions=list(build_result.tool_definitions.keys()),
             session_id=self.session_id,
+            environment=self.environment,
             parent_agent_workflow_id=info.workflow_id,
             parent_agent_run_id=info.run_id,
             user_mcp_servers=build_result.user_mcp_claims,
@@ -2112,6 +2118,7 @@ class DurableAgentWorkflow:
         service_role: Role,
         logical_time: datetime,
         tool_tunnels: dict[str, str] | None,
+        environment: str,
     ) -> Any:
         """Run one approved registry tool activity, raced against a user cancel.
 
@@ -2128,6 +2135,7 @@ class DurableAgentWorkflow:
                 service_role=service_role,
                 logical_time=logical_time,
                 agent_session_id=self.session_id,
+                environment=environment,
                 tool_tunnels=tool_tunnels,
             )
         )
@@ -2208,6 +2216,7 @@ class DurableAgentWorkflow:
                             service_role=service_role,
                             logical_time=logical_time,
                             tool_tunnels=mcp_build_result.tool_tunnels,
+                            environment=self.environment,
                         ),
                         max_attempts=1,
                         interrupt=lambda: self._cancel_requested,

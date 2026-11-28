@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from temporalio.common import TypedSearchAttributes
@@ -84,6 +84,35 @@ def _build_workflow_args(role: Role) -> AgentWorkflowArgs:
 
 def _update_map(updates: list[Any]) -> dict[str, str]:
     return {update.key.name: update.value for update in updates}
+
+
+def test_agent_tool_token_uses_workflow_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    role = _user_role()
+    workflow_args = _build_workflow_args(role).model_copy(
+        update={"environment": "environment_a"}
+    )
+    workflow_instance = DurableAgentWorkflow(workflow_args)
+    workflow_instance._initialize_run()
+    build_result = BuildToolDefsResult(
+        tool_definitions={},
+        registry_lock=RegistryLock(origins={}, actions={}),
+    )
+    mint_token = Mock(return_value="mcp-token")
+    monkeypatch.setattr(
+        "tracecat_ee.agent.workflows.durable.workflow.info",
+        lambda: SimpleNamespace(workflow_id="agent/workflow", run_id="run-123"),
+    )
+    monkeypatch.setattr(
+        "tracecat_ee.agent.workflows.durable.mint_mcp_token", mint_token
+    )
+
+    assert (
+        workflow_instance._mint_scope_mcp_token(build_result=build_result)
+        == "mcp-token"
+    )
+    assert mint_token.call_args.kwargs["environment"] == "environment_a"
 
 
 def test_agent_workflow_args_ignores_legacy_workspace_credentials() -> None:
@@ -1058,6 +1087,7 @@ def test_build_approved_tool_run_input_is_deterministic() -> None:
         execution_id=execution_id,
         logical_time=logical_time,
         agent_session_id=agent_session_id,
+        environment="environment_a",
     )
 
     assert result.task.action == "core_http_request"
@@ -1069,6 +1099,7 @@ def test_build_approved_tool_run_input_is_deterministic() -> None:
         == f"{WorkflowUUID.from_uuid(workflow_id).short()}/{ExecutionUUID.from_uuid(execution_id).short()}"
     )
     assert result.run_context.logical_time == logical_time
+    assert result.run_context.environment == "environment_a"
     assert result.agent_session_id == agent_session_id
 
 
@@ -1104,6 +1135,7 @@ def test_approved_registry_tool_failures_are_not_retried() -> None:
             service_role=role,
             logical_time=datetime(2026, 3, 18, tzinfo=UTC),
             agent_session_id=uuid.uuid4(),
+            environment="environment_a",
         )
 
     retry_policy = start_activity_mock.call_args.kwargs["retry_policy"]
@@ -1111,6 +1143,10 @@ def test_approved_registry_tool_failures_are_not_retried() -> None:
     assert retry_policy.maximum_attempts == 1
     assert start_activity_mock.call_args.kwargs["task_queue"] == (
         config.TRACECAT__EXECUTOR_QUEUE
+    )
+    assert (
+        start_activity_mock.call_args.kwargs["args"][0].run_context.environment
+        == "environment_a"
     )
 
 

@@ -958,8 +958,9 @@ class DSLActivities:
     ) -> AgentActionArgs:
         """Build AgentActionArgs via the shared _evaluate_agent_args helper."""
         with activity_error_boundary(_agent_preparation_error_classification):
-            evaled_args = await _evaluate_agent_args(input)
+            evaled_args, environment = await _evaluate_agent_args(input)
             await _apply_mcp_servers(evaled_args, input=input)
+            evaled_args["environment"] = environment
             return AgentActionArgs(**evaled_args)
 
     @staticmethod
@@ -969,7 +970,7 @@ class DSLActivities:
     ) -> PreparedSlackbot:
         """Build Slackbot agent args and the Slack context for finalization."""
         with activity_error_boundary(_agent_preparation_error_classification):
-            evaled_args = await _evaluate_agent_args(input)
+            evaled_args, environment = await _evaluate_agent_args(input)
             prepared = await _prepare_slackbot_agent_action(evaled_args, input=input)
             try:
                 for key in ("event", "prompt", "channel_id", "limit_messages"):
@@ -978,6 +979,7 @@ class DSLActivities:
                 evaled_args["instructions"] = prepared.instructions
                 evaled_args["actions"] = prepared.actions
                 await _apply_mcp_servers(evaled_args, input=input)
+                evaled_args["environment"] = environment
                 return PreparedSlackbot(
                     args=AgentActionArgs(**evaled_args),
                     context=prepared.context,
@@ -1010,7 +1012,8 @@ class DSLActivities:
     ) -> PresetAgentActionArgs:
         """Build PresetAgentActionArgs via the shared _evaluate_agent_args helper."""
         with activity_error_boundary(_agent_preparation_error_classification):
-            evaled_args = await _evaluate_agent_args(input)
+            evaled_args, environment = await _evaluate_agent_args(input)
+            evaled_args["environment"] = environment
             return PresetAgentActionArgs(**evaled_args)
 
     @staticmethod
@@ -1124,7 +1127,9 @@ class DSLActivities:
             )
 
 
-async def _evaluate_agent_args(input: BuildAgentArgsActivityInput) -> dict[str, Any]:
+async def _evaluate_agent_args(
+    input: BuildAgentArgsActivityInput,
+) -> tuple[dict[str, Any], str]:
     """Resolve environment and VARS, materialize the operand, and evaluate templated args."""
     operand = input.operand
     materialized = await materialize_context(operand)
@@ -1145,7 +1150,10 @@ async def _evaluate_agent_args(input: BuildAgentArgsActivityInput) -> dict[str, 
             operand["VARS"] = workspace_variables
             materialized = await materialize_context(operand)
     args = _strip_string_values(input.args)
-    return await asyncio.to_thread(eval_templated_object, args, operand=materialized)
+    evaluated_args = await asyncio.to_thread(
+        eval_templated_object, args, operand=materialized
+    )
+    return evaluated_args, environment
 
 
 def _subflow_error_classification(error: Exception) -> RuntimeErrorClassification:

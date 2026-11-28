@@ -135,6 +135,7 @@ async def execute_action(
         action_name,
         args,
         registry_lock,
+        environment=claims.environment,
         agent_session_id=claims.session_id,
         tunnel=claims.tool_tunnels.get(action_name),
     )

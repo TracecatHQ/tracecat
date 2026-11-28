@@ -31,7 +31,7 @@ from tracecat.workflow.executions.correlation import build_agent_session_correla
 from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 
-def _build_claims() -> MCPTokenClaims:
+def _build_claims(environment: str = "default") -> MCPTokenClaims:
     session_id = uuid.UUID("00000000-0000-0000-0000-000000000003")
     return MCPTokenClaims(
         workspace_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
@@ -39,6 +39,7 @@ def _build_claims() -> MCPTokenClaims:
         session_id=session_id,
         parent_agent_workflow_id=f"agent/{session_id}",
         parent_agent_run_id="run-123",
+        environment=environment,
         allowed_actions=["core.http_request"],
     )
 
@@ -80,7 +81,7 @@ def pending_workflow(monkeypatch: pytest.MonkeyPatch) -> _PendingWorkflow:
 async def test_execute_action_starts_registry_tool_workflow_with_alias_correlation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    claims = _build_claims()
+    claims = _build_claims(environment="environment_a")
     untrusted_session_id = uuid.UUID("00000000-0000-0000-0000-000000000099")
     monkeypatch.setattr(
         executor, "build_agent_tool_workflow_id", lambda: "agent-tool/tool-wf-123"
@@ -119,6 +120,7 @@ async def test_execute_action_starts_registry_tool_workflow_with_alias_correlati
     assert start_call.kwargs.get("execution_timeout") is None
     workflow_input = start_call.args[1]
     assert workflow_input.run_input.agent_session_id == claims.session_id
+    assert workflow_input.run_input.run_context.environment == "environment_a"
     assert workflow_input.run_input.task.args["agent_session_id"] == str(
         untrusted_session_id
     )
