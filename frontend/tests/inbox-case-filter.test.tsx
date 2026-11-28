@@ -10,6 +10,7 @@ import type { ReactNode } from "react"
 import { type InboxListItemsResponse, inboxListItems } from "@/client"
 import { CaseAgentSessionsPanel } from "@/components/cases/case-agent-sessions-panel"
 import { InboxHeader } from "@/components/inbox/inbox-header"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { useCaseAgentSessions, useInbox } from "@/hooks/use-inbox"
 import { getInboxHrefWithoutCaseFilter, parseInboxCaseId } from "@/lib/inbox"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
@@ -87,7 +88,9 @@ const CASE_ITEM: InboxListItemsResponse["items"][number] = {
 function createWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>{children}</TooltipProvider>
+      </QueryClientProvider>
     )
   }
 }
@@ -305,7 +308,7 @@ describe("Inbox case filtering", () => {
     )
 
     // One icon per tool namespace, and the selected session's outline.
-    expect(screen.getAllByTitle("core.cases")).toHaveLength(1)
+    expect(screen.getAllByRole("img", { name: "core.cases" })).toHaveLength(1)
     expect(
       screen.getByRole("button", { name: /Prompt of agent-session-1/ })
     ).toBeInTheDocument()

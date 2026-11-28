@@ -13,6 +13,7 @@ import {
   type MCPIntegrationRead,
   mcpIntegrationsListMcpIntegrations,
 } from "@/client"
+import { OverflowTooltipList } from "@/components/agents/overflow-tooltip-list"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   TranscriptOutlineContext,
@@ -22,9 +23,13 @@ import { getIcon, getMcpProviderIconId, ProviderIcon } from "@/components/icons"
 import { InboxChat } from "@/components/inbox/inbox-chat"
 import { Spinner } from "@/components/loading/spinner"
 import { UpdatedAtTimestamp } from "@/components/timestamps"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useCaseAgentSessions } from "@/hooks/use-inbox"
 import { type InboxSessionItem, isLiveAgentStatus } from "@/lib/agents"
@@ -39,8 +44,8 @@ export interface CaseAgentSessionsPanelProps {
   embedded?: boolean
 }
 
-/** Tool icons shown on a row before the rest collapse into a count. */
-const MAX_TOOL_ICONS = 4
+/** Tool icons shown on a row before the rest collapse into a `+N`. */
+const MAX_TOOL_ICONS = 2
 
 interface SessionToolIcon {
   id: string
@@ -128,7 +133,7 @@ const CaseAgentSessionRow = memo(function CaseAgentSessionRow({
 }: CaseAgentSessionRowProps) {
   const isLive = isLiveAgentStatus(session.derivedStatus)
   const toolIcons = getSessionToolIcons(session, mcpIntegrationMap)
-  const hiddenToolCount = Math.max(0, toolIcons.length - MAX_TOOL_ICONS)
+  const hiddenTools = toolIcons.slice(MAX_TOOL_ICONS)
   const outlineId = `case-session-outline-${session.id}`
 
   return (
@@ -162,58 +167,74 @@ const CaseAgentSessionRow = memo(function CaseAgentSessionRow({
         >
           <span
             className={cn(
-              "min-w-16 flex-1 truncate text-sm",
+              "min-w-0 flex-1 truncate text-sm",
               selected && "font-medium"
             )}
           >
             {getSessionTitle(session)}
           </span>
-          {/* Only states that need attention get a status mark. */}
-          {isLive ? (
-            <LoaderCircleIcon
-              aria-label={session.statusLabel}
-              className="size-3.5 shrink-0 animate-spin text-muted-foreground"
-            />
-          ) : session.statusTone === "danger" ? (
-            <XCircleIcon
-              aria-label={session.statusLabel}
-              className="size-3.5 shrink-0 text-red-600"
-            />
-          ) : session.pendingApprovalCount > 0 ? (
-            <Badge
-              variant="secondary"
-              className="h-5 shrink-0 gap-1 px-1.5 py-0 text-[10px] font-normal"
-            >
-              <CirclePauseIcon className="size-3" />
-              {session.pendingApprovalCount}
-            </Badge>
-          ) : null}
-          {toolIcons.length > 0 && (
-            // Shrinks before the title does, so a narrow list keeps names.
-            <span className="flex min-w-0 items-center gap-1 overflow-hidden">
-              {toolIcons.slice(0, MAX_TOOL_ICONS).map((tool) => (
-                <span key={tool.id} title={tool.label} className="flex">
-                  {tool.iconKey ? (
-                    getIcon(tool.iconKey, {
-                      className: "size-5 shrink-0",
-                      inline: true,
-                    })
-                  ) : (
-                    <ProviderIcon
-                      providerId={tool.providerId ?? "custom"}
-                      className="size-5 shrink-0"
-                    />
-                  )}
-                </span>
-              ))}
-              {hiddenToolCount > 0 && (
-                <span className="text-xs tabular-nums text-muted-foreground">
-                  +{hiddenToolCount}
-                </span>
-              )}
-            </span>
-          )}
-          <span className="shrink-0 text-xs text-muted-foreground">
+          {/* Fixed-width slots, so titles, icons and times line up down the
+              list whatever each row holds. */}
+          <span className="flex w-3.5 shrink-0 justify-center">
+            {/* Only states that need attention get a status mark. */}
+            {isLive ? (
+              <LoaderCircleIcon
+                aria-label={session.statusLabel}
+                className="size-3.5 animate-spin text-muted-foreground"
+              />
+            ) : session.statusTone === "danger" ? (
+              <XCircleIcon
+                aria-label={session.statusLabel}
+                className="size-3.5 text-red-600"
+              />
+            ) : session.pendingApprovalCount > 0 ? (
+              <CirclePauseIcon
+                aria-label={`${session.pendingApprovalCount} pending approvals`}
+                className="size-3.5 text-primary"
+              />
+            ) : null}
+          </span>
+          {/* Dropped on a list too narrow to keep the title readable. */}
+          <span className="flex w-[4.5rem] shrink-0 items-center justify-end gap-1 [@container(max-width:16rem)]:hidden">
+            {toolIcons.slice(0, MAX_TOOL_ICONS).map((tool) => (
+              <Tooltip key={tool.id}>
+                <TooltipTrigger asChild>
+                  <span role="img" aria-label={tool.label} className="flex">
+                    {tool.iconKey ? (
+                      getIcon(tool.iconKey, {
+                        className: "size-5 shrink-0 rounded border",
+                        inline: true,
+                      })
+                    ) : (
+                      <ProviderIcon
+                        providerId={tool.providerId ?? "custom"}
+                        className="size-5 shrink-0 rounded border"
+                      />
+                    )}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{tool.label}</TooltipContent>
+              </Tooltip>
+            ))}
+            {hiddenTools.length > 0 && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="w-5 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
+                    +{hiddenTools.length}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <OverflowTooltipList
+                    items={hiddenTools.map((tool) => ({
+                      key: tool.id,
+                      label: tool.label,
+                    }))}
+                  />
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </span>
+          <span className="flex w-11 shrink-0 justify-end">
             <UpdatedAtTimestamp updatedAt={session.updated_at} />
           </span>
         </button>
@@ -419,7 +440,7 @@ export function CaseAgentSessionsPanel({
       <nav
         aria-label="Agent sessions"
         className={cn(
-          "no-scrollbar shrink-0 overflow-y-auto p-2",
+          "no-scrollbar @container shrink-0 overflow-y-auto p-2",
           embedded ? "max-h-40 border-b" : "w-80 max-w-[40%] border-r"
         )}
       >
