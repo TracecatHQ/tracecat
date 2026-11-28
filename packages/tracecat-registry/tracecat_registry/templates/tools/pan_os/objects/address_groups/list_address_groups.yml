@@ -49,20 +49,4 @@ definition:
           vsys: ${{ inputs.vsys if inputs.location == "vsys" else None }}
           device-group: ${{ inputs.device_group if inputs.location == "device-group" else None }}
         verify_ssl: ${{ inputs.verify_ssl }}
-    - ref: normalize
-      action: core.script.run_python
-      args:
-        inputs:
-          response: ${{ steps.list.result }}
-        script: |
-          def _entries(response):
-              data = response.get("data") if isinstance(response, dict) else None
-              if not isinstance(data, dict) or response.get("status_code") == 404:
-                  return []
-              entries = (data.get("result") or {}).get("entry") or []
-              return entries if isinstance(entries, list) else [entries]
-
-
-          def main(response):
-              return _entries(response)
-  returns: ${{ steps.normalize.result }}
+  returns: ${{ steps.list.result }}
