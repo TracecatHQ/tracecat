@@ -123,3 +123,4 @@ Check out our [Contribution Guide](CONTRIBUTING.md) for more information.
   <sub>**`Tracecat`** is distributed under [**AGPL-3.0**](https://github.com/TracecatHQ/tracecat/blob/main/LICENSE)</sub>
 
 </div>
+<!-- Temporary validation marker for Cubic PR edit workflow triggers. -->
