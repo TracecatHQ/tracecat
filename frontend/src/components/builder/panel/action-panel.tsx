@@ -31,6 +31,7 @@ import type { ImperativePanelHandle } from "react-resizable-panels"
 import { z } from "zod"
 import {
   $JoinStrategy,
+  $OAuthGrantType,
   type ActionUpdate,
   ApiError,
   type RegistryActionRead,
@@ -53,6 +54,7 @@ import {
   WaitUntilTooltip,
 } from "@/components/builder/panel/action-panel-tooltips"
 import { ControlFlowField } from "@/components/builder/panel/control-flow-fields"
+import { OAuthConnectionField } from "@/components/builder/panel/oauth-connection-select"
 import { YamlViewOnlyEditor } from "@/components/editor/codemirror/yaml-editor"
 import { ExpressionInput } from "@/components/editor/expression-input"
 import {
@@ -209,6 +211,12 @@ const actionFormSchema = z.object({
     .transform((val) => normalizeOptionalExpression(val))
     .optional(),
   tunnel: z.string().max(63).optional(),
+  oauth_connection: z
+    .object({
+      provider_id: z.string().min(1),
+      grant_type: z.enum($OAuthGrantType.enum),
+    })
+    .optional(),
   mask_output: z.boolean().default(false),
   unsafe_disable_secret_error_withholding: z.boolean().default(false),
 })
@@ -352,6 +360,7 @@ function ActionPanelContent({
       wait_until: actionControlFlow?.wait_until || undefined,
       environment: actionControlFlow?.environment || undefined,
       tunnel: actionControlFlow?.tunnel || undefined,
+      oauth_connection: actionControlFlow?.oauth_connection ?? undefined,
       mask_output: actionControlFlow?.mask_output ?? false,
       unsafe_disable_secret_error_withholding:
         actionControlFlow?.unsafe_disable_secret_error_withholding ?? false,
@@ -370,6 +379,7 @@ function ActionPanelContent({
       actionControlFlow?.wait_until,
       actionControlFlow?.environment,
       actionControlFlow?.tunnel,
+      actionControlFlow?.oauth_connection,
       actionControlFlow?.mask_output,
       actionControlFlow?.unsafe_disable_secret_error_withholding,
     ]
@@ -631,6 +641,7 @@ function ActionPanelContent({
             wait_until: values.wait_until,
             environment: values.environment,
             tunnel: values.tunnel ?? null,
+            oauth_connection: values.oauth_connection ?? null,
             mask_output: values.mask_output ?? false,
             unsafe_disable_secret_error_withholding:
               values.unsafe_disable_secret_error_withholding ?? false,
@@ -1438,6 +1449,10 @@ function ActionPanelContent({
                             )}
                           />
                         </ControlFlowField>
+
+                        <OAuthConnectionField
+                          secrets={registryAction.secrets ?? []}
+                        />
 
                         <ControlFlowField
                           label="Mask output"

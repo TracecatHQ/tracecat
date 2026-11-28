@@ -120,6 +120,18 @@ export const $ActionControlFlow = {
       description:
         "Workspace tunnel to route this action's HTTP(S) traffic through",
     },
+    oauth_connection: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/OAuthConnectionRef",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Preferred OAuth connection for this action. Falls back to the default order if it isn't connected.",
+    },
     mask_output: {
       type: "boolean",
       title: "Mask Output",
@@ -590,6 +602,18 @@ export const $ActionStatement_Input = {
       description:
         "Name of a workspace tunnel to route this action's HTTP(S) traffic through. Overrides the workflow's default tunnel.",
     },
+    oauth_connection: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/OAuthConnectionRef",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Preferred OAuth connection for this action. Falls back to the default order if it isn't connected.",
+    },
     mask_output: {
       type: "boolean",
       title: "Mask Output",
@@ -731,6 +755,18 @@ export const $ActionStatement_Output = {
       title: "Tunnel",
       description:
         "Name of a workspace tunnel to route this action's HTTP(S) traffic through. Overrides the workflow's default tunnel.",
+    },
+    oauth_connection: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/OAuthConnectionRef",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Preferred OAuth connection for this action. Falls back to the default order if it isn't connected.",
     },
     mask_output: {
       type: "boolean",
@@ -30122,6 +30158,29 @@ export const $OAuth2AuthorizeResponse = {
   type: "object",
   required: ["authorization_url"],
   title: "OAuth2AuthorizeResponse",
+} as const
+
+export const $OAuthConnectionRef = {
+  properties: {
+    provider_id: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Provider Id",
+      description: "OAuth provider ID",
+    },
+    grant_type: {
+      type: "string",
+      enum: ["authorization_code", "client_credentials"],
+      title: "Grant Type",
+      description: "OAuth grant type",
+    },
+  },
+  type: "object",
+  required: ["provider_id", "grant_type"],
+  title: "OAuthConnectionRef",
+  description:
+    "An OAuth integration connection, identified by provider and grant type.",
 } as const
 
 export const $OAuthGrantType = {

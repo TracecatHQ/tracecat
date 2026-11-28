@@ -43,7 +43,8 @@ from tracecat.executor.service import prepare_resolved_context
 from tracecat.expressions.policy import build_provenance
 from tracecat.identifiers import InternalServiceID
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
-from tracecat.integrations.enums import OAuthGrantType
+from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
+from tracecat.integrations.types import OAuthConnectionRef
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets import secrets_manager
@@ -199,7 +200,11 @@ _OAUTH_EXPIRIES = {
 }
 
 
-def _patch_oauth_secret_env(mocker, grant_types: list[OAuthGrantType]):
+def _patch_oauth_secret_env(
+    mocker,
+    grant_types: list[OAuthGrantType],
+    reauth_required: frozenset[OAuthGrantType] = frozenset(),
+):
     mocker.patch("tracecat.expressions.eval.extract_templated_secrets", return_value=[])
     mocker.patch(
         "tracecat.secrets.secrets_manager.get_runtime_env", return_value="test_env"
@@ -217,6 +222,11 @@ def _patch_oauth_secret_env(mocker, grant_types: list[OAuthGrantType]):
         integration.provider_id = "azure_log_analytics"
         integration.grant_type = grant_type
         integration.expires_at = _OAUTH_EXPIRIES[grant_type]
+        integration.status = (
+            IntegrationStatus.REAUTH_REQUIRED
+            if grant_type in reauth_required
+            else IntegrationStatus.CONNECTED
+        )
         integrations.append(integration)
 
     service = mocker.AsyncMock()
@@ -266,6 +276,139 @@ async def test_get_action_secrets_resolves_oauth_tokens(
     )
 
     assert secrets["azure_log_analytics_oauth"] == expected
+
+
+_AZURE_USER_TOKEN = "AZURE_LOG_ANALYTICS_USER_TOKEN"
+_AZURE_SERVICE_TOKEN = "AZURE_LOG_ANALYTICS_SERVICE_TOKEN"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("connected", "preferred", "expected"),
+    [
+        pytest.param(
+            [OAuthGrantType.AUTHORIZATION_CODE, OAuthGrantType.CLIENT_CREDENTIALS],
+            OAuthConnectionRef(
+                provider_id="azure_log_analytics",
+                grant_type="client_credentials",
+            ),
+            {_AZURE_SERVICE_TOKEN: "service-token"},
+            id="connected_pick_drops_other_declared_tokens",
+        ),
+        pytest.param(
+            [OAuthGrantType.AUTHORIZATION_CODE],
+            OAuthConnectionRef(
+                provider_id="azure_log_analytics",
+                grant_type="client_credentials",
+            ),
+            {_AZURE_USER_TOKEN: "user-token"},
+            id="unconnected_pick_falls_back",
+        ),
+        pytest.param(
+            [OAuthGrantType.AUTHORIZATION_CODE, OAuthGrantType.CLIENT_CREDENTIALS],
+            OAuthConnectionRef(
+                provider_id="github_app",
+                grant_type="client_credentials",
+            ),
+            {_AZURE_USER_TOKEN: "user-token", _AZURE_SERVICE_TOKEN: "service-token"},
+            id="undeclared_pick_is_ignored",
+        ),
+        pytest.param(
+            [OAuthGrantType.AUTHORIZATION_CODE, OAuthGrantType.CLIENT_CREDENTIALS],
+            None,
+            {_AZURE_USER_TOKEN: "user-token", _AZURE_SERVICE_TOKEN: "service-token"},
+            id="unset_keeps_all_tokens",
+        ),
+    ],
+)
+async def test_resolve_action_secrets_prefers_oauth_connection(
+    mocker,
+    connected: list[OAuthGrantType],
+    preferred: OAuthConnectionRef | None,
+    expected: dict[str, str],
+):
+    _patch_oauth_secret_env(mocker, connected)
+
+    resolved = await secrets_manager.resolve_action_secrets(
+        secret_exprs=set(),
+        action_secrets=_AZURE_OAUTH_SECRETS,
+        preferred_oauth_connection=preferred,
+    )
+
+    assert resolved.values["azure_log_analytics_oauth"] == expected
+
+
+@pytest.mark.anyio
+async def test_resolve_action_secrets_preference_keeps_expression_tokens(mocker):
+    """A token referenced from args but not declared survives the preference."""
+    _patch_oauth_secret_env(
+        mocker, [OAuthGrantType.AUTHORIZATION_CODE, OAuthGrantType.CLIENT_CREDENTIALS]
+    )
+
+    resolved = await secrets_manager.resolve_action_secrets(
+        secret_exprs={f"azure_log_analytics_oauth.{_AZURE_SERVICE_TOKEN}"},
+        action_secrets={
+            RegistryOAuthSecret(
+                provider_id="azure_log_analytics",
+                grant_type="authorization_code",
+            )
+        },
+        preferred_oauth_connection=OAuthConnectionRef(
+            provider_id="azure_log_analytics",
+            grant_type="authorization_code",
+        ),
+    )
+
+    assert resolved.values["azure_log_analytics_oauth"] == {
+        _AZURE_USER_TOKEN: "user-token",
+        _AZURE_SERVICE_TOKEN: "service-token",
+    }
+
+
+@pytest.mark.anyio
+async def test_resolve_action_secrets_reauth_pick_falls_back(mocker):
+    """A pick whose stale token still resolves but needs reauth drops nothing."""
+    _patch_oauth_secret_env(
+        mocker,
+        [OAuthGrantType.AUTHORIZATION_CODE, OAuthGrantType.CLIENT_CREDENTIALS],
+        reauth_required=frozenset({OAuthGrantType.AUTHORIZATION_CODE}),
+    )
+
+    resolved = await secrets_manager.resolve_action_secrets(
+        secret_exprs=set(),
+        action_secrets=_AZURE_OAUTH_SECRETS,
+        preferred_oauth_connection=OAuthConnectionRef(
+            provider_id="azure_log_analytics",
+            grant_type="authorization_code",
+        ),
+    )
+
+    assert resolved.values["azure_log_analytics_oauth"] == {
+        _AZURE_USER_TOKEN: "user-token",
+        _AZURE_SERVICE_TOKEN: "service-token",
+    }
+
+
+@pytest.mark.anyio
+async def test_resolve_action_secrets_preference_keeps_declared_arg_tokens(mocker):
+    """A declared token that args also reference survives a different pick."""
+    _patch_oauth_secret_env(
+        mocker, [OAuthGrantType.AUTHORIZATION_CODE, OAuthGrantType.CLIENT_CREDENTIALS]
+    )
+
+    resolved = await secrets_manager.resolve_action_secrets(
+        secret_exprs={f"azure_log_analytics_oauth.{_AZURE_USER_TOKEN}"},
+        action_secrets=_AZURE_OAUTH_SECRETS,
+        preferred_oauth_connection=OAuthConnectionRef(
+            provider_id="azure_log_analytics",
+            grant_type="client_credentials",
+        ),
+    )
+
+    assert resolved.values["azure_log_analytics_oauth"] == {
+        _AZURE_USER_TOKEN: "user-token",
+        _AZURE_SERVICE_TOKEN: "service-token",
+    }
 
 
 @pytest.mark.anyio
@@ -666,6 +809,7 @@ async def test_prepare_resolved_context_preserves_only_mapped_parameter(
     assert get_action_secrets.await_args.kwargs == {
         "secret_exprs": {"runtime.TOKEN"},
         "action_secrets": action_secrets,
+        "preferred_oauth_connection": None,
     }
     assert get_workspace_variables.await_args.kwargs["variable_exprs"] == {"runtime"}
     # Masks union the raw fetched secrets (derived before argument evaluation so
@@ -722,6 +866,7 @@ async def test_prepare_resolved_context_redacts_secrets_before_collection(
     assert get_action_secrets.await_args.kwargs == {
         "secret_exprs": {"runtime.TOKEN"},
         "action_secrets": action_secrets,
+        "preferred_oauth_connection": None,
     }
     assert get_workspace_variables.await_args.kwargs["variable_exprs"] == {"runtime"}
 
@@ -761,6 +906,32 @@ async def test_prepare_resolved_context_resolves_unmapped_parameters(
     assert prepared.resolved_context.evaluated_args == {parameter: "runtime-secret"}
     assert get_action_secrets.await_args.kwargs["secret_exprs"] == {"runtime.TOKEN"}
     assert get_workspace_variables.await_args.kwargs["variable_exprs"] == set()
+
+
+@pytest.mark.anyio
+async def test_prepare_resolved_context_passes_preferred_oauth_connection(mocker):
+    """The executor forwards the action's OAuth connection preference."""
+    action_name = "core.transform.reshape"
+    get_action_secrets, _, _ = _patch_expression_policy_resolution(
+        mocker,
+        action_name=action_name,
+        action_secrets=set(),
+        fetched_secrets={},
+        workspace_variables={},
+    )
+    preferred = OAuthConnectionRef(
+        provider_id="github_app", grant_type="authorization_code"
+    )
+    action_input = _expression_policy_input(action_name, {"value": 1})
+    action_input.task.oauth_connection = preferred
+
+    await prepare_resolved_context(
+        input=action_input, role=_expression_policy_role("tracecat-executor")
+    )
+
+    assert (
+        get_action_secrets.await_args.kwargs["preferred_oauth_connection"] == preferred
+    )
 
 
 @pytest.mark.parametrize(

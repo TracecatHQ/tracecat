@@ -821,7 +821,9 @@ async def resolve_shared_action_context(
     # Fetch secrets and variables concurrently; each opens its own session.
     resolved_secrets, workspace_variables = await asyncio.gather(
         secrets_manager.resolve_action_secrets(
-            secret_exprs=collected.secrets, action_secrets=action_secrets
+            secret_exprs=collected.secrets,
+            action_secrets=action_secrets,
+            preferred_oauth_connection=task.oauth_connection,
         ),
         get_workspace_variables(
             variable_exprs=variable_names,

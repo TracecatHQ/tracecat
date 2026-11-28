@@ -6,7 +6,13 @@ import uuid
 from types import SimpleNamespace
 from typing import Any, cast
 
-from tracecat.dsl.common import build_action_statements_from_actions
+import pytest
+
+from tracecat.dsl.common import (
+    DSLEntrypoint,
+    DSLInput,
+    build_action_statements_from_actions,
+)
 from tracecat.dsl.view import (
     RFEdge,
     RFGraph,
@@ -16,11 +22,14 @@ from tracecat.dsl.view import (
     UDFNodeData,
 )
 from tracecat.expressions.expectations import ExpectedField, create_expectation_model
+from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.integrations.types import OAuthConnectionRef
 from tracecat.registry.actions.schemas import (
     ActionStep,
     TemplateAction,
     TemplateActionDefinition,
 )
+from tracecat.workflow.store.schemas import RemoteWorkflowDefinition
 
 
 def _make_trigger_node(trigger_id: str | None = None) -> TriggerNode:
@@ -136,3 +145,60 @@ api_version: 2025-09-01
     assert statements[0].args["api_version"] == "2025-09-01"
     validated_args = expectation_model.model_validate(statements[0].args)
     assert validated_args.model_dump()["api_version"] == "2025-09-01"
+
+
+_OAUTH_CONNECTION = {"provider_id": "github_app", "grant_type": "authorization_code"}
+
+
+@pytest.mark.parametrize(
+    "oauth_connection",
+    [
+        pytest.param(_OAUTH_CONNECTION, id="set"),
+        pytest.param(None, id="unset"),
+    ],
+)
+def test_oauth_connection_round_trips_to_synced_definition(
+    oauth_connection: dict[str, str] | None,
+) -> None:
+    """The saved preference reaches the git-synced YAML, and is absent when unset."""
+    action = cast(
+        Any,
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            ref="get_repo",
+            description="",
+            type="tools.github.get_repository",
+            inputs="owner: acme\n",
+            control_flow={"oauth_connection": oauth_connection},
+            upstream_edges=[],
+            is_interactive=False,
+            interaction=None,
+        ),
+    )
+
+    [statement] = build_action_statements_from_actions([action])
+    remote = RemoteWorkflowDefinition(
+        id=WorkflowUUID.new(uuid.uuid4()).short(),
+        definition=DSLInput(
+            title="Synthetic workflow",
+            description="",
+            entrypoint=DSLEntrypoint(ref="get_repo"),
+            actions=[statement],
+        ),
+    )
+    [exported] = remote.model_dump(mode="json")["definition"]["actions"]
+
+    if oauth_connection is None:
+        assert statement.oauth_connection is None
+        assert "oauth_connection" not in exported
+    else:
+        assert statement.oauth_connection == OAuthConnectionRef(
+            provider_id="github_app", grant_type="authorization_code"
+        )
+        assert exported["oauth_connection"] == oauth_connection
+        reimported = RemoteWorkflowDefinition.model_validate(
+            remote.model_dump(mode="json")
+        )
+        assert reimported.definition.actions[0].oauth_connection == (
+            statement.oauth_connection
+        )

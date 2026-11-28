@@ -1415,6 +1415,7 @@ def build_action_statements_from_actions(
             join_strategy=control_flow.join_strategy,
             environment=control_flow.environment,
             tunnel=control_flow.tunnel,
+            oauth_connection=control_flow.oauth_connection,
             mask_output=control_flow.mask_output,
             unsafe_disable_secret_error_withholding=control_flow.unsafe_disable_secret_error_withholding,
         )
