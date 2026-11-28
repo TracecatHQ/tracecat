@@ -7622,23 +7622,28 @@ async def test_get_workflow_authoring_context_truncates_embedded_collections(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("integration_read", [True, False])
 async def test_get_agent_preset_authoring_context_includes_output_type_guidance(
     monkeypatch: pytest.MonkeyPatch,
+    integration_read: bool,
 ) -> None:
+    """The integration inventory is read only with `integration:read`, as
+    `GET /integrations` needs; the rest of the context stays the same."""
     workspace_id = uuid.uuid4()
-    role = SimpleNamespace(
-        workspace_id=workspace_id,
-        scopes=frozenset({"variable:read", "secret:read"}),
-    )
+    scopes = {"agent:read", "variable:read", "secret:read"}
+    if integration_read:
+        scopes.add("integration:read")
+    role = _workspace_member_role(frozenset(scopes), workspace_id)
 
-    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, Role]:
         return workspace_id, role
 
     async def _secret_inventory(_role: Any) -> dict[str, set[str]]:
         return {"slack": {"TOKEN"}}
 
-    async def _integrations_inventory(_role: Any) -> Any:
-        return mcp_server.IntegrationsInventoryResponse()
+    _integrations_inventory = AsyncMock(
+        return_value=mcp_server.IntegrationsInventoryResponse()
+    )
 
     class _Model:
         def __init__(self, name: str, provider: str) -> None:
@@ -7713,6 +7718,8 @@ async def test_get_agent_preset_authoring_context_includes_output_type_guidance(
     assert payload["output_type_context"]["accepts_json_schema"] is True
     assert payload["output_type_context"]["examples"]["structured"]["type"] == "object"
     assert payload["truncation"]["collections"]["models"]["truncated"] is False
+    assert _integrations_inventory.await_count == (1 if integration_read else 0)
+    assert payload["integrations"]["mcp_integrations"] == []
 
 
 @pytest.mark.anyio
@@ -11837,6 +11844,7 @@ _SCOPED_TOOL_CALLS: dict[
     ),
     "list_integrations": ({}, "integration:read", _READ),
     "list_skills": ({}, "agent:read", _READ),
+    "get_agent_preset_authoring_context": ({}, "agent:read", _READ),
     "list_agent_presets": ({}, "agent:read", _READ),
     "run_agent_preset": (
         {"preset_slug": "triage", "prompt": "hello"},

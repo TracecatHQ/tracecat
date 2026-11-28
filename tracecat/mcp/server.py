@@ -4782,8 +4782,8 @@ async def update_workflow(
         workflow_id = WorkflowUUID.new(workflow_id)
         _, role = await _resolve_workspace_role(workspace_id)
         # The same scope as `PATCH /workflows/{id}` and `PUT /workflows/{id}/draft`,
-        # checked before anything is written. Every section this tool writes
-        # (metadata, definition, layout, schedules, case trigger) needs it.
+        # which writes the same sections (metadata, definition, layout,
+        # schedules, case trigger). Checked before anything is written.
         check_scopes(role, "workflow:update")
         update_kwargs: dict[str, Any] = {}
         if title is not None:
@@ -11501,7 +11501,13 @@ async def _build_agent_preset_authoring_context(
         ],
     }
 
-    integrations = await _build_integrations_inventory(role)
+    # The integration inventory is what `GET /integrations` returns, so it
+    # needs `integration:read` too.
+    integrations = (
+        await _build_integrations_inventory(role)
+        if has_scope(scopes, "integration:read")
+        else IntegrationsInventoryResponse()
+    )
 
     truncated_sections, truncation = _truncate_named_sections(
         {
@@ -11603,7 +11609,12 @@ async def get_agent_preset_authoring_context(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        # The same scope as `GET /agent/models` and `/agent/providers/status`.
+        check_scopes(role, "agent:read")
         return await _build_agent_preset_authoring_context(role)
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ToolError:
         raise
     except ValueError as e:
