@@ -37,6 +37,11 @@ from tracecat.agent.backends.types import (
     SessionWorkflowContext,
     TurnResult,
 )
+from tracecat.agent.channel_notifier import (
+    ChannelDestinationRef,
+    ChannelRecipientNotLinked,
+    ChannelsNotEntitled,
+)
 from tracecat.agent.mcp.stdio_probe_types import StdioMCPProbeResult
 from tracecat.agent.mcp.stdio_runner import StdioMCPServer
 from tracecat.agent.parsers import resolve_agent_output
@@ -51,17 +56,22 @@ from tracecat.agent.types import (
 )
 from tracecat.agent.workflow_turns.activities import (
     _holder_ended,
+    check_channel_reply_thread_activity,
+    open_channel_reply_thread_activity,
     prepare_workflow_agent_turn_activity,
     read_workflow_agent_turn_activity,
     select_workflow_agent_backend_activity,
 )
 from tracecat.agent.workflow_turns.schemas import (
+    ChannelReplyThreadInput,
     ReadWorkflowAgentTurnInput,
     WorkflowAgentTurnInput,
 )
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentSession
 from tracecat.exceptions import EntitlementRequired, TracecatConflictError
+from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorOwner
+from tracecat.temporal.errors import extract_error_classification
 
 ACTIVITIES = "tracecat.agent.workflow_turns.activities"
 
@@ -829,3 +839,55 @@ async def test_holder_ends_only_when_its_turn_can_never_finish(
     if proven:
         assert retains.await_args is not None
         assert retains.await_args.args[0].session is held
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("activity_fn", "target"),
+    [
+        (check_channel_reply_thread_activity, "check_channel_reply_thread"),
+        (open_channel_reply_thread_activity, "open_channel_reply_thread"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("error", "kind"),
+    [
+        (
+            ChannelRecipientNotLinked("alice@example.com hasn't linked Slack"),
+            RuntimeErrorKind.WORKFLOW_AGENT_INPUT_INVALID,
+        ),
+        (
+            ChannelsNotEntitled("Agent Channels is not enabled for this organization"),
+            RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED,
+        ),
+    ],
+)
+async def test_channel_reply_failure_keeps_its_reason(
+    activity_fn: Any, target: str, error: Exception, kind: RuntimeErrorKind
+) -> None:
+    """The run's error message is the channel's reason, not an unclassified failure."""
+    reply_thread = ChannelReplyThreadInput(
+        role=_role(),
+        preset_id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        destination=ChannelDestinationRef(
+            kind="direct_message", id="alice@example.com"
+        ),
+    )
+    with (
+        patch(
+            f"{ACTIVITIES}.{target}",
+            AsyncMock(side_effect=error),
+        ),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        await activity_fn(reply_thread)
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is kind
+    assert classification.message == str(error)
+    assert exc_info.value.message == str(error)
+    assert exc_info.value.non_retryable
+    assert exc_info.value.__cause__ is None

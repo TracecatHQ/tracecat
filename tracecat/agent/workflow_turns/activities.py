@@ -28,6 +28,7 @@ from tracecat.agent.backends.turns import build_child_agent_turn
 from tracecat.agent.backends.types import SessionTurnContext
 from tracecat.agent.channel_notifier import (
     ChannelReplyError,
+    ChannelsNotEntitled,
     check_channel_reply_thread,
     open_channel_reply_thread,
 )
@@ -68,6 +69,11 @@ from tracecat.exceptions import (
     TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
+)
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorClassification,
+    RuntimeErrorKind,
 )
 from tracecat.temporal.errors import raise_application_error_from_classification
 
@@ -282,13 +288,27 @@ async def select_workflow_agent_backend_activity(
     return SelectWorkflowAgentBackendResult(backend_id=backend_id)
 
 
+def _channel_reply_failed(error: ChannelReplyError) -> RuntimeErrorClassification:
+    """Surface the channel's own reason, e.g. a DM recipient who hasn't linked Slack."""
+    return RuntimeErrorClassification.user(
+        kind=(
+            RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED
+            if isinstance(error, ChannelsNotEntitled)
+            else RuntimeErrorKind.WORKFLOW_AGENT_INPUT_INVALID
+        ),
+        message=str(error),
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+
+
 @activity.defn
 async def check_channel_reply_thread_activity(input: ChannelReplyThreadInput) -> None:
     """Refuse a preset action's channel before its turn runs."""
     try:
         await check_channel_reply_thread(input.role, input.preset_id, input.destination)
     except ChannelReplyError as e:
-        raise ApplicationError(str(e), type=type(e).__name__, non_retryable=True) from e
+        raise_application_error_from_classification(_channel_reply_failed(e))
 
 
 @activity.defn
@@ -297,7 +317,7 @@ async def open_channel_reply_thread_activity(input: ChannelReplyThreadInput) -> 
     try:
         await open_channel_reply_thread(input.role, input.session_id, input.destination)
     except ChannelReplyError as e:
-        raise ApplicationError(str(e), type=type(e).__name__, non_retryable=True) from e
+        raise_application_error_from_classification(_channel_reply_failed(e))
 
 
 @activity.defn
