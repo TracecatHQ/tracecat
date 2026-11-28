@@ -18,6 +18,9 @@ NOT_ADMITTED_TYPE: Final = "tracecat.admission.not_admitted"
 ADMISSION_ACK_SIGNAL: Final = "admission_ack"
 """Signal an executor sends a run when it admits a probe; carries the activity ID."""
 
+ADMISSION_WAKE_SIGNAL: Final = "admission_wake"
+"""Signal an executor sends a run blocked at the limit when a release freed units."""
+
 
 class ConcurrencyResource(StrEnum):
     """A resource with a per-organization concurrency limit."""

@@ -28,13 +28,14 @@ from temporalio.client import WorkflowFailureError, WorkflowHandle
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, Worker
 
-from tests.shared import TEST_WF_ID, generate_test_exec_id
+from tests.shared import TEST_WF_ID, generate_test_exec_id, recorded_patch_ids
 from tracecat import config
 from tracecat.admission import gate
 from tracecat.admission.leases import LeaseStore
 from tracecat.admission.limits import clear_limits_cache
 from tracecat.admission.types import (
     ADMISSION_ACK_SIGNAL,
+    ADMISSION_WAKE_SIGNAL,
     ConcurrencyResource,
     NotAdmittedReason,
     parse_not_admitted,
@@ -43,6 +44,7 @@ from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import Organization, OrganizationTier, Tier
+from tracecat.dsl import workflow as workflow_module
 from tracecat.dsl._converter import get_data_converter
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.init_activities import resolve_run_limits_activity
@@ -64,6 +66,7 @@ from tracecat.redis import client as redis_client_module
 from tracecat.redis.client import get_redis_client
 from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorOwner
 from tracecat.temporal.errors import extract_error_classification
+from tracecat.temporal.patches import WorkflowPatch
 from tracecat.tiers.limits_cache import invalidate_effective_limits_cache
 from tracecat.workflow.executions.enums import TemporalSearchAttr
 from tracecat.workflow.executions.service import WorkflowExecutionsService
@@ -564,7 +567,21 @@ async def test_uncontended_run_records_no_extra_activities(
     assert "get_tier_limits_activity" not in limited_types
     assert _timers(limited_history) == []
     assert _admission_signals(limited_history) == 0
-    assert len(limited_history) == len(baseline_history)
+    # The only extra events are the wake's patch marker and the SDK's version
+    # search attribute, both in the first workflow task beside the run-limits
+    # markers: no extra billed action (one per task for markers; the version
+    # attribute is exempt).
+    extra = Counter(e.event_type for e in limited_history)
+    extra.subtract(Counter(e.event_type for e in baseline_history))
+    assert +extra == Counter(
+        {
+            EventType.EVENT_TYPE_MARKER_RECORDED: 1,
+            EventType.EVENT_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES: 1,
+        }
+    )
+    assert WorkflowPatch.ADMISSION_WAKE_ON_RELEASE in await recorded_patch_ids(
+        env.client, await limited.fetch_history()
+    )
 
 
 @pytest.mark.anyio
@@ -1081,3 +1098,201 @@ async def test_fan_out_recorded_before_the_run_throttle_replays_unchanged(
     assert counts.busy > 0
     assert counts.attempts == FAN_OUT_ITEMS + counts.busy
     await _replay(env, handle)
+
+
+def _timer_outcomes(history: list[HistoryEvent]) -> Counter[str]:
+    """How each started timer ended: fired, or cut short by a wake."""
+    outcomes: Counter[str] = Counter()
+    for event in history:
+        match event.event_type:
+            case EventType.EVENT_TYPE_TIMER_FIRED:
+                outcomes["fired"] += 1
+            case EventType.EVENT_TYPE_TIMER_CANCELED:
+                outcomes["canceled"] += 1
+            case _:
+                pass
+    return outcomes
+
+
+def _without_the_wake(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Record histories as a worker from before the wake did."""
+    current_patched = workflow_module.workflow.patched
+
+    def patched(patch_id: str) -> bool:
+        if patch_id == WorkflowPatch.ADMISSION_WAKE_ON_RELEASE:
+            return False
+        return current_patched(patch_id)
+
+    monkeypatch.setattr(workflow_module.workflow, "patched", patched)
+
+
+@dataclass(frozen=True, slots=True)
+class _BlockedRun:
+    holder: WorkflowHandle[Any, Any]
+    blocked: WorkflowHandle[Any, Any]
+    seconds_to_slot: float
+    """Real time from the holder's release to the blocked run's action starting."""
+
+
+async def _run_blocked_by_another_run(
+    env: WorkflowEnvironment,
+    role: Role,
+    test_worker_factory: Callable[..., Worker],
+    fake_actions: FakeActions,
+) -> _BlockedRun:
+    """Run A holds both slots; run B bounces; then one of A's actions finishes."""
+    org_id = role.organization_id
+    assert org_id is not None
+    await _configure_org_limits(org_id, max_concurrent_actions=2)
+    for ref in ("a1", "a2"):
+        fake_actions.holds[ref] = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    started_at: dict[str, float] = {}
+
+    async def stamp(ref: str) -> None:
+        started_at[ref] = loop.time()
+
+    fake_actions.on_start = stamp
+    dsl_worker, executor_worker = _workers(env, test_worker_factory)
+    # Real time, so the run's 2 s backoff timer can't fire before the wake.
+    with env.auto_time_skipping_disabled():
+        async with dsl_worker, executor_worker:
+            holder = await _start(env, role, _dsl("holder", ["a1", "a2"]), "holder")
+
+            async def holder_running() -> bool:
+                return {"a1", "a2"} <= set(fake_actions.started)
+
+            await _wait_until(holder_running)
+            blocked = await _start(env, role, _dsl("blocked", ["b1"]), "blocked")
+
+            async def blocked_bounced() -> bool:
+                return await _busy_count(blocked) >= 1
+
+            await _wait_until(blocked_bounced)
+            released_at = loop.time()
+            fake_actions.holds["a1"].set()
+
+            async def blocked_admitted() -> bool:
+                return "b1" in started_at
+
+            await _wait_until(blocked_admitted)
+            fake_actions.holds["a2"].set()
+            await asyncio.gather(holder.result(), blocked.result())
+    return _BlockedRun(
+        holder=holder,
+        blocked=blocked,
+        seconds_to_slot=started_at["b1"] - released_at,
+    )
+
+
+@pytest.mark.anyio
+async def test_release_wakes_a_run_blocked_by_another_run(
+    env: WorkflowEnvironment,
+    test_role: Role,
+    test_worker_factory: Callable[..., Worker],
+    limits_enabled: None,
+    fake_actions: FakeActions,
+) -> None:
+    """The second run takes the freed slot at once, not on its backoff timer."""
+    run = await _run_blocked_by_another_run(
+        env, test_role, test_worker_factory, fake_actions
+    )
+
+    history = await _history(run.blocked)
+    counts = await _action_counts(run.blocked)
+    print(f"blocked run with the wake: {counts}, {run.seconds_to_slot:.3f} s")
+    assert run.seconds_to_slot < 1.0  # the shortest backoff is 1.6 s
+    assert counts.signals[ADMISSION_WAKE_SIGNAL] == 1
+    assert counts.attempts == 2  # the bounce, then the woken probe
+    assert _timer_outcomes(history) == Counter(canceled=1)
+    assert WorkflowPatch.ADMISSION_WAKE_ON_RELEASE in await recorded_patch_ids(
+        env.client, await run.blocked.fetch_history()
+    )
+    # Nobody is left queued, and both histories replay on a fresh worker.
+    org_id = test_role.organization_id
+    assert org_id is not None
+    store = await LeaseStore.create()
+    assert await store.pop_waiter(org_id, ConcurrencyResource.ACTIONS) is None
+    await _replay(env, run.blocked)
+    await _replay(env, run.holder)
+
+
+@pytest.mark.anyio
+async def test_history_recorded_before_the_wake_keeps_its_timer_and_replays(
+    env: WorkflowEnvironment,
+    test_role: Role,
+    test_worker_factory: Callable[..., Worker],
+    limits_enabled: None,
+    fake_actions: FakeActions,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A run without the marker is never queued or woken, and replays unchanged."""
+    with monkeypatch.context() as old_worker:
+        _without_the_wake(old_worker)
+        run = await _run_blocked_by_another_run(
+            env, test_role, test_worker_factory, fake_actions
+        )
+
+    history = await _history(run.blocked)
+    counts = await _action_counts(run.blocked)
+    print(f"blocked run without the wake: {counts}, {run.seconds_to_slot:.3f} s")
+    assert ADMISSION_WAKE_SIGNAL not in counts.signals
+    assert _timer_outcomes(history)["canceled"] == 0
+    assert _timer_outcomes(history)["fired"] >= 1
+    assert WorkflowPatch.ADMISSION_WAKE_ON_RELEASE not in await recorded_patch_ids(
+        env.client, await run.blocked.fetch_history()
+    )
+    await _replay(env, run.blocked)
+    await _replay(env, run.holder)
+
+
+TWO_RUN_ITEMS = 100
+
+
+async def _run_two_fan_outs(
+    env: WorkflowEnvironment,
+    role: Role,
+    test_worker_factory: Callable[..., Worker],
+    fake_actions: FakeActions,
+) -> tuple[WorkflowHandle[Any, Any], WorkflowHandle[Any, Any]]:
+    org_id = role.organization_id
+    assert org_id is not None
+    await _configure_org_limits(org_id, max_concurrent_actions=FAN_OUT_LIMIT)
+
+    async def run_briefly(_ref: str) -> None:
+        await asyncio.sleep(FAN_OUT_ITEM_SECONDS)
+
+    fake_actions.on_start = run_briefly
+    dsl_worker, executor_worker = _workers(env, test_worker_factory)
+    async with dsl_worker, executor_worker:
+        first = await _start(env, role, _fan_out_dsl(TWO_RUN_ITEMS), "first")
+        second = await _start(env, role, _fan_out_dsl(TWO_RUN_ITEMS), "second")
+        await asyncio.gather(first.result(), second.result())
+    assert len(fake_actions.started) == 2 * TWO_RUN_ITEMS
+    assert fake_actions.max_running[str(org_id)] <= FAN_OUT_LIMIT
+    return first, second
+
+
+@pytest.mark.anyio
+async def test_two_fan_outs_share_the_limit_with_the_wake(
+    env: WorkflowEnvironment,
+    test_role: Role,
+    test_worker_factory: Callable[..., Worker],
+    limits_enabled: None,
+    fake_actions: FakeActions,
+) -> None:
+    """Two runs of 100 at limit 5: the limit holds, wakes flow, histories replay."""
+    first, second = await _run_two_fan_outs(
+        env, test_role, test_worker_factory, fake_actions
+    )
+
+    for name, handle in (("first", first), ("second", second)):
+        counts = await _action_counts(handle)
+        print(f"{name} run of two, with the wake: {counts}")
+        assert counts.max_outstanding <= FAN_OUT_LIMIT
+        assert counts.attempts == TWO_RUN_ITEMS + counts.busy
+        await _replay(env, handle)
+    woken = 0
+    for handle in (first, second):
+        woken += (await _action_counts(handle)).signals[ADMISSION_WAKE_SIGNAL]
+    assert woken > 0

@@ -42,7 +42,11 @@ with workflow.unsafe.imports_passed_through():
     from tracecat_registry.integrations.agents.slack import SlackbotContext
 
     from tracecat import config, identifiers
-    from tracecat.admission.types import ADMISSION_ACK_SIGNAL, ConcurrencyResource
+    from tracecat.admission.types import (
+        ADMISSION_ACK_SIGNAL,
+        ADMISSION_WAKE_SIGNAL,
+        ConcurrencyResource,
+    )
     from tracecat.admission.waiting import RunAdmission
     from tracecat.agent.aliases import build_agent_alias
     from tracecat.agent.channel_notifier import ChannelDestinationRef
@@ -278,6 +282,8 @@ class DSLWorkflow:
     _action_execution_count: int = 0
     _action_admission: RunAdmission
     _admission_acks_enabled: bool = False
+    _admission_wake_enabled: bool = False
+    """Whether this run is queued at the org's limit and woken on release."""
     _run_throttle: asyncio.Semaphore | None = None
     """Run throttle: keeps at most the org's action limit of action activities
     outstanding, so the run stops asking for slots it can't get. ``None`` means
@@ -459,6 +465,12 @@ class DSLWorkflow:
         if self._admission_acks_enabled:
             self._action_admission.acknowledge(activity_id)
 
+    @workflow.signal(name=ADMISSION_WAKE_SIGNAL)
+    def _on_admission_wake(self) -> None:
+        """An executor freed units while this run was queued at the org's limit."""
+        if self._admission_wake_enabled:
+            self._action_admission.wake()
+
     async def _resolve_run_limits(self) -> None:
         """Freeze this run's action budget into history at the start of the run."""
         if workflow.patched(WorkflowPatch.ADMISSION_RUN_LIMITS):
@@ -475,6 +487,11 @@ class DSLWorkflow:
             limit = snapshot.max_concurrent_actions
             if limit is not None and limit > 0:
                 self._run_throttle = asyncio.Semaphore(limit)
+                # Only a run with a limit can be refused, so only it records the
+                # marker. Histories recorded before it keep the plain timer wait.
+                if workflow.patched(WorkflowPatch.ADMISSION_WAKE_ON_RELEASE):
+                    self._admission_wake_enabled = True
+                    self._action_admission.wake_enabled = True
             # Admission signals exist only in histories that recorded this patch.
             self._admission_acks_enabled = True
             self._action_admission.acks_enabled = True
@@ -2056,12 +2073,14 @@ class DSLWorkflow:
         """Dispatch to the executor, waiting durably while the org is at its limit."""
 
         async def dispatch(max_attempts: int, probe_id: str | None) -> Any:
-            # A probe asks the executor to signal its admission (see RunAdmission).
-            run_input = (
-                arg
-                if probe_id is None
-                else arg.model_copy(update={"ack_admission": True})
-            )
+            # A probe asks the executor to signal its admission, and a run that
+            # handles the wake asks to be queued if refused (see RunAdmission).
+            update: dict[str, bool] = {}
+            if probe_id is not None:
+                update["ack_admission"] = True
+            if self._admission_wake_enabled:
+                update["wake_on_release"] = True
+            run_input = arg.model_copy(update=update) if update else arg
             # Dispatch to ExecutorWorker on shared-action-queue
             # Using string activity name since it's registered on a different worker
             return await workflow.execute_activity(
