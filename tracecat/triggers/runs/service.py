@@ -185,7 +185,7 @@ class TriggerRunsService(BaseWorkspaceService):
                 # schedule's ID, so runs from before trigger links are found too.
                 page = await executions.list_executions_paginated(
                     pagination=params,
-                    scheduled_by_id=schedule.schedule_id.to_legacy(),
+                    scheduled_by=schedule.schedule_id,
                     workflow_types=workflow_types,
                     relation=WorkflowExecutionRelationFilter.ROOT,
                 )
@@ -414,8 +414,9 @@ class TriggerRunsService(BaseWorkspaceService):
 
         A workflow run's child runs answer with their root's trigger; any
         other workflow type (an agent turn) answers null. A run a schedule
-        started answers with the schedule's trigger, while the schedule
-        exists. A session answers with the trigger of any of its turns.
+        started answers with the schedule's trigger while the schedule
+        exists, for a caller with ``schedule:read``. A session answers with
+        the trigger of any of its turns.
 
         Raises:
             ScopeDeniedError: Without ``workflow:read`` (a run) or
@@ -438,8 +439,13 @@ class TriggerRunsService(BaseWorkspaceService):
             if execution is not None and execution.workflow_type == DSL_WORKFLOW_TYPE:
                 attrs = execution.typed_search_attributes
                 raw = attrs.get(TemporalSearchAttr.TRIGGER_ID.key)
-                if raw is None and (
-                    scheduled_by := attrs.get(TEMPORAL_SCHEDULED_BY_ID)
+                # Without schedule:read the schedule's trigger can't be
+                # named, so the run answers as it did before schedules were
+                # read: no trigger.
+                if (
+                    raw is None
+                    and has_scope(self.role.scopes or frozenset(), "schedule:read")
+                    and (scheduled_by := attrs.get(TEMPORAL_SCHEDULED_BY_ID))
                 ):
                     trigger_of_schedule = await self._schedule_trigger_id(scheduled_by)
                     raw = str(trigger_of_schedule) if trigger_of_schedule else None

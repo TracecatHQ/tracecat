@@ -300,7 +300,7 @@ def test_build_query_filters_by_the_schedule_that_started_the_run() -> None:
 
     query = build_query(
         workspace_id=workspace_id,
-        scheduled_by_id="sch-96b9fcb9b366466583977564d58d1e2a",
+        scheduled_by=ScheduleUUID.new("96b9fcb9-b366-4665-8397-7564d58d1e2a"),
         workflow_types={DSL_WORKFLOW_TYPE},
     )
 
@@ -309,8 +309,6 @@ def test_build_query_filters_by_the_schedule_that_started_the_run() -> None:
         " AND TemporalScheduledById = 'sch-96b9fcb9b366466583977564d58d1e2a'"
         " AND (WorkflowType = 'DSLWorkflow')"
     )
-    with pytest.raises(ValueError, match="Invalid schedule ID"):
-        build_query(workspace_id=workspace_id, scheduled_by_id="x' OR '1'='1")
 
 
 # ----- Read side -----
@@ -639,8 +637,7 @@ async def test_schedule_runs_are_the_runs_temporal_stamped_with_its_id(
     )
 
     (call,) = executions.calls
-    assert call["scheduled_by_id"] == temporal_id
-    assert temporal_id.startswith("sch-") and len(temporal_id) == 36
+    assert call["scheduled_by"] == sched.schedule_id
     assert "trigger_id" not in call
     assert call["workflow_types"] == {DSL_WORKFLOW_TYPE}
     assert call["relation"] is WorkflowExecutionRelationFilter.ROOT
@@ -728,6 +725,26 @@ async def test_a_scheduled_run_leads_back_to_its_schedule_trigger(
         "Nightly",
         TriggerKind.SCHEDULE,
     )
+
+
+async def test_a_scheduled_run_has_no_origin_without_schedule_read(
+    session: AsyncSession,
+    svc_role: Role,
+    svc_workspace: Workspace,
+    executions: FakeExecutions,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A caller who can read the run but not schedules gets null, as before
+    schedules were read, never a 403 that tells the schedule exists."""
+    sched = await _schedule_trigger(session, svc_role, svc_workspace, monkeypatch)
+    executions.execution = _execution(
+        "wf/sch-run", attrs=[_scheduled_by(sched.schedule_id.to_legacy())]
+    )
+    role = _role(svc_workspace, frozenset({"trigger:read", "workflow:read"}))
+
+    origin = await TriggerRunsService(session, role).run_origin(wf_exec_id="wf/sch-run")
+
+    assert origin is None
 
 
 @pytest.mark.parametrize(

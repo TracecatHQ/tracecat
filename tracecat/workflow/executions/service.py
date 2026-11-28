@@ -53,7 +53,7 @@ from tracecat.dsl.schemas import (
 )
 from tracecat.dsl.types import Task
 from tracecat.dsl.workflow import DSLWorkflow
-from tracecat.identifiers import UserID, WorkspaceID
+from tracecat.identifiers import ScheduleUUID, UserID, WorkspaceID
 from tracecat.identifiers.workflow import (
     WorkflowExecutionID,
     WorkflowID,
@@ -565,13 +565,13 @@ class WorkflowExecutionsService:
         relation: WorkflowExecutionRelationFilter = WorkflowExecutionRelationFilter.ALL,
         correlation_id: str | None = None,
         trigger_id: uuid.UUID | None = None,
-        scheduled_by_id: str | None = None,
+        scheduled_by: ScheduleUUID | None = None,
         workflow_types: set[str] | None = None,
     ) -> WorkflowExecutionsPage:
         query = build_query(
             correlation_id=correlation_id,
             trigger_id=trigger_id,
-            scheduled_by_id=scheduled_by_id,
+            scheduled_by=scheduled_by,
             workflow_types=workflow_types,
             workflow_id=workflow_id,
             trigger_types=trigger_types,

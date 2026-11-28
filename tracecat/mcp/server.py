@@ -7291,7 +7291,7 @@ async def get_trigger_run_origin(
     triggers). Give exactly one of `wf_exec_id` (also needs `workflow:read`)
     and `session_id` (also needs `agent:read`). A child run answers with its root run's trigger.
     A run a schedule started answers with the schedule's trigger while the
-    schedule exists.
+    schedule exists, and needs `schedule:read` (null without it).
 
     Args:
         workspace_id: The workspace ID.

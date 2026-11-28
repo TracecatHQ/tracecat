@@ -216,11 +216,13 @@ async def test_a_schedule_trigger_lists_the_runs_its_schedule_started(
     handle = client.get_schedule_handle(trigger.config.schedule_id.to_legacy())
 
     await handle.trigger()
-    now = datetime.now(UTC)
+    # Hourly fires land on the hour: a window from 90 to 30 minutes before the
+    # last hour mark holds exactly one, all in the past.
+    last_hour = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
     await handle.backfill(
         ScheduleBackfill(
-            start_at=now - timedelta(hours=1, minutes=1),
-            end_at=now,
+            start_at=last_hour - timedelta(minutes=90),
+            end_at=last_hour - timedelta(minutes=30),
             overlap=ScheduleOverlapPolicy.ALLOW_ALL,
         )
     )
