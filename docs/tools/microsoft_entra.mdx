@@ -41,13 +41,11 @@ Default: `"v1.0"`.
 
 </ParamField>
 
-<ParamField path="base_url" type="string">
+<ParamField path="base_url" type="string | null">
 
-Base URL for the Microsoft Graph API.
+Microsoft Graph host, without the API version. If omitted, uses the workspace variable `microsoft_entra.base_url`, then https://graph.microsoft.com. National clouds: https://graph.microsoft.us (US Government L4) and https://dod-graph.microsoft.us (US Government L5 DOD).
 
-Default: `"https://graph.microsoft.com"`.
-
-Allowed values: `https://graph.microsoft.com`, `https://graph.microsoft.us`.
+Default: `null`.
 
 </ParamField>
 
@@ -74,9 +72,17 @@ Specify the risky user IDs to mark as high risk.
 
 </ParamField>
 
+<ParamField path="api_version" type="string">
+
+Microsoft Graph API version.
+
+Default: `"v1.0"`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
-Microsoft Graph v1.0 API root. If omitted, uses the workspace variable `microsoft_entra.base_url`, then https://graph.microsoft.com/v1.0. National clouds: https://graph.microsoft.us/v1.0 (US Government L4) and https://dod-graph.microsoft.us/v1.0 (US Government L5 DOD).
+Microsoft Graph host, without the API version. If omitted, uses the workspace variable `microsoft_entra.base_url`, then https://graph.microsoft.com. National clouds: https://graph.microsoft.us (US Government L4) and https://dod-graph.microsoft.us (US Government L5 DOD).
 
 Default: `null`.
 
@@ -113,13 +119,11 @@ Default: `"v1.0"`.
 
 </ParamField>
 
-<ParamField path="base_url" type="string">
+<ParamField path="base_url" type="string | null">
 
-Base URL for the Microsoft Graph API.
+Microsoft Graph host, without the API version. If omitted, uses the workspace variable `microsoft_entra.base_url`, then https://graph.microsoft.com. National clouds: https://graph.microsoft.us (US Government L4) and https://dod-graph.microsoft.us (US Government L5 DOD).
 
-Default: `"https://graph.microsoft.com"`.
-
-Allowed values: `https://graph.microsoft.com`, `https://graph.microsoft.us`.
+Default: `null`.
 
 </ParamField>
 
@@ -154,13 +158,11 @@ Default: `"v1.0"`.
 
 </ParamField>
 
-<ParamField path="base_url" type="string">
+<ParamField path="base_url" type="string | null">
 
-Base URL for the Microsoft Graph API.
+Microsoft Graph host, without the API version. If omitted, uses the workspace variable `microsoft_entra.base_url`, then https://graph.microsoft.com. National clouds: https://graph.microsoft.us (US Government L4) and https://dod-graph.microsoft.us (US Government L5 DOD).
 
-Default: `"https://graph.microsoft.com"`.
-
-Allowed values: `https://graph.microsoft.com`, `https://graph.microsoft.us`.
+Default: `null`.
 
 </ParamField>
 
@@ -195,13 +197,11 @@ Default: `"v1.0"`.
 
 </ParamField>
 
-<ParamField path="base_url" type="string">
+<ParamField path="base_url" type="string | null">
 
-Base URL for the Microsoft Graph API.
+Microsoft Graph host, without the API version. If omitted, uses the workspace variable `microsoft_entra.base_url`, then https://graph.microsoft.com. National clouds: https://graph.microsoft.us (US Government L4) and https://dod-graph.microsoft.us (US Government L5 DOD).
 
-Default: `"https://graph.microsoft.com"`.
-
-Allowed values: `https://graph.microsoft.com`, `https://graph.microsoft.us`.
+Default: `null`.
 
 </ParamField>
 
@@ -236,13 +236,11 @@ Default: `"v1.0"`.
 
 </ParamField>
 
-<ParamField path="base_url" type="string">
+<ParamField path="base_url" type="string | null">
 
-Base URL for the Microsoft Graph API.
+Microsoft Graph host, without the API version. If omitted, uses the workspace variable `microsoft_entra.base_url`, then https://graph.microsoft.com. National clouds: https://graph.microsoft.us (US Government L4) and https://dod-graph.microsoft.us (US Government L5 DOD).
 
-Default: `"https://graph.microsoft.com"`.
-
-Allowed values: `https://graph.microsoft.com`, `https://graph.microsoft.us`.
+Default: `null`.
 
 </ParamField>
 
@@ -277,17 +275,15 @@ Default: `"v1.0"`.
 
 </ParamField>
 
-<ParamField path="base_url" type="string">
+<ParamField path="base_url" type="string | null">
 
-Base URL for the Microsoft Graph API.
+Microsoft Graph host, without the API version. If omitted, uses the workspace variable `microsoft_entra.base_url`, then https://graph.microsoft.com. National clouds: https://graph.microsoft.us (US Government L4) and https://dod-graph.microsoft.us (US Government L5 DOD).
 
-Default: `"https://graph.microsoft.com"`.
-
-Allowed values: `https://graph.microsoft.com`, `https://graph.microsoft.us`.
+Default: `null`.
 
 </ParamField>
 
-<ParamField path="expand" type="array[string]">
+<ParamField path="expand" type="array[string] | null">
 
 Optional related entities to expand in the response.
 
@@ -295,7 +291,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="select" type="array[string]">
+<ParamField path="select" type="array[string] | null">
 
 Optional set of group properties to return.
 
@@ -334,17 +330,15 @@ Default: `"v1.0"`.
 
 </ParamField>
 
-<ParamField path="base_url" type="string">
+<ParamField path="base_url" type="string | null">
 
-Base URL for the Microsoft Graph API.
+Microsoft Graph host, without the API version. If omitted, uses the workspace variable `microsoft_entra.base_url`, then https://graph.microsoft.com. National clouds: https://graph.microsoft.us (US Government L4) and https://dod-graph.microsoft.us (US Government L5 DOD).
 
-Default: `"https://graph.microsoft.com"`.
-
-Allowed values: `https://graph.microsoft.com`, `https://graph.microsoft.us`.
+Default: `null`.
 
 </ParamField>
 
-<ParamField path="expand" type="array[string]">
+<ParamField path="expand" type="array[string] | null">
 
 Optional related entities to expand in the response.
 
@@ -352,7 +346,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="select" type="array[string]">
+<ParamField path="select" type="array[string] | null">
 
 Optional set of user properties to return.
 
@@ -391,13 +385,11 @@ Default: `"v1.0"`.
 
 </ParamField>
 
-<ParamField path="base_url" type="string">
+<ParamField path="base_url" type="string | null">
 
-Base URL for the Microsoft Graph API.
+Microsoft Graph host, without the API version. If omitted, uses the workspace variable `microsoft_entra.base_url`, then https://graph.microsoft.com. National clouds: https://graph.microsoft.us (US Government L4) and https://dod-graph.microsoft.us (US Government L5 DOD).
 
-Default: `"https://graph.microsoft.com"`.
-
-Allowed values: `https://graph.microsoft.com`, `https://graph.microsoft.us`.
+Default: `null`.
 
 </ParamField>
 
@@ -426,13 +418,11 @@ Default: `"v1.0"`.
 
 </ParamField>
 
-<ParamField path="base_url" type="string">
+<ParamField path="base_url" type="string | null">
 
-Base URL for the Microsoft Graph API.
+Microsoft Graph host, without the API version. If omitted, uses the workspace variable `microsoft_entra.base_url`, then https://graph.microsoft.com. National clouds: https://graph.microsoft.us (US Government L4) and https://dod-graph.microsoft.us (US Government L5 DOD).
 
-Default: `"https://graph.microsoft.com"`.
-
-Allowed values: `https://graph.microsoft.com`, `https://graph.microsoft.us`.
+Default: `null`.
 
 </ParamField>
 
@@ -444,7 +434,7 @@ Default: `false`.
 
 </ParamField>
 
-<ParamField path="expand" type="array[string]">
+<ParamField path="expand" type="array[string] | null">
 
 Optional related entities to expand in the response.
 
@@ -452,7 +442,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="filter" type="string">
+<ParamField path="filter" type="string | null">
 
 Optional OData $filter expression.
 
@@ -460,7 +450,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="max_page_size" type="integer">
+<ParamField path="max_page_size" type="integer | null">
 
 Optional maximum page size to request via Prefer=odata.maxpagesize.
 
@@ -468,7 +458,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="orderby" type="string">
+<ParamField path="orderby" type="string | null">
 
 Optional OData $orderby expression.
 
@@ -476,7 +466,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="search" type="string">
+<ParamField path="search" type="string | null">
 
 Optional search phrase. Use quoted property names as documented, for example "displayName:Engineering".
 
@@ -484,7 +474,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="select" type="array[string]">
+<ParamField path="select" type="array[string] | null">
 
 Optional set of group properties to return.
 
@@ -492,7 +482,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="skip_token" type="string">
+<ParamField path="skip_token" type="string | null">
 
 Opaque continuation token from a previous response ($skiptoken).
 
@@ -500,7 +490,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="top" type="integer">
+<ParamField path="top" type="integer | null">
 
 Maximum number of results to return in a single page ($top).
 
@@ -531,9 +521,17 @@ The user's ID or userPrincipalName.
 
 </ParamField>
 
+<ParamField path="api_version" type="string">
+
+Microsoft Graph API version.
+
+Default: `"v1.0"`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
-Microsoft Graph v1.0 API root. If omitted, uses the workspace variable `microsoft_entra.base_url`, then https://graph.microsoft.com/v1.0. National clouds: https://graph.microsoft.us/v1.0 (US Government L4) and https://dod-graph.microsoft.us/v1.0 (US Government L5 DOD).
+Microsoft Graph host, without the API version. If omitted, uses the workspace variable `microsoft_entra.base_url`, then https://graph.microsoft.com. National clouds: https://graph.microsoft.us (US Government L4) and https://dod-graph.microsoft.us (US Government L5 DOD).
 
 Default: `null`.
 
@@ -626,9 +624,17 @@ The user's ID or userPrincipalName.
 
 </ParamField>
 
+<ParamField path="api_version" type="string">
+
+Microsoft Graph API version.
+
+Default: `"v1.0"`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
-Microsoft Graph v1.0 API root. If omitted, uses the workspace variable `microsoft_entra.base_url`, then https://graph.microsoft.com/v1.0. National clouds: https://graph.microsoft.us/v1.0 (US Government L4) and https://dod-graph.microsoft.us/v1.0 (US Government L5 DOD).
+Microsoft Graph host, without the API version. If omitted, uses the workspace variable `microsoft_entra.base_url`, then https://graph.microsoft.com. National clouds: https://graph.microsoft.us (US Government L4) and https://dod-graph.microsoft.us (US Government L5 DOD).
 
 Default: `null`.
 
@@ -723,13 +729,11 @@ Default: `"v1.0"`.
 
 </ParamField>
 
-<ParamField path="base_url" type="string">
+<ParamField path="base_url" type="string | null">
 
-Base URL for the Microsoft Graph API.
+Microsoft Graph host, without the API version. If omitted, uses the workspace variable `microsoft_entra.base_url`, then https://graph.microsoft.com. National clouds: https://graph.microsoft.us (US Government L4) and https://dod-graph.microsoft.us (US Government L5 DOD).
 
-Default: `"https://graph.microsoft.com"`.
-
-Allowed values: `https://graph.microsoft.com`, `https://graph.microsoft.us`.
+Default: `null`.
 
 </ParamField>
 
@@ -749,7 +753,7 @@ Default: `false`.
 
 </ParamField>
 
-<ParamField path="expand" type="array[string]">
+<ParamField path="expand" type="array[string] | null">
 
 Optional related entities to expand in the response.
 
@@ -757,7 +761,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="filter" type="string">
+<ParamField path="filter" type="string | null">
 
 Optional OData $filter expression.
 
@@ -765,7 +769,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="max_page_size" type="integer">
+<ParamField path="max_page_size" type="integer | null">
 
 Optional maximum page size to request via Prefer=odata.maxpagesize.
 
@@ -773,7 +777,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="orderby" type="string">
+<ParamField path="orderby" type="string | null">
 
 Optional OData $orderby expression.
 
@@ -781,7 +785,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="search" type="string">
+<ParamField path="search" type="string | null">
 
 Optional search phrase. Use quoted property names per Microsoft Graph syntax, for example "displayName:Alex".
 
@@ -789,7 +793,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="select" type="array[string]">
+<ParamField path="select" type="array[string] | null">
 
 Optional set of user properties to return.
 
@@ -797,7 +801,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="skip_token" type="string">
+<ParamField path="skip_token" type="string | null">
 
 Opaque continuation token from a previous response ($skiptoken).
 
@@ -805,7 +809,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="top" type="integer">
+<ParamField path="top" type="integer | null">
 
 Maximum number of results to return in a single page ($top).
 
@@ -850,13 +854,11 @@ Default: `"v1.0"`.
 
 </ParamField>
 
-<ParamField path="base_url" type="string">
+<ParamField path="base_url" type="string | null">
 
-Base URL for the Microsoft Graph API.
+Microsoft Graph host, without the API version. If omitted, uses the workspace variable `microsoft_entra.base_url`, then https://graph.microsoft.com. National clouds: https://graph.microsoft.us (US Government L4) and https://dod-graph.microsoft.us (US Government L5 DOD).
 
-Default: `"https://graph.microsoft.com"`.
-
-Allowed values: `https://graph.microsoft.com`, `https://graph.microsoft.us`.
+Default: `null`.
 
 </ParamField>
 
@@ -883,9 +885,17 @@ The user's ID or userPrincipalName.
 
 </ParamField>
 
+<ParamField path="api_version" type="string">
+
+Microsoft Graph API version.
+
+Default: `"v1.0"`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
-Microsoft Graph v1.0 API root. If omitted, uses the workspace variable `microsoft_entra.base_url`, then https://graph.microsoft.com/v1.0. National clouds: https://graph.microsoft.us/v1.0 (US Government L4) and https://dod-graph.microsoft.us/v1.0 (US Government L5 DOD).
+Microsoft Graph host, without the API version. If omitted, uses the workspace variable `microsoft_entra.base_url`, then https://graph.microsoft.com. National clouds: https://graph.microsoft.us (US Government L4) and https://dod-graph.microsoft.us (US Government L5 DOD).
 
 Default: `null`.
 
@@ -928,13 +938,11 @@ Default: `"v1.0"`.
 
 </ParamField>
 
-<ParamField path="base_url" type="string">
+<ParamField path="base_url" type="string | null">
 
-Base URL for the Microsoft Graph API.
+Microsoft Graph host, without the API version. If omitted, uses the workspace variable `microsoft_entra.base_url`, then https://graph.microsoft.com. National clouds: https://graph.microsoft.us (US Government L4) and https://dod-graph.microsoft.us (US Government L5 DOD).
 
-Default: `"https://graph.microsoft.com"`.
-
-Allowed values: `https://graph.microsoft.com`, `https://graph.microsoft.us`.
+Default: `null`.
 
 </ParamField>
 
@@ -975,12 +983,10 @@ Default: `"v1.0"`.
 
 </ParamField>
 
-<ParamField path="base_url" type="string">
+<ParamField path="base_url" type="string | null">
 
-Base URL for the Microsoft Graph API.
+Microsoft Graph host, without the API version. If omitted, uses the workspace variable `microsoft_entra.base_url`, then https://graph.microsoft.com. National clouds: https://graph.microsoft.us (US Government L4) and https://dod-graph.microsoft.us (US Government L5 DOD).
 
-Default: `"https://graph.microsoft.com"`.
-
-Allowed values: `https://graph.microsoft.com`, `https://graph.microsoft.us`.
+Default: `null`.
 
 </ParamField>

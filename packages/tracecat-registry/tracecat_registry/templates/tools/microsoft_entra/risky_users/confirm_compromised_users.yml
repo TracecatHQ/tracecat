@@ -28,16 +28,21 @@ definition:
     base_url:
       type: str | None
       description: >-
-        Microsoft Graph v1.0 API root. If omitted, uses the workspace variable
-        `microsoft_entra.base_url`, then https://graph.microsoft.com/v1.0.
-        National clouds: https://graph.microsoft.us/v1.0 (US Government L4) and
-        https://dod-graph.microsoft.us/v1.0 (US Government L5 DOD).
+        Microsoft Graph host, without the API version. If omitted, uses the
+        workspace variable `microsoft_entra.base_url`, then
+        https://graph.microsoft.com. National clouds: https://graph.microsoft.us
+        (US Government L4) and https://dod-graph.microsoft.us (US Government L5
+        DOD).
       default: null
+    api_version:
+      type: str
+      description: Microsoft Graph API version.
+      default: "v1.0"
   steps:
     - ref: confirm_compromised
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.microsoft_entra.base_url || "https://graph.microsoft.com/v1.0" }}/identityProtection/riskyUsers/confirmCompromised
+        url: ${{ inputs.base_url || VARS.microsoft_entra.base_url || "https://graph.microsoft.com" }}/${{ inputs.api_version }}/identityProtection/riskyUsers/confirmCompromised
         method: POST
         headers:
           Authorization: Bearer ${{ SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_USER_TOKEN || SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_SERVICE_TOKEN }}
