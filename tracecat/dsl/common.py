@@ -1099,6 +1099,9 @@ class PreparedSubflowResult(BaseModel):
     runtime_configs: DSLConfig | list[DSLConfig] | None = None
     """For loops: T|list[T] optimized configs. None for single subflow."""
 
+    variables: dict[str, dict[str, Any]] | None = Field(default=None)
+    """For single subflows: the VARS the args reference, for evaluating trigger_inputs."""
+
     @property
     def count(self) -> int:
         """Number of iterations (1 for single subflow, N for loops)."""
