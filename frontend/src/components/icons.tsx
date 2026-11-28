@@ -15,6 +15,7 @@
  */
 import type { LucideIcon } from "lucide-react"
 import {
+  Biohazard,
   Blend,
   BlocksIcon,
   Boxes,
@@ -732,6 +733,10 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.leakcheck": createColoredLucideRenderer(
       KeyRound,
       "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+    ),
+    "tools.malwarebazaar": createColoredLucideRenderer(
+      Biohazard,
+      "bg-red-500/10 text-red-600 dark:text-red-400"
     ),
     "tools.openphish": createColoredLucideRenderer(
       FishSymbol,

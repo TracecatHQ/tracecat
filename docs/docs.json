@@ -275,6 +275,7 @@
               "tools/kubernetes_sdk",
               "tools/ldap",
               "tools/leakcheck",
+              "tools/malwarebazaar",
               "tools/microsoft_defender_endpoint",
               "tools/microsoft_entra",
               "tools/microsoft_graph_sdk",
