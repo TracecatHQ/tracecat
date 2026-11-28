@@ -11,7 +11,7 @@ import asyncio
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -19,7 +19,7 @@ import pytest
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import Client, WorkflowExecutionStatus
-from temporalio.common import TypedSearchAttributes
+from temporalio.common import SearchAttributePair, TypedSearchAttributes
 from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat.agent.backends.base import AgentBackend
@@ -36,6 +36,7 @@ from tracecat.db.models import (
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.exceptions import ScopeDeniedError
+from tracecat.identifiers.schedules import ScheduleUUID
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.pagination import CursorPaginationParams, PaginationError
 from tracecat.triggers.enums import (
@@ -51,6 +52,8 @@ from tracecat.triggers.schemas import (
     AwsSnsSourceConfig,
     EventSourceCreate,
     ObjectStorageTriggerConfig,
+    ScheduleTriggerConfig,
+    ScheduleTriggerConfigRead,
     TriggerCreate,
 )
 from tracecat.triggers.service import TriggersService
@@ -60,12 +63,16 @@ from tracecat.workflow.executions.common import build_query
 from tracecat.workflow.executions.correlation import (
     build_agent_session_correlation_id,
 )
-from tracecat.workflow.executions.enums import TemporalSearchAttr
+from tracecat.workflow.executions.enums import (
+    TEMPORAL_SCHEDULED_BY_ID,
+    TemporalSearchAttr,
+)
 from tracecat.workflow.executions.schemas import WorkflowExecutionRelationFilter
 from tracecat.workflow.executions.service import (
     WorkflowExecutionsPage,
     WorkflowExecutionsService,
 )
+from tracecat.workflow.schedules import bridge
 
 pytestmark = [pytest.mark.usefixtures("db"), pytest.mark.anyio]
 
@@ -286,6 +293,24 @@ def test_build_query_filters_by_trigger_and_workflow_type() -> None:
     assert f"TracecatWorkspaceId = '{workspace_id}'" in query
     assert f"TracecatTriggerId = '{trigger_id}'" in query
     assert "(WorkflowType = 'DSLWorkflow')" in query
+
+
+def test_build_query_filters_by_the_schedule_that_started_the_run() -> None:
+    workspace_id = uuid.uuid4()
+
+    query = build_query(
+        workspace_id=workspace_id,
+        scheduled_by_id="sch-96b9fcb9b366466583977564d58d1e2a",
+        workflow_types={DSL_WORKFLOW_TYPE},
+    )
+
+    assert query == (
+        f"TracecatWorkspaceId = '{workspace_id}'"
+        " AND TemporalScheduledById = 'sch-96b9fcb9b366466583977564d58d1e2a'"
+        " AND (WorkflowType = 'DSLWorkflow')"
+    )
+    with pytest.raises(ValueError, match="Invalid schedule ID"):
+        build_query(workspace_id=workspace_id, scheduled_by_id="x' OR '1'='1")
 
 
 # ----- Read side -----
@@ -543,6 +568,237 @@ async def test_recent_runs_are_empty_only_while_the_attribute_is_unknown(
     executions.error = RPCError("down", RPCStatusCode.UNAVAILABLE, b"")
     with pytest.raises(RPCError):
         await service.list_runs(trigger_id, CursorPaginationParams(limit=10))
+
+
+# ----- Schedules: Temporal's TemporalScheduledById -----
+
+
+@dataclass(frozen=True, slots=True)
+class _ScheduleTrigger:
+    trigger_id: uuid.UUID
+    schedule_id: ScheduleUUID
+    workflow_id: WorkflowUUID
+
+
+def _scheduled_by(temporal_schedule_id: str) -> SearchAttributePair[str]:
+    return SearchAttributePair(TEMPORAL_SCHEDULED_BY_ID, temporal_schedule_id)
+
+
+async def _schedule_trigger(
+    session: AsyncSession,
+    role: Role,
+    workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> _ScheduleTrigger:
+    """A schedule trigger and its schedule row; the Temporal call is stubbed."""
+
+    async def _create_schedule(**_: Any) -> Any:
+        return Mock()
+
+    monkeypatch.setattr(bridge, "create_schedule", _create_schedule)
+    workflow = Workflow(
+        workspace_id=workspace.id, title="Nightly report", description="", version=1
+    )
+    session.add(workflow)
+    await session.commit()
+    workflow_id = WorkflowUUID.new(workflow.id)
+    triggers = TriggersService(session, role)
+    created = await triggers.create_trigger(
+        TriggerCreate(
+            name="Nightly",
+            config=ScheduleTriggerConfig(
+                kind=TriggerKind.SCHEDULE,
+                workflow_id=workflow_id,
+                every=timedelta(hours=1),
+            ),
+        )
+    )
+    trigger = await triggers.get_trigger(created.id)
+    assert isinstance(trigger.config, ScheduleTriggerConfigRead)
+    return _ScheduleTrigger(trigger.id, trigger.config.schedule_id, workflow_id)
+
+
+async def test_schedule_runs_are_the_runs_temporal_stamped_with_its_id(
+    session: AsyncSession,
+    svc_role: Role,
+    svc_workspace: Workspace,
+    executions: FakeExecutions,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sched = await _schedule_trigger(session, svc_role, svc_workspace, monkeypatch)
+    temporal_id = sched.schedule_id.to_legacy()
+    executions.items = [
+        _execution(
+            f"{sched.workflow_id.short()}/{temporal_id}-2026-11-28T07:52:00Z",
+            attrs=[_scheduled_by(temporal_id)],
+        )
+    ]
+
+    page = await TriggerRunsService(session, svc_role).list_runs(
+        sched.trigger_id, CursorPaginationParams(limit=10, cursor="c")
+    )
+
+    (call,) = executions.calls
+    assert call["scheduled_by_id"] == temporal_id
+    assert temporal_id.startswith("sch-") and len(temporal_id) == 36
+    assert "trigger_id" not in call
+    assert call["workflow_types"] == {DSL_WORKFLOW_TYPE}
+    assert call["relation"] is WorkflowExecutionRelationFilter.ROOT
+    assert call["pagination"].cursor == "c"
+    (run,) = page.items
+    assert run.target_type is TriggerTargetType.WORKFLOW
+    assert (run.target_name, run.workflow_id) == ("Nightly report", sched.workflow_id)
+    assert (page.next_cursor, page.has_more) == ("next", True)
+
+
+@pytest.mark.parametrize(
+    ("scopes", "allowed"),
+    [
+        (frozenset({"trigger:read", "schedule:read", "workflow:read"}), True),
+        # Schedules start no agent runs, so agent:read alone reads nothing.
+        (frozenset({"trigger:read", "schedule:read", "agent:read"}), False),
+        # The kind's read scope comes first, through get_trigger.
+        (frozenset({"trigger:read", "workflow:read"}), False),
+    ],
+)
+async def test_schedule_runs_need_schedule_and_workflow_read(
+    session: AsyncSession,
+    svc_role: Role,
+    svc_workspace: Workspace,
+    executions: FakeExecutions,
+    monkeypatch: pytest.MonkeyPatch,
+    scopes: frozenset[str],
+    allowed: bool,
+) -> None:
+    sched = await _schedule_trigger(session, svc_role, svc_workspace, monkeypatch)
+    service = TriggerRunsService(session, _role(svc_workspace, scopes))
+    params = CursorPaginationParams(limit=10)
+
+    if allowed:
+        await service.list_runs(sched.trigger_id, params)
+        (call,) = executions.calls
+        assert call["workflow_types"] == {DSL_WORKFLOW_TYPE}
+        return
+    with pytest.raises(ScopeDeniedError):
+        await service.list_runs(sched.trigger_id, params)
+    assert executions.calls == []
+
+
+async def test_a_rejected_schedule_query_is_an_error_not_no_runs(
+    session: AsyncSession,
+    svc_role: Role,
+    svc_workspace: Workspace,
+    executions: FakeExecutions,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The schedule attribute is built in, so a rejected first page is a real
+    error, never the "not registered yet" empty page."""
+    sched = await _schedule_trigger(session, svc_role, svc_workspace, monkeypatch)
+    executions.error = RPCError("bad", RPCStatusCode.INVALID_ARGUMENT, b"")
+    service = TriggerRunsService(session, svc_role)
+
+    with pytest.raises(RPCError):
+        await service.list_runs(sched.trigger_id, CursorPaginationParams(limit=10))
+    with pytest.raises(ValueError, match="Invalid cursor"):
+        await service.list_runs(
+            sched.trigger_id, CursorPaginationParams(limit=10, cursor="forged")
+        )
+
+
+async def test_a_scheduled_run_leads_back_to_its_schedule_trigger(
+    session: AsyncSession,
+    svc_role: Role,
+    svc_workspace: Workspace,
+    executions: FakeExecutions,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sched = await _schedule_trigger(session, svc_role, svc_workspace, monkeypatch)
+    executions.execution = _execution(
+        "wf/sch-run",
+        attrs=[_scheduled_by(sched.schedule_id.to_legacy())],
+    )
+
+    origin = await TriggerRunsService(session, svc_role).run_origin(
+        wf_exec_id="wf/sch-run"
+    )
+
+    assert origin is not None
+    assert (origin.trigger_id, origin.name, origin.kind) == (
+        sched.trigger_id,
+        "Nightly",
+        TriggerKind.SCHEDULE,
+    )
+
+
+@pytest.mark.parametrize(
+    "scheduled_by",
+    [
+        "sch-00000000000040008000000000000001",  # No such schedule (or deleted)
+        "sch-not-hex",
+        "semantic-search-dispatch-v1",  # A Temporal schedule Tracecat didn't make
+    ],
+)
+async def test_a_scheduled_run_with_no_known_schedule_has_no_origin(
+    session: AsyncSession,
+    svc_role: Role,
+    executions: FakeExecutions,
+    scheduled_by: str,
+) -> None:
+    executions.execution = _execution("wf/sch-run", attrs=[_scheduled_by(scheduled_by)])
+
+    origin = await TriggerRunsService(session, svc_role).run_origin(
+        wf_exec_id="wf/sch-run"
+    )
+
+    assert origin is None
+
+
+async def test_another_workspaces_schedule_never_resolves(
+    session: AsyncSession,
+    svc_role: Role,
+    svc_workspace: Workspace,
+    executions: FakeExecutions,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sched = await _schedule_trigger(session, svc_role, svc_workspace, monkeypatch)
+    other = Workspace(name="other", organization_id=svc_workspace.organization_id)
+    session.add(other)
+    await session.commit()
+    executions.execution = _execution(
+        "wf/sch-run",
+        attrs=[_scheduled_by(sched.schedule_id.to_legacy())],
+    )
+
+    origin = await TriggerRunsService(session, _role(other, ADMIN_SCOPES)).run_origin(
+        wf_exec_id="wf/sch-run"
+    )
+
+    assert origin is None
+
+
+async def test_the_trigger_link_wins_over_the_schedule_attribute(
+    session: AsyncSession,
+    svc_role: Role,
+    svc_workspace: Workspace,
+    executions: FakeExecutions,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A run with both answers with ``TracecatTriggerId``, as every other kind."""
+    sched = await _schedule_trigger(session, svc_role, svc_workspace, monkeypatch)
+    linked = await _object_trigger(TriggersService(session, svc_role))
+    executions.execution = _execution(
+        "wf/exec",
+        attrs=[
+            TemporalSearchAttr.TRIGGER_ID.create_pair(str(linked)),
+            _scheduled_by(sched.schedule_id.to_legacy()),
+        ],
+    )
+
+    origin = await TriggerRunsService(session, svc_role).run_origin(
+        wf_exec_id="wf/exec"
+    )
+
+    assert origin is not None and origin.trigger_id == linked
 
 
 # ----- Stopped events -----

@@ -1,8 +1,10 @@
 """A trigger's recent runs and stopped events, and the trigger behind a run.
 
 Runs are read from Temporal by ``TracecatTriggerId``, which starts set only
-once the namespace has the attribute (``trigger_link``). Stopped events are
-the trigger's ``event_outbox`` rows that hit the attempt cap.
+once the namespace has the attribute (``trigger_link``). A schedule's runs are
+read by Temporal's built-in ``TemporalScheduledById`` instead, which every run
+a schedule starts carries. Stopped events are the trigger's ``event_outbox``
+rows that hit the attempt cap.
 
 Access: everything goes through ``TriggersService.get_trigger`` (workspace,
 the kind's read scope and entitlement), plus the read scope of the runs
@@ -21,8 +23,15 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat.agent.backends.registry import get_agent_backends, get_workflow_type
 from tracecat.authz.controls import check_scopes, has_scope
-from tracecat.db.models import AgentPreset, AgentSession, EventOutbox, Workflow
+from tracecat.db.models import (
+    AgentPreset,
+    AgentSession,
+    EventOutbox,
+    Schedule,
+    Workflow,
+)
 from tracecat.dsl.client import get_temporal_client
+from tracecat.identifiers.schedules import LEGACY_SCHEDULE_ID_PREFIX, ScheduleUUID
 from tracecat.identifiers.workflow import WorkflowExecutionID, exec_id_to_parts
 from tracecat.pagination import (
     CursorPaginationParams,
@@ -40,14 +49,20 @@ from tracecat.triggers.runs.schemas import (
     TriggerStoppedEventRead,
     TriggerStoppedEventsPage,
 )
-from tracecat.triggers.schemas import ObjectStorageTriggerConfigRead
+from tracecat.triggers.schemas import (
+    ObjectStorageTriggerConfigRead,
+    ScheduleTriggerConfigRead,
+)
 from tracecat.triggers.service import TriggersService
 from tracecat.workflow.executions.common import build_query
 from tracecat.workflow.executions.correlation import (
     AGENT_SESSION_CORRELATION_KIND,
     build_agent_session_correlation_id,
 )
-from tracecat.workflow.executions.enums import TemporalSearchAttr
+from tracecat.workflow.executions.enums import (
+    TEMPORAL_SCHEDULED_BY_ID,
+    TemporalSearchAttr,
+)
 from tracecat.workflow.executions.schemas import WorkflowExecutionRelationFilter
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 
@@ -128,19 +143,33 @@ class TriggerRunsService(BaseWorkspaceService):
 
         Root runs only; a workflow run's child runs inherit the attribute and
         are left out. Workflow runs need ``workflow:read`` and agent runs
-        ``agent:read``; with one of them the page holds only that kind.
+        ``agent:read``; with one of them the page holds only that kind. A
+        schedule starts workflow runs only, so it needs ``workflow:read``.
 
         Raises:
             ScopeDeniedError: Without the trigger's read scopes, or without
-                both ``workflow:read`` and ``agent:read``.
+                both ``workflow:read`` and ``agent:read`` (``workflow:read``
+                for a schedule).
             TriggerError: ``not_found`` if the workspace has no such trigger.
             ValueError: If the cursor belongs to another query.
         """
         trigger = await TriggersService(self.session, self.role).get_trigger(trigger_id)
-        workflows = has_scope(self.role.scopes or frozenset(), "workflow:read")
-        agents = has_scope(self.role.scopes or frozenset(), "agent:read")
-        if not (workflows and agents):
-            check_scopes(self.role, "workflow:read", "agent:read", require_all=False)
+        schedule = (
+            trigger.config
+            if isinstance(trigger.config, ScheduleTriggerConfigRead)
+            else None
+        )
+        if schedule is not None:
+            # A schedule starts workflow runs only.
+            check_scopes(self.role, "workflow:read")
+            workflows, agents = True, False
+        else:
+            workflows = has_scope(self.role.scopes or frozenset(), "workflow:read")
+            agents = has_scope(self.role.scopes or frozenset(), "agent:read")
+            if not (workflows and agents):
+                check_scopes(
+                    self.role, "workflow:read", "agent:read", require_all=False
+                )
         agent_types = agent_turn_workflow_types()
         # An allowlist per readable kind: other types a trigger run can lead
         # to (such as registry tool runs) are never listed.
@@ -151,20 +180,33 @@ class TriggerRunsService(BaseWorkspaceService):
             role=self.role, session=self.session
         )
         try:
-            page = await executions.list_executions_paginated(
-                pagination=params,
-                trigger_id=trigger.id,
-                workflow_types=workflow_types,
-                relation=WorkflowExecutionRelationFilter.ROOT,
-            )
+            if schedule is not None:
+                # Temporal stamps every run a schedule starts with the
+                # schedule's ID, so runs from before trigger links are found too.
+                page = await executions.list_executions_paginated(
+                    pagination=params,
+                    scheduled_by_id=schedule.schedule_id.to_legacy(),
+                    workflow_types=workflow_types,
+                    relation=WorkflowExecutionRelationFilter.ROOT,
+                )
+            else:
+                page = await executions.list_executions_paginated(
+                    pagination=params,
+                    trigger_id=trigger.id,
+                    workflow_types=workflow_types,
+                    relation=WorkflowExecutionRelationFilter.ROOT,
+                )
         except RPCError as e:
-            # On a first page, the namespace doesn't have TracecatTriggerId
-            # yet, so no run carries it. With a cursor it is a bad cursor. Any
+            # With a cursor it is a bad cursor. On a first page, the namespace
+            # doesn't have TracecatTriggerId yet, so no run carries it; the
+            # schedule attribute is built in, so there it is an error. Any
             # other failure is an error, not "no runs".
             if e.status != RPCStatusCode.INVALID_ARGUMENT:
                 raise
             if params.cursor is not None:
                 raise ValueError("Invalid cursor") from e
+            if schedule is not None:
+                raise
             return TriggerRunsPage(items=[])
         items: list[TriggerRunRead] = []
         for execution in page.items:
@@ -371,8 +413,9 @@ class TriggerRunsService(BaseWorkspaceService):
         """The trigger that started a workflow run or an agent session, if any.
 
         A workflow run's child runs answer with their root's trigger; any
-        other workflow type (an agent turn) answers null. A session answers
-        with the trigger of any of its turns.
+        other workflow type (an agent turn) answers null. A run a schedule
+        started answers with the schedule's trigger, while the schedule
+        exists. A session answers with the trigger of any of its turns.
 
         Raises:
             ScopeDeniedError: Without ``workflow:read`` (a run) or
@@ -393,9 +436,13 @@ class TriggerRunsService(BaseWorkspaceService):
             # Workflow runs only: an agent turn's ID would otherwise answer
             # for a session without agent:read.
             if execution is not None and execution.workflow_type == DSL_WORKFLOW_TYPE:
-                raw = execution.typed_search_attributes.get(
-                    TemporalSearchAttr.TRIGGER_ID.key
-                )
+                attrs = execution.typed_search_attributes
+                raw = attrs.get(TemporalSearchAttr.TRIGGER_ID.key)
+                if raw is None and (
+                    scheduled_by := attrs.get(TEMPORAL_SCHEDULED_BY_ID)
+                ):
+                    trigger_of_schedule = await self._schedule_trigger_id(scheduled_by)
+                    raw = str(trigger_of_schedule) if trigger_of_schedule else None
         elif session_id is not None:
             query = " AND ".join(
                 (
@@ -435,4 +482,23 @@ class TriggerRunsService(BaseWorkspaceService):
             return TriggerRunOrigin(trigger_id=trigger_id)
         return TriggerRunOrigin(
             trigger_id=trigger_id, name=trigger.name, kind=trigger.kind
+        )
+
+    async def _schedule_trigger_id(self, temporal_schedule_id: str) -> uuid.UUID | None:
+        """The trigger of the schedule a ``TemporalScheduledById`` value names.
+
+        Only this workspace's schedules answer, so a run naming another
+        workspace's schedule never resolves.
+        """
+        if not temporal_schedule_id.startswith(LEGACY_SCHEDULE_ID_PREFIX):
+            return None
+        try:
+            schedule_id = ScheduleUUID.new(temporal_schedule_id)
+        except ValueError:
+            return None
+        return await self.session.scalar(
+            select(Schedule.trigger_id).where(
+                Schedule.workspace_id == self.workspace_id,
+                Schedule.id == schedule_id,
+            )
         )

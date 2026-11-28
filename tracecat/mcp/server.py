@@ -7204,10 +7204,12 @@ async def list_trigger_runs(
 
     Covers runs started since the `TracecatTriggerId` link shipped, by object
     storage triggers and by webhooks and case triggers listed in the Triggers
-    tab. Schedules are not linked yet. Needs `trigger:read`
-    and the trigger kind's read scope (`workflow:read` for webhooks and case
-    triggers); workflow runs also need `workflow:read` and agent runs
-    `agent:read`; with only one, only that kind is listed.
+    tab. A schedule trigger lists every run its schedule started, older ones
+    included, found by Temporal's built-in `TemporalScheduledById`. Needs
+    `trigger:read` and the trigger kind's read scope (`schedule:read` for
+    schedules, `workflow:read` for webhooks and case triggers); workflow runs
+    also need `workflow:read` and agent runs `agent:read`; with only one, only
+    that kind is listed. Schedules start workflow runs only.
 
     Args:
         workspace_id: The workspace ID.
@@ -7288,6 +7290,8 @@ async def get_trigger_run_origin(
     (`schedule:read` for schedules, `workflow:read` for webhooks and case
     triggers). Give exactly one of `wf_exec_id` (also needs `workflow:read`)
     and `session_id` (also needs `agent:read`). A child run answers with its root run's trigger.
+    A run a schedule started answers with the schedule's trigger while the
+    schedule exists.
 
     Args:
         workspace_id: The workspace ID.

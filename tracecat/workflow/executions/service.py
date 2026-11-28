@@ -565,11 +565,13 @@ class WorkflowExecutionsService:
         relation: WorkflowExecutionRelationFilter = WorkflowExecutionRelationFilter.ALL,
         correlation_id: str | None = None,
         trigger_id: uuid.UUID | None = None,
+        scheduled_by_id: str | None = None,
         workflow_types: set[str] | None = None,
     ) -> WorkflowExecutionsPage:
         query = build_query(
             correlation_id=correlation_id,
             trigger_id=trigger_id,
+            scheduled_by_id=scheduled_by_id,
             workflow_types=workflow_types,
             workflow_id=workflow_id,
             trigger_types=trigger_types,

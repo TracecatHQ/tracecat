@@ -143,7 +143,21 @@ describe("TriggerRunsSections", () => {
   })
 })
 
-it("leaves Recent runs out for schedules, which aren't linked yet", async () => {
+it("shows Recent runs for schedules, without stopped events", async () => {
+  jest.mocked(triggersListTriggerRuns).mockResolvedValue({
+    items: [
+      {
+        target_type: "workflow",
+        target_name: "Nightly report",
+        wf_exec_id: "wf_abc/sch-0123-2026-11-28T07:52:00Z",
+        workflow_id: "wf_abc",
+        status: "COMPLETED",
+        start_time: "2026-11-28T07:52:00Z",
+      },
+    ],
+    has_more: false,
+  })
+
   renderWithClient(
     <TriggerRunsSections
       workspaceId="workspace-1"
@@ -151,10 +165,15 @@ it("leaves Recent runs out for schedules, which aren't linked yet", async () => 
     />
   )
 
-  await waitFor(() =>
-    expect(screen.queryByText("Recent runs")).not.toBeInTheDocument()
+  expect(
+    await screen.findByRole("link", { name: "Nightly report" })
+  ).toHaveAttribute(
+    "href",
+    "/workspaces/workspace-1/workflows/wf_abc/executions/sch-0123-2026-11-28T07:52:00Z"
   )
-  expect(triggersListTriggerRuns).not.toHaveBeenCalled()
+  expect(screen.getByText("Recent runs")).toBeInTheDocument()
+  expect(screen.queryByText("Stopped events")).not.toBeInTheDocument()
+  expect(triggersListTriggerStoppedEvents).not.toHaveBeenCalled()
 })
 
 it("keeps Load more on an empty page that has more after it", async () => {

@@ -39,13 +39,6 @@ function runFallbackName(run: TriggerRunRead): string {
     : "Deleted workflow"
 }
 
-/** Kinds whose runs carry TracecatTriggerId. Schedules don't yet. */
-const LINKED_KINDS: ReadonlySet<TriggerRead["kind"]> = new Set([
-  "object_storage",
-  "webhook",
-  "case_trigger",
-])
-
 /** A trigger's recent runs and, for kinds that queue events, its stopped events. */
 export function TriggerRunsSections({
   workspaceId,
@@ -56,9 +49,7 @@ export function TriggerRunsSections({
 }) {
   return (
     <>
-      {LINKED_KINDS.has(trigger.kind) ? (
-        <TriggerRecentRuns workspaceId={workspaceId} trigger={trigger} />
-      ) : null}
+      <TriggerRecentRuns workspaceId={workspaceId} trigger={trigger} />
       {trigger.kind === "object_storage" ? (
         <TriggerStoppedEvents workspaceId={workspaceId} trigger={trigger} />
       ) : null}
