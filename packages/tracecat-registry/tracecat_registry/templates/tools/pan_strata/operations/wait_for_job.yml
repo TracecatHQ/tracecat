@@ -1,7 +1,7 @@
 type: action
 definition:
   title: Wait for job
-  description: Poll GET /config/operations/v1/jobs/{id} until the job finishes, then return the final response. Check status_str and result_str for the outcome. Fails when the job does not finish within poll_max_attempts.
+  description: Poll GET /config/operations/v1/jobs/{id} until the job finishes, then return the final response. Fails when the job fails, unless raise_on_failure is false, or when it does not finish within poll_max_attempts.
   display_group: Palo Alto Networks (Strata Cloud Manager)
   doc_url: https://pan.dev/scm/api/config/ngfw/operations/get-jobs-by-id/
   namespace: tools.pan_strata
@@ -22,6 +22,10 @@ definition:
       type: int
       description: Maximum number of polls.
       default: 60
+    raise_on_failure:
+      type: bool
+      description: Fail the action when the job finishes unsuccessfully.
+      default: true
     base_url:
       type: str | None
       description: SCM API base URL. Falls back to the workspace variable pan_strata.base_url, then https://api.strata.paloaltonetworks.com. Set this for FedRAMP tenants.
@@ -38,4 +42,23 @@ definition:
         poll_condition: 'lambda r: bool((r.get("data") or {}).get("data")) and (r["data"]["data"][0].get("status_str") in ["FIN", "PUSHFAIL", "PUSHABORT", "PUSHTIMEOUT"] or r["data"]["data"][0].get("result_str") in ["OK", "FAIL", "CANCELLED", "TIMEOUT"])'
         poll_interval: ${{ inputs.poll_interval }}
         poll_max_attempts: ${{ inputs.poll_max_attempts }}
+    - ref: check
+      action: core.script.run_python
+      args:
+        inputs:
+          response: ${{ steps.poll.result }}
+          job_id: ${{ inputs.job_id }}
+          raise_on_failure: ${{ inputs.raise_on_failure }}
+        script: |
+          FAILED_STATUS = {"PUSHFAIL", "PUSHABORT", "PUSHTIMEOUT"}
+
+          def main(response, job_id, raise_on_failure):
+              job = response["data"]["data"][0]
+              status = job.get("status_str")
+              result = job.get("result_str")
+              if raise_on_failure and (result != "OK" or status in FAILED_STATUS):
+                  raise ValueError(
+                      f"SCM job {job_id} ({job.get('type_str')}) finished with status {status} "
+                      f"and result {result}: {job.get('summary') or ''} {job.get('details') or ''}".strip()
+                  )
   returns: ${{ steps.poll.result }}
