@@ -1,0 +1,61 @@
+# Lock pileup (org A, scenario 1): TRIGGER.batches concurrent upserts of the
+# same TRIGGER.rows rows into one table, plus TRIGGER.children subflows that
+# each do one more upsert. Upserts take the table's batch-write advisory lock
+# (TableService._lock_batch_writes), so they queue on one lock and each waiter
+# holds a database session while it waits, as in the 2026-11-18 incident.
+# Needs the table `burst_lock` (column `k`, integer, unique index; column `v`,
+# text) and the child workflow with alias `burst_lock_child`. TRIGGER.rows must
+# be at most 1000: insert_rows rejects larger batches before taking the lock.
+definition:
+  title: burst lock
+  description: Burst replay lock pileup (concurrent upserts into one table)
+  entrypoint: {}
+  triggers: []
+  config:
+    environment: default
+    timeout: 0.0
+  actions:
+    - ref: rows
+      action: core.script.run_python
+      args:
+        inputs:
+          n: ${{ TRIGGER.rows }}
+        script: |
+          def main(n):
+              return [{"k": i, "v": "burst"} for i in range(n)]
+      retry_policy:
+        max_attempts: 1
+        timeout: 300
+    - ref: scatter
+      action: core.transform.scatter
+      depends_on: [rows]
+      args:
+        collection: ${{ FN.range(0, TRIGGER.batches) }}
+    - ref: upsert
+      action: core.table.insert_rows
+      depends_on: [scatter]
+      args:
+        table: burst_lock
+        rows_data: ${{ ACTIONS.rows.result }}
+        upsert: true
+      retry_policy:
+        max_attempts: 1
+        timeout: 900
+    - ref: gather
+      action: core.transform.gather
+      depends_on: [upsert]
+      args:
+        items: ${{ ACTIONS.upsert.result }}
+    - ref: children
+      action: core.workflow.execute
+      depends_on: [rows]
+      for_each: ${{ for var.i in FN.range(0, TRIGGER.children) }}
+      args:
+        workflow_alias: burst_lock_child
+        trigger_inputs:
+          rows: ${{ ACTIONS.rows.result }}
+        wait_strategy: wait
+        loop_strategy: parallel
+      retry_policy:
+        max_attempts: 1
+        timeout: 1800

@@ -1,0 +1,20 @@
+# Subflow for burst_lock: one upsert of TRIGGER.rows into `burst_lock`.
+# Set the workflow alias to `burst_lock_child` after import.
+definition:
+  title: burst lock child
+  description: Burst replay subflow (one upsert into the locked table)
+  entrypoint: {}
+  triggers: []
+  config:
+    environment: default
+    timeout: 0.0
+  actions:
+    - ref: upsert
+      action: core.table.insert_rows
+      args:
+        table: burst_lock
+        rows_data: ${{ TRIGGER.rows }}
+        upsert: true
+      retry_policy:
+        max_attempts: 1
+        timeout: 900

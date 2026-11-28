@@ -1,0 +1,29 @@
+# Steady workload (both orgs): one reshape, then one table lookup through the
+# executor's action gateway, so the run touches Postgres like real work does.
+# Needs the table `burst_read` (column `k`, integer) in the workspace.
+definition:
+  title: burst quick
+  description: Burst replay steady workload (reshape, then a table lookup)
+  entrypoint: {}
+  triggers: []
+  config:
+    environment: default
+    timeout: 0.0
+  actions:
+    - ref: one
+      action: core.transform.reshape
+      args:
+        value: ${{ TRIGGER.seq }}
+      retry_policy:
+        max_attempts: 1
+        timeout: 300
+    - ref: lookup
+      action: core.table.lookup
+      depends_on: [one]
+      args:
+        table: burst_read
+        column: k
+        value: 1
+      retry_policy:
+        max_attempts: 1
+        timeout: 300

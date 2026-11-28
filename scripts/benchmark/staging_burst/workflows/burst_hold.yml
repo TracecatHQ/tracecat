@@ -1,0 +1,30 @@
+# Webhook burst target (org A, scenario 2): echo the trigger payload, then
+# wait on a durable 90 s timer before a second reshape, so each started run
+# stays open (and in the DSL worker's cache) while the flood continues, as in
+# the 2026-11-17 incident. Set the stream's `pad_bytes` (sent as a `pad` string)
+# to size each run's payload.
+definition:
+  title: burst hold
+  description: Burst replay webhook target (stays open on a 90 s timer)
+  entrypoint: {}
+  triggers: []
+  config:
+    environment: default
+    timeout: 0.0
+  actions:
+    - ref: echo
+      action: core.transform.reshape
+      args:
+        value: ${{ TRIGGER }}
+      retry_policy:
+        max_attempts: 1
+        timeout: 300
+    - ref: after_hold
+      action: core.transform.reshape
+      depends_on: [echo]
+      start_delay: 90.0
+      args:
+        value: ${{ TRIGGER.seq }}
+      retry_policy:
+        max_attempts: 1
+        timeout: 300
