@@ -192,8 +192,10 @@ conditions remain the ownership controls.
 
 A run a trigger starts carries the trigger's ID in the `TracecatTriggerId`
 search attribute: object storage triggers' workflow and agent runs, and
-webhooks and case triggers that have a trigger row. Schedules are not linked
-yet. `list_trigger_runs` reads those runs (root runs only); workflow runs also
+webhooks and case triggers that have a trigger row. Schedules need no link:
+Temporal stamps every run a schedule starts with its built-in
+`TemporalScheduledById`, so a schedule trigger lists all its runs, older ones
+included (workflow runs only, `workflow:read`). `list_trigger_runs` reads those runs (root runs only); workflow runs also
 need `workflow:read` and agent runs `agent:read`. `list_trigger_stopped_events`
 lists an `object_storage` trigger's events that hit the attempt cap, with the
 redacted error and never the event; it also needs `workflow:read` and `agent:read`. `get_trigger_run_origin` goes the other

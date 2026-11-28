@@ -3,25 +3,45 @@ visibility).
 
 Proves the assumptions the setter's gate rests on: a start with the attribute
 fails while the namespace lacks it, the probe query fails then too and passes
-once it is registered, and the queries the read side sends find the run.
+once it is registered, and the queries the read side sends find the run. And
+that a schedule trigger finds its runs by Temporal's ``TemporalScheduledById``.
 """
 
 import asyncio
 import uuid
 from collections.abc import AsyncGenerator
-from unittest.mock import patch
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.api.enums.v1 import IndexedValueType
 from temporalio.api.operatorservice.v1 import AddSearchAttributesRequest
-from temporalio.client import Client
+from temporalio.client import Client, ScheduleBackfill, ScheduleOverlapPolicy
 from temporalio.common import TypedSearchAttributes
 from temporalio.service import RPCError, RPCStatusCode
 from temporalio.testing import WorkflowEnvironment
 
+from tracecat.auth.types import Role
+from tracecat.db.models import Workflow, Workspace
+from tracecat.dsl._converter import get_data_converter
+from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.pagination import CursorPaginationParams
+from tracecat.triggers.enums import TriggerKind, TriggerStatus
+from tracecat.triggers.runs import service as runs_service
+from tracecat.triggers.runs.schemas import TriggerRunRead
+from tracecat.triggers.runs.service import TriggerRunsService
+from tracecat.triggers.schemas import (
+    ScheduleTriggerConfig,
+    ScheduleTriggerConfigRead,
+    TriggerCreate,
+)
+from tracecat.triggers.service import TriggersService
+from tracecat.workflow.executions import service as executions_service
 from tracecat.workflow.executions import trigger_link
 from tracecat.workflow.executions.common import build_query
 from tracecat.workflow.executions.enums import TemporalSearchAttr
+from tracecat.workflow.schedules import bridge
 
 pytestmark = [pytest.mark.temporal, pytest.mark.integration]
 
@@ -136,3 +156,106 @@ async def test_the_gate_holds_until_registration_then_runs_are_found(
         )
     )
     assert await _ids(client, has_trigger, 1) == {linked}
+
+
+# ----- Schedules: Temporal's built-in TemporalScheduledById -----
+
+
+@pytest.fixture
+async def full_env() -> AsyncGenerator[WorkflowEnvironment, None]:
+    """A namespace with every Tracecat attribute, as after a deployment."""
+    async with await WorkflowEnvironment.start_local(
+        # The bridge's schedule action holds DSLRunArgs.
+        data_converter=get_data_converter(compression_enabled=False),
+        search_attributes=[a.key for a in TemporalSearchAttr],
+        dev_server_log_level="error",
+    ) as environment:
+        yield environment
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_a_schedule_trigger_lists_the_runs_its_schedule_started(
+    full_env: WorkflowEnvironment,
+    session: AsyncSession,
+    svc_role: Role,
+    svc_workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The schedule is made by the real bridge, unchanged, and fired by
+    Temporal's scheduler: trigger-now and a backfill. No worker runs, so the
+    runs stay open."""
+    client = full_env.client
+    get_client = AsyncMock(return_value=client)
+    for module in (bridge, executions_service, runs_service):
+        monkeypatch.setattr(module, "get_temporal_client", get_client)
+
+    async def _entitled(self: TriggersService, entitlement: object) -> bool:
+        return True
+
+    monkeypatch.setattr(TriggersService, "has_entitlement", _entitled)
+    workflow = Workflow(
+        workspace_id=svc_workspace.id, title="Nightly report", description="", version=1
+    )
+    session.add(workflow)
+    await session.commit()
+    triggers = TriggersService(session, svc_role)
+    created = await triggers.create_trigger(
+        TriggerCreate(
+            name="Nightly",
+            # Paused, so only the fires below start runs.
+            status=TriggerStatus.OFFLINE,
+            config=ScheduleTriggerConfig(
+                kind=TriggerKind.SCHEDULE,
+                workflow_id=WorkflowUUID.new(workflow.id),
+                every=timedelta(hours=1),
+            ),
+        )
+    )
+    trigger = await triggers.get_trigger(created.id)
+    assert isinstance(trigger.config, ScheduleTriggerConfigRead)
+    handle = client.get_schedule_handle(trigger.config.schedule_id.to_legacy())
+
+    service = TriggerRunsService(session, svc_role)
+
+    async def _runs(expected: int) -> list[TriggerRunRead]:
+        """The trigger's runs once ``expected`` are listed, or what is there
+        at the deadline (the scheduler starts runs asynchronously)."""
+        runs: list[TriggerRunRead] = []
+        deadline = asyncio.get_running_loop().time() + 30
+        while asyncio.get_running_loop().time() < deadline:
+            page = await service.list_runs(trigger.id, CursorPaginationParams(limit=20))
+            runs = page.items
+            if len(runs) >= expected:
+                break
+            await asyncio.sleep(0.5)
+        return runs
+
+    # One fire at a time, so each is seen to start.
+    await handle.trigger()
+    assert len(await _runs(1)) == 1
+    # Hourly fires land on the hour: a window from 90 to 30 minutes before the
+    # last hour mark holds exactly one, all in the past.
+    last_hour = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+    await handle.backfill(
+        ScheduleBackfill(
+            start_at=last_hour - timedelta(minutes=90),
+            end_at=last_hour - timedelta(minutes=30),
+            overlap=ScheduleOverlapPolicy.ALLOW_ALL,
+        )
+    )
+    # A run some other schedule started (no trigger behind it) and an
+    # unscheduled run in the same workspace are never listed.
+    unscheduled = await _start(client, svc_workspace.id, None)
+    runs = await _runs(2)
+
+    assert len(runs) == 2
+    assert unscheduled not in {r.wf_exec_id for r in runs}
+    for run in runs:
+        assert run.wf_exec_id.startswith(
+            f"{WorkflowUUID.new(workflow.id).short()}/{handle.id}-"
+        )
+        assert (run.target_name, run.status) == ("Nightly report", "RUNNING")
+        origin = await service.run_origin(wf_exec_id=run.wf_exec_id)
+        assert origin is not None
+        assert (origin.trigger_id, origin.kind) == (trigger.id, TriggerKind.SCHEDULE)
