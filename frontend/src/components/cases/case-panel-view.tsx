@@ -80,14 +80,7 @@ import { useWorkspaceId } from "@/providers/workspace-id"
  */
 const CASE_DETAILS_DOCK_MIN_WIDTH = 1040
 
-/**
- * Width of the docked details rail. Shared by the rail itself and by the
- * spacer that reserves the same width in the switcher band, so the band's
- * centered column stays the same box as the body's and the tabs keep landing
- * on the case title. A literal string constant rather than two inline classes:
- * Tailwind still sees the full class name in this file, and the two cannot
- * drift apart.
- */
+/** Width of the docked details rail. */
 const CASE_DETAILS_RAIL_WIDTH_CLASS = "w-[24rem]"
 
 interface CasePanelViewProps {
@@ -99,7 +92,7 @@ interface CasePanelViewProps {
   onTabChange?: (tab: string) => void
 }
 
-/** Full case details view: top switcher band, active panel, comments, and the properties rail. */
+/** Full case details view: panel tabs, title, tags, active panel, comments, and the properties rail. */
 export function CasePanelView({
   caseId,
   embedded = false,
@@ -176,7 +169,14 @@ export function CasePanelView({
   // effect run and the observer would never attach.
   const [rootNode, setRootNode] = useState<HTMLDivElement | null>(null)
   const canDock = useIsAtLeastWidth(rootNode, CASE_DETAILS_DOCK_MIN_WIDTH)
-  const showDockedDetails = !embedded && canDock
+  const isSessionsPanel = activePanel === "agent-sessions"
+  // Comments stay mounted (hidden) on Agent sessions so a draft survives, but
+  // a case opened straight on that tab does not load them until they show.
+  const [commentsShown, setCommentsShown] = useState(!isSessionsPanel)
+  if (!isSessionsPanel && !commentsShown) {
+    setCommentsShown(true)
+  }
+  const showDockedDetails = !embedded && canDock && !isSessionsPanel
   const showInlineDetails = !embedded && !canDock
 
   // Re-sync the embedded panel only when the case or `initialTab` changes, so
@@ -531,6 +531,67 @@ export function CasePanelView({
     </>
   )
 
+  const columnClassName = cn(
+    "mx-auto w-full min-w-0 max-w-4xl",
+    embedded
+      ? "px-4 pt-3 [@container(max-width:280px)]:px-3 [@container(max-width:360px)]:px-3.5"
+      : "px-4 pt-8 lg:px-6"
+  )
+
+  // Title and tags, plus the panel tabs when embedded.
+  const caseHeader = (
+    <div className="flex flex-col">
+      {caseData.parent && (
+        <CaseParentBreadcrumb
+          parent={caseData.parent}
+          workspaceId={workspaceId}
+        />
+      )}
+      <div className="flex items-start gap-2 py-1.5 first:pt-0 last:pb-0">
+        <div className="min-w-0 flex-1">
+          <CasePanelSummary
+            caseData={caseData}
+            updateCase={updateCase}
+            compact={embedded}
+          />
+        </div>
+      </div>
+      <div className="flex items-start justify-between gap-3 py-1.5 first:pt-0 last:pb-0">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-2.5">
+          {caseData.tags?.length ? (
+            caseData.tags.map((tag) => <TagBadge key={tag.id} tag={tag} />)
+          ) : (
+            <span className="text-xs text-muted-foreground">No tags</span>
+          )}
+        </div>
+        <CaseTagPicker
+          caseId={caseId}
+          workspaceId={workspaceId}
+          appliedTags={caseData.tags}
+        />
+      </div>
+      {/* The embedded panel has no room for a side rail, so its tabs stay in
+          a row under the tags. */}
+      {embedded && (
+        <div className="flex items-center justify-between gap-2 pt-3">
+          <CasePanelSwitcher
+            activePanel={activePanel}
+            onPanelChange={handlePanelChange}
+            idPrefix={panelIdPrefix}
+            taskProgress={taskProgress}
+            tasks={caseTasks}
+            compact
+          />
+          <CaseVersionHistory
+            workspaceId={workspaceId}
+            caseId={caseId}
+            caseLabel={caseData.short_id}
+          />
+        </div>
+      )}
+    </div>
+  )
+
   return (
     <CaseValueDrawerProvider>
       <CaseWorkflowTrigger caseData={caseData} />
@@ -545,86 +606,34 @@ export function CasePanelView({
           embedded && "@container"
         )}
       >
-        {/* The switcher band: a plain flex row above the scroll area. Nothing
-            scrolls under it, so it needs no sticky positioning, z-index,
-            bleed margins, or surface color. In route mode its height is
-            intrinsic — pt-6 (24px) above a 32px row of tabs, so 56px — and
-            that pt-6 is the only knob for the gap between the header border
-            and the tabs; the 56px total feeds the 92px alignment derivation
-            on the docked rail below. Both modes now put the tabs inside the
-            body's centered column (`mx-auto max-w-4xl` at the same px), so the
-            first tab's hit box starts on the case title's left edge at every
-            panel width — including wide panels, where the column's centering
-            slack `(panelWidth − 896) / 2` used to open the biggest gap. The
-            row takes no negative inset: the active tab's tint is the widest
-            thing in the band, and letting it bleed past the title reads as a
-            misaligned column even when the glyph inside it does not. The
-            tradeoff
-            is vertical: the tabs no longer stack under the `SidebarTrigger` in
-            `nav/controls-header.tsx`, which stays at the 12px chrome inset. */}
-        <div
-          className={cn(
-            "flex shrink-0 items-center",
-            embedded ? "h-10" : "pt-6"
-          )}
-        >
-          {embedded ? (
-            <div className="min-w-0 flex-1">
-              <div className="mx-auto flex w-full min-w-0 max-w-4xl items-center justify-between gap-2 px-4 [@container(max-width:280px)]:px-3 [@container(max-width:360px)]:px-3.5">
-                {/* No sidebar toggle to align to here, so the embedded band
-                    keeps the body column's geometry and the first tab's 24px
-                    hit box starts on the same edge as the case title below. */}
-                <CasePanelSwitcher
-                  activePanel={activePanel}
-                  onPanelChange={handlePanelChange}
-                  idPrefix={panelIdPrefix}
-                  taskProgress={taskProgress}
-                  tasks={caseTasks}
-                  compact
-                />
+        <div className="flex min-h-0 flex-1">
+          {/* The route view's tabs: a rail down the left edge. A 10px inset
+              before the 32px tabs puts their icons on the same axis as the
+              sidebar toggle in the page header (px-3 + a 28px button), and
+              the rail ends 2px past them. */}
+          {!embedded && (
+            <div className="flex w-11 shrink-0 flex-col items-start gap-2 pl-2.5 pt-3">
+              <CasePanelSwitcher
+                activePanel={activePanel}
+                onPanelChange={handlePanelChange}
+                idPrefix={panelIdPrefix}
+                taskProgress={taskProgress}
+                tasks={caseTasks}
+                orientation="vertical"
+              />
+              {showPanelVersionHistory ? (
                 <CaseVersionHistory
                   workspaceId={workspaceId}
                   caseId={caseId}
                   caseLabel={caseData.short_id}
                 />
-              </div>
-            </div>
-          ) : (
-            <div className="min-w-0 flex-1">
-              <div className="mx-auto flex w-full min-w-0 max-w-4xl items-center justify-between gap-2 px-4 lg:px-6">
-                {/* No negative inset: a non-compact tab is min-w-8 around a
-                    size-4 icon, so its hit box starts on the title's text edge
-                    and the glyph sits 8px inside it. */}
-                <CasePanelSwitcher
-                  activePanel={activePanel}
-                  onPanelChange={handlePanelChange}
-                  idPrefix={panelIdPrefix}
-                  taskProgress={taskProgress}
-                  tasks={caseTasks}
-                />
-                {showPanelVersionHistory ? (
-                  <CaseVersionHistory
-                    workspaceId={workspaceId}
-                    caseId={caseId}
-                    caseLabel={caseData.short_id}
-                  />
-                ) : null}
-              </div>
+              ) : null}
             </div>
           )}
-          {/* The band spans the whole panel, but the body column below it is
-              narrowed by the docked rail. Without this spacer the band's
-              `mx-auto max-w-4xl` column centers over the wider box and the
-              tabs drift right of the title by half the rail. */}
-          {showDockedDetails && (
-            <div
-              aria-hidden="true"
-              className={cn("shrink-0", CASE_DETAILS_RAIL_WIDTH_CLASS)}
-            />
-          )}
-        </div>
-        <div className="flex min-h-0 flex-1">
-          <div className="min-w-0 flex-1">
+          {/* One tree for every panel: Agent sessions hides the body below
+              the header instead of swapping layouts, so the tab keeps focus
+              and a comment draft survives the visit. */}
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             {/* The viewport override neutralizes Radix's `display: table`
                 sizing div, whose intrinsic sizing lets any nowrap text (a
                 truncating task title, say) inflate the whole body column past
@@ -633,62 +642,21 @@ export function CasePanelView({
                 horizontally. */}
             <ScrollArea
               hideScrollbar
-              className="h-full min-w-0 [&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:!w-full [&_[data-radix-scroll-area-viewport]>div]:!min-w-0 [&_[data-radix-scroll-area-viewport]>div]:!max-w-full"
+              className={cn(
+                "min-w-0 [&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:!w-full [&_[data-radix-scroll-area-viewport]>div]:!min-w-0 [&_[data-radix-scroll-area-viewport]>div]:!max-w-full",
+                isSessionsPanel ? "shrink-0" : "min-h-0 flex-1",
+                // The route view shows the case title in the page header, so
+                // Agent sessions gets the full height there.
+                isSessionsPanel && !embedded && "hidden"
+              )}
             >
-              {/* pt-8 holds the title text at 92px from the panel top, given
-                  the 56px band outside the scroll area:
-                  56 + 32 + (title Input h-9 36px − text-xl 28px line) / 2 =
-                  92. The band's own top padding is what sets the gap above the
-                  tabs; this one sets the 36px gap between the tabs and the
-                  title, so the two are tuned independently. Embedded keeps
-                  pt-0 — its 40px compact band already supplies the full
-                  offset. */}
               <div
                 className={cn(
-                  "mx-auto w-full min-w-0 max-w-4xl",
-                  embedded
-                    ? "px-4 pb-12 [@container(max-width:280px)]:px-3 [@container(max-width:360px)]:px-3.5"
-                    : "px-4 pb-16 pt-8 lg:px-6"
+                  columnClassName,
+                  isSessionsPanel ? "pb-3" : embedded ? "pb-12" : "pb-16"
                 )}
               >
-                {/* When the details rail is docked, the gap below the tags comes
-                  from the description editor's sticky toolbar padding — see
-                  `cases/editor.css`. */}
-                <div className="flex flex-col">
-                  {caseData.parent && (
-                    <CaseParentBreadcrumb
-                      parent={caseData.parent}
-                      workspaceId={workspaceId}
-                    />
-                  )}
-                  <div className="flex items-start gap-2 py-1.5 first:pt-0 last:pb-0">
-                    <div className="min-w-0 flex-1">
-                      <CasePanelSummary
-                        caseData={caseData}
-                        updateCase={updateCase}
-                        compact={embedded}
-                      />
-                    </div>
-                  </div>
-                  <div className="flex items-start justify-between gap-3 py-1.5 first:pt-0 last:pb-0">
-                    <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-2.5">
-                      {caseData.tags?.length ? (
-                        caseData.tags.map((tag) => (
-                          <TagBadge key={tag.id} tag={tag} />
-                        ))
-                      ) : (
-                        <span className="text-xs text-muted-foreground">
-                          No tags
-                        </span>
-                      )}
-                    </div>
-                    <CaseTagPicker
-                      caseId={caseId}
-                      workspaceId={workspaceId}
-                      appliedTags={caseData.tags}
-                    />
-                  </div>
-                </div>
+                {caseHeader}
 
                 {/* When the row is too narrow to dock the rail — or the view is
                   embedded in the chat artifact panel — stack the details
@@ -702,7 +670,7 @@ export function CasePanelView({
                   "Properties" label and row text share the title/description
                   left edge; row hover backgrounds still bleed past it via
                   their -mx-2. The docked rail keeps the paddings. */}
-                {(showInlineDetails || embedded) && (
+                {(showInlineDetails || embedded) && !isSessionsPanel && (
                   <div className="mb-4 border-b pt-12 pb-2 [&_[data-sidebar=group-content]]:px-0 [&_[data-sidebar=group-label]]:px-0 [&_[data-sidebar=group]]:px-0">
                     {caseDetailsContent}
                   </div>
@@ -715,21 +683,23 @@ export function CasePanelView({
                   below the tags. `mt-16` starts every other panel on that same
                   y, so switching tabs does not walk the content up and down
                   the column. */}
-                <div
-                  role="tabpanel"
-                  id={casePanelPanelId(panelIdPrefix, activePanel)}
-                  aria-labelledby={casePanelTabId(panelIdPrefix, activePanel)}
-                  className={cn(activePanel !== "description" && "mt-16")}
-                >
-                  <CasePanelContent
-                    panel={activePanel}
-                    caseId={caseId}
-                    workspaceId={workspaceId}
-                    caseData={caseData}
-                    updateCase={updateCase}
-                    embedded={embedded}
-                  />
-                </div>
+                {!isSessionsPanel && (
+                  <div
+                    role="tabpanel"
+                    id={casePanelPanelId(panelIdPrefix, activePanel)}
+                    aria-labelledby={casePanelTabId(panelIdPrefix, activePanel)}
+                    className={cn(activePanel !== "description" && "mt-16")}
+                  >
+                    <CasePanelContent
+                      panel={activePanel}
+                      caseId={caseId}
+                      workspaceId={workspaceId}
+                      caseData={caseData}
+                      updateCase={updateCase}
+                      embedded={embedded}
+                    />
+                  </div>
+                )}
 
                 {/* Comments are not a panel: they always render below whichever
                   panel is active, separated by whitespace only — no rule, no
@@ -739,12 +709,40 @@ export function CasePanelView({
                   offset. */}
                 <section
                   aria-label="Comments"
-                  className={embedded ? "mt-10" : "mt-16"}
+                  className={cn(
+                    embedded ? "mt-10" : "mt-16",
+                    isSessionsPanel && "hidden"
+                  )}
                 >
-                  <CommentSection caseId={caseId} workspaceId={workspaceId} />
+                  {commentsShown && (
+                    <CommentSection caseId={caseId} workspaceId={workspaceId} />
+                  )}
                 </section>
               </div>
             </ScrollArea>
+            {/* Agent sessions takes the whole panel below the header: no
+                  properties, no comments, and the transcript owns its
+                  scroll. */}
+            {isSessionsPanel && (
+              <div
+                role="tabpanel"
+                id={casePanelPanelId(panelIdPrefix, activePanel)}
+                aria-labelledby={casePanelTabId(panelIdPrefix, activePanel)}
+                className={cn(
+                  "min-h-0 flex-1",
+                  embedded ? "border-t" : "border-l"
+                )}
+              >
+                <CasePanelContent
+                  panel={activePanel}
+                  caseId={caseId}
+                  workspaceId={workspaceId}
+                  caseData={caseData}
+                  updateCase={updateCase}
+                  embedded={embedded}
+                />
+              </div>
+            )}
           </div>
           {showDockedDetails && (
             <Sidebar
@@ -756,15 +754,8 @@ export function CasePanelView({
               )}
             >
               <SidebarContent className="h-full">
-                {/* pt-5 (20px) lands the "Properties" label text flush with
-                    the case title text, both 92px from the panel top. Both
-                    columns sit under the shared 56px switcher band:
-                    - main column: body wrapper pt-8 (32px) + title Input h-9
-                      (36px) with a text-xl 28px line → text top =
-                      56 + 32 + (36 − 28) / 2 = 92px
-                    - rail: pt-5 (20px) + SidebarGroup p-2 (8px) +
-                      SidebarGroupLabel h-8 (32px) with a text-xs 16px line →
-                      text top = 56 + 20 + 8 + (32 − 16) / 2 = 92px */}
+                {/* pt-5 lands the "Properties" label text level with the
+                    case title text. */}
                 <div className="px-2 pt-5">{caseDetailsContent}</div>
               </SidebarContent>
             </Sidebar>

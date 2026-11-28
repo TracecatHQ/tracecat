@@ -57,7 +57,6 @@ import { AddCaseDropdown } from "@/components/cases/add-case-dropdown"
 import { AddCaseDuration } from "@/components/cases/add-case-duration"
 import { AddCaseTag } from "@/components/cases/add-case-tag"
 import { AddCustomField } from "@/components/cases/add-custom-field"
-import { CaseAgentRunsAction } from "@/components/cases/case-agent-runs-action"
 import {
   getCategoryTextClass,
   PRIORITIES,
@@ -2098,6 +2097,16 @@ function CaseBreadcrumb({
             skeletonClassName="h-4 w-20"
           />
         </BreadcrumbItem>
+        {caseData?.summary ? (
+          <BreadcrumbItem className="min-w-0">
+            <span
+              className="max-w-[28rem] truncate text-muted-foreground"
+              title={caseData.summary}
+            >
+              {caseData.summary}
+            </span>
+          </BreadcrumbItem>
+        ) : null}
       </BreadcrumbList>
     </Breadcrumb>
   )
@@ -2197,7 +2206,6 @@ function CaseDetailActions({
   return (
     <>
       <CaseStatusControl caseId={caseId} workspaceId={workspaceId} />
-      <CaseAgentRunsAction caseId={caseId} workspaceId={workspaceId} />
       {caseData ? (
         <CaseVersionHistory
           workspaceId={workspaceId}

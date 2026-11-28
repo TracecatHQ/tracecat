@@ -5,6 +5,7 @@ import {
   ListChecks,
   ListTree,
   type LucideIcon,
+  MousePointerClick,
   Paperclip,
   Table2,
 } from "lucide-react"
@@ -21,6 +22,7 @@ export const CASE_PANEL_KEYS = [
   "rows",
   "payload",
   "activity",
+  "agent-sessions",
 ] as const
 
 /** One key from {@link CASE_PANEL_KEYS}. */
@@ -58,6 +60,12 @@ export const CASE_PANELS: readonly CasePanelDefinition[] = [
   { key: "rows", label: "Tables", icon: Table2, shortcut: 5 },
   { key: "payload", label: "Payload", icon: Braces, shortcut: 6 },
   { key: "activity", label: "Activity", icon: Activity, shortcut: 7 },
+  {
+    key: "agent-sessions",
+    label: "Agent sessions",
+    icon: MousePointerClick,
+    shortcut: 8,
+  },
 ]
 
 /**

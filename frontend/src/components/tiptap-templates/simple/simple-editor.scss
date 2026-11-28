@@ -187,12 +187,9 @@
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
-  scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
-  transition: scrollbar-color 150ms ease;
 
   &::-webkit-scrollbar {
-    height: 0.625rem;
+    height: 0.5rem;
     background: transparent;
   }
 
@@ -209,10 +206,22 @@
 
   &:hover,
   &:focus-within {
-    scrollbar-color: hsl(var(--border)) transparent;
-
     &::-webkit-scrollbar-thumb {
       background-color: hsl(var(--border));
+    }
+  }
+
+  // Firefox has no scrollbar pseudo-elements. Elsewhere the standard
+  // properties would switch the pseudo-elements off and bring back the
+  // platform's arrow buttons.
+  @supports not selector(::-webkit-scrollbar) {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    transition: scrollbar-color 150ms ease;
+
+    &:hover,
+    &:focus-within {
+      scrollbar-color: hsl(var(--border)) transparent;
     }
   }
 }

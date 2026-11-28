@@ -16,15 +16,6 @@ export function parseInboxCaseId(value: string | null): string | null {
   return UUID_PATTERN.test(caseId) ? caseId : null
 }
 
-/** Build the workspace Inbox URL filtered to one case. */
-export function getCaseAgentRunsHref(
-  workspaceId: string,
-  caseId: string
-): string {
-  const params = new URLSearchParams({ caseId })
-  return `/workspaces/${workspaceId}/inbox?${params.toString()}`
-}
-
 /** Remove only the case filter from an Inbox URL, preserving other state. */
 export function getInboxHrefWithoutCaseFilter(
   pathname: string,

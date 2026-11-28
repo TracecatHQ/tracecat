@@ -131,6 +131,38 @@
     @apply border-border;
   }
 
+  /* Every native scrollbar matches the shadcn ScrollArea: a thin,
+     border-colored pill on a transparent track. Chromium and Safari are
+     styled through the pseudo-elements, because `scrollbar-width: thin`
+     keeps the platform's arrow buttons there; setting it would also switch
+     the pseudo-elements off. Lowest specificity, so `no-scrollbar` and
+     per-component rules still win. */
+  *::-webkit-scrollbar {
+    width: 0.5rem;
+    height: 0.5rem;
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-track,
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 9999px;
+    background-clip: padding-box;
+    background-color: hsl(var(--border));
+  }
+
+  /* Firefox has no scrollbar pseudo-elements. */
+  @supports not selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: hsl(var(--border)) transparent;
+    }
+  }
+
   body {
     @apply bg-background text-foreground;
   }

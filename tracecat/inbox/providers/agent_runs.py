@@ -19,9 +19,12 @@ from tracecat.agent.backends.registry import DEFAULT_AGENT_BACKEND, find_agent_b
 from tracecat.agent.channel_bots.channel_threads import channel_threads_by_session
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.authz.controls import has_scope
 from tracecat.chat.enums import MessageKind
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import (
+    AgentPreset,
+    AgentPresetVersion,
     AgentSession,
     AgentSessionHistory,
     Approval,
@@ -90,6 +93,11 @@ GROUP_SCAN_MAX_SESSIONS = 300
 
 if TYPE_CHECKING:
     from tracecat.auth.types import Role
+
+
+def _merge_unique(*lists: Sequence[str] | None) -> list[str]:
+    """Concatenate the lists, dropping repeats and keeping first-seen order."""
+    return list(dict.fromkeys(item for items in lists if items for item in items))
 
 
 class AgentRunsInboxProvider(BaseCursorPaginator):
@@ -184,6 +192,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         entity_type: AgentSessionEntity | None = None,
         created_after: datetime | None = None,
         updated_after: datetime | None = None,
+        include_tools: bool = False,
     ) -> Select[tuple[AgentSession]]:
         """Base statement selecting inbox-eligible root sessions.
 
@@ -236,6 +245,18 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         # (tools, mcp_integrations, agents_binding, work_dir_snapshot, artifacts)
         # that enrichment never touches. `id` is loaded explicitly because the
         # PK is `surrogate_id`, so SQLAlchemy would otherwise skip the UUID `id`.
+        # `include_tools` is the exception: the case-scoped list shows each
+        # session's tools, and is a single small page rather than a grouped scan.
+        tool_columns = (
+            (
+                AgentSession.tools,
+                AgentSession.mcp_integrations,
+                AgentSession.agent_preset_id,
+                AgentSession.agent_preset_version_id,
+            )
+            if include_tools
+            else ()
+        )
         base_stmt = base_stmt.options(
             load_only(
                 AgentSession.id,
@@ -248,6 +269,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 AgentSession.last_error,
                 AgentSession.created_at,
                 AgentSession.updated_at,
+                *tool_columns,
                 raiseload=True,
             )
         )
@@ -308,12 +330,15 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 updated_after=updated_after,
             )
 
+        # Only the ungrouped case-scoped list returns the sessions' tools.
+        include_tools = case_id is not None
         base_stmt = self._base_query(
             search,
             case_id=case_id,
             entity_type=entity_type,
             created_after=created_after,
             updated_after=updated_after,
+            include_tools=include_tools,
         )
 
         # Determine sort column and direction
@@ -418,7 +443,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             sessions.reverse()
 
         # Enrich sessions
-        items = await self._enrich_sessions(sessions)
+        items = await self._enrich_sessions(sessions, include_tools=include_tools)
 
         # Generate cursors
         next_cursor = None
@@ -810,13 +835,80 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         count = await self.session.scalar(stmt)
         return int(count or 0)
 
+    async def _preset_tools_by_session(
+        self, sessions: Sequence[AgentSession]
+    ) -> dict[uuid.UUID, tuple[list[str], list[str]]]:
+        """Actions and MCP integrations of each session's agent preset.
+
+        A session stores only the tools selected on it; a preset's tools live
+        on the preset version the session is pinned to, or on the preset's
+        current version when it is not pinned. Two small lookups for the page.
+        """
+        version_by_session: dict[uuid.UUID, uuid.UUID] = {}
+        unpinned: dict[uuid.UUID, list[uuid.UUID]] = {}
+        for session in sessions:
+            if session.agent_preset_version_id is not None:
+                version_by_session[session.id] = session.agent_preset_version_id
+            elif session.agent_preset_id is not None:
+                unpinned.setdefault(session.agent_preset_id, []).append(session.id)
+
+        if unpinned:
+            preset_stmt = select(AgentPreset.id, AgentPreset.current_version_id).where(
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.id.in_(unpinned),
+            )
+            for preset_id, version_id in (
+                await self.session.execute(preset_stmt)
+            ).all():
+                if version_id is not None:
+                    for session_id in unpinned[preset_id]:
+                        version_by_session[session_id] = version_id
+
+        if not version_by_session:
+            return {}
+
+        version_stmt = select(
+            AgentPresetVersion.id,
+            AgentPresetVersion.actions,
+            AgentPresetVersion.mcp_integrations,
+        ).where(
+            AgentPresetVersion.workspace_id == self.workspace_id,
+            AgentPresetVersion.id.in_(set(version_by_session.values())),
+        )
+        versions = {
+            version_id: (actions or [], mcp_integrations or [])
+            for version_id, actions, mcp_integrations in (
+                await self.session.execute(version_stmt)
+            ).all()
+        }
+        return {
+            session_id: versions[version_id]
+            for session_id, version_id in version_by_session.items()
+            if version_id in versions
+        }
+
     async def _enrich_sessions(
         self,
         sessions: Sequence[AgentSession],
+        *,
+        include_tools: bool = False,
     ) -> list[InboxItemRead]:
-        """Transform sessions to inbox items with workflow metadata."""
+        """Transform sessions to inbox items with workflow metadata.
+
+        ``include_tools`` adds the tools and MCP integrations each session was
+        given; the caller must have loaded those columns.
+        """
         if not sessions:
             return []
+
+        # Reading a preset's configuration needs `agent:read`; without it the
+        # row shows only the tools stored on the session itself.
+        can_read_presets = has_scope(self.role.scopes or frozenset(), "agent:read")
+        tools_by_session = (
+            await self._preset_tools_by_session(sessions)
+            if include_tools and can_read_presets
+            else {}
+        )
 
         approval_session_ids = [s.id for s in sessions]
         approvals_by_session: dict[uuid.UUID, list[Approval]] = {}
@@ -952,6 +1044,12 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                     for a in session_approvals
                 ],
             }
+            if include_tools:
+                preset_tools, preset_mcp = tools_by_session.get(session.id, ([], []))
+                metadata["tools"] = _merge_unique(session.tools, preset_tools)
+                metadata["mcp_integrations"] = _merge_unique(
+                    session.mcp_integrations, preset_mcp
+                )
 
             items.append(
                 InboxItemRead(
