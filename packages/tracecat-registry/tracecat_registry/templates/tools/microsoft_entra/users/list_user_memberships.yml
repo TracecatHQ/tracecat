@@ -1,0 +1,94 @@
+type: action
+definition:
+  title: List user memberships
+  description: >-
+    Get groups, directory roles, and administrative units that the user is a
+    direct member of. This operation isn't transitive; use list user transitive
+    memberships to include transitive membership. Least privileged permission:
+    User.Read.All (delegated) or Directory.Read.All (application).
+  display_group: Microsoft Entra
+  doc_url: https://learn.microsoft.com/en-us/graph/api/user-list-memberof?view=graph-rest-1.0
+  namespace: tools.microsoft_entra
+  name: list_user_memberships
+  secrets:
+    - type: oauth
+      provider_id: microsoft_entra
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_entra
+      grant_type: client_credentials
+      optional: true
+  expects:
+    user_id:
+      type: str
+      description: The user's ID or userPrincipalName.
+    filter:
+      type: str | None
+      description: >-
+        OData `$filter`. Requires `count` set to true and `consistency_level` set
+        to `eventual`.
+      default: null
+    search:
+      type: str | None
+      description: >-
+        OData `$search`. Supported on the displayName property only, for example
+        "displayName:Security". Requires `count` set to true and
+        `consistency_level` set to `eventual`.
+      default: null
+    orderby:
+      type: str | None
+      description: >-
+        OData `$orderby`. Requires `count` set to true and `consistency_level`
+        set to `eventual`.
+      default: null
+    select:
+      type: str | None
+      description: OData `$select`. Comma-separated properties to return.
+      default: null
+    top:
+      type: int | None
+      description: OData `$top`. Page size. The default is 100 and the maximum is 999.
+      default: null
+    count:
+      type: bool | None
+      description: OData `$count`. Include @odata.count in the response.
+      default: null
+    skip_token:
+      type: str | None
+      description: >-
+        OData `$skiptoken` from the `@odata.nextLink` of a previous response,
+        used to fetch the next page.
+      default: null
+    consistency_level:
+      type: str | None
+      description: >-
+        ConsistencyLevel header. Set to `eventual` when using `filter`,
+        `search`, `orderby`, or OData cast.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Microsoft Graph v1.0 API root. If omitted, uses the workspace variable
+        `microsoft_entra.base_url`, then https://graph.microsoft.com/v1.0.
+        National clouds: https://graph.microsoft.us/v1.0 (US Government L4) and
+        https://dod-graph.microsoft.us/v1.0 (US Government L5 DOD).
+      default: null
+  steps:
+    - ref: list_memberships
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.microsoft_entra.base_url || "https://graph.microsoft.com/v1.0" }}/users/${{ FN.url_encode(inputs.user_id) }}/memberOf
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_USER_TOKEN || SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_SERVICE_TOKEN }}
+          ConsistencyLevel: ${{ inputs.consistency_level }}
+        params:
+          $filter: ${{ inputs.filter }}
+          $search: ${{ inputs.search }}
+          $orderby: ${{ inputs.orderby }}
+          $select: ${{ inputs.select }}
+          $top: ${{ inputs.top }}
+          $count: ${{ inputs.count }}
+          $skiptoken: ${{ inputs.skip_token }}
+  returns: ${{ steps.list_memberships.result }}
