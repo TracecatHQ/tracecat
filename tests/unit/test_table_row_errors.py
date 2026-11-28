@@ -5,7 +5,11 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
-from asyncpg.exceptions import CheckViolationError, NotNullViolationError
+from asyncpg.exceptions import (
+    CheckViolationError,
+    DeadlockDetectedError,
+    NotNullViolationError,
+)
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -93,6 +97,22 @@ async def test_unrecognized_database_errors_are_not_client_errors(
     with pytest.raises(error_type) as exc:
         await _execute_row_write(failed_write(), ["record_key"])
     assert exc.value is error
+
+
+@pytest.mark.anyio
+async def test_deadlocks_are_retryable_conflicts() -> None:
+    async def failed_write() -> None:
+        raise DBAPIError("synthetic SQL", {}, DeadlockDetectedError("deadlock"))
+
+    with pytest.raises(TableRowError) as exc:
+        await _execute_row_write(failed_write(), ["record_key"])
+
+    assert exc.value.detail == {
+        "code": "write_conflict",
+        "column": None,
+        "message": "The write conflicted with a concurrent write. Retry it.",
+    }
+    assert exc.value.__context__ is None
 
 
 @pytest.mark.anyio

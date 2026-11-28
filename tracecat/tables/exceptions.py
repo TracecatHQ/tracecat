@@ -1,4 +1,4 @@
-"""Safe, structured errors for user-provided table rows."""
+"""Safe, structured errors for rejected table row writes."""
 
 from typing import Literal, TypedDict
 
@@ -11,6 +11,7 @@ type TableRowErrorCode = Literal[
     "invalid_value",
     "duplicate_value",
     "empty_update",
+    "write_conflict",
 ]
 
 
@@ -21,7 +22,11 @@ class TableRowErrorDetail(TypedDict):
 
 
 class TableRowError(TracecatException):
-    """A row rejected by its table schema or a uniqueness constraint."""
+    """A row write rejected by its schema, a unique index, or a concurrent write.
+
+    ``write_conflict`` is transient: a request that ran in one transaction can
+    succeed if sent again.
+    """
 
     def __init__(
         self,
@@ -30,7 +35,7 @@ class TableRowError(TracecatException):
         *,
         column: str | None = None,
     ) -> None:
-        self.code = code
+        self.code: TableRowErrorCode = code
         detail: TableRowErrorDetail = {
             "code": code,
             "column": column,
