@@ -2,7 +2,7 @@
 
 import asyncio
 from collections.abc import Iterator
-from typing import Any, get_args
+from typing import Any, Literal, get_args
 from uuid import UUID, uuid4
 
 import httpx
@@ -11,7 +11,12 @@ import sqlalchemy as sa
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from tests.database import TEST_DB_CONFIG
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
@@ -77,6 +82,22 @@ from tracecat.workspace_sync.schemas import (
 )
 
 pytestmark = pytest.mark.anyio
+
+
+async def wait_for_advisory_lock_waiter(engine: AsyncEngine) -> None:
+    """Return once a transaction in this database waits for an advisory lock."""
+    async with engine.connect() as connection:
+        for _ in range(500):
+            if await connection.scalar(
+                sa.text(
+                    "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory'"
+                    " AND NOT granted AND database = (SELECT oid FROM pg_database"
+                    " WHERE datname = current_database()))"
+                )
+            ):
+                return
+            await asyncio.sleep(0.01)
+    raise AssertionError("No transaction waited for an advisory lock")
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -512,6 +533,206 @@ async def test_indexed_row_writers_wait_only_for_the_same_table(
         assert len(await documents(tables.session, other_collection)) == 1
     finally:
         release.set()
+        await engine.dispose()
+
+
+async def test_ddl_that_cannot_affect_search_does_not_wait_for_row_writers(
+    tables: TablesService, table: Table
+):
+    other = await tables.create_table(
+        TableCreate(
+            name="search_" + uuid4().hex,
+            columns=[TableColumnCreate(name="key", type=SqlType.TEXT)],
+        )
+    )
+    table_id, other_id = table.id, other.id
+    await enable(tables, table)
+    engine = create_async_engine(TEST_DB_CONFIG.test_url)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def open_writer():
+        async with sessions.begin() as session:
+            service = BaseTablesService(session, tables.role)
+            live = await service.get_table(table_id)
+            await service.insert_row(live, TableRowInsert(data={"body": "held"}))
+            entered.set()
+            await release.wait()
+
+    async def change_schema():
+        async with sessions.begin() as session:
+            service = BaseTablesService(session, tables.role)
+            await service.create_table(
+                TableCreate(
+                    name="search_" + uuid4().hex,
+                    columns=[
+                        TableColumnCreate(name="key", type=SqlType.TEXT, is_index=True)
+                    ],
+                )
+            )
+            live = await service.get_table(other_id)
+            await service.create_column(
+                live, TableColumnCreate(name="note", type=SqlType.TEXT)
+            )
+            live = await service.get_table(other_id)
+            await service.create_unique_index(live, "key")
+            await service.drop_unique_index(live, "key")
+
+    async def rename_table():
+        async with sessions.begin() as session:
+            service = BaseTablesService(session, tables.role)
+            live = await service.get_table(other_id)
+            await service.update_table(live, TableUpdate(name="search_" + uuid4().hex))
+
+    tasks: list[asyncio.Task[None]] = []
+    try:
+        tasks.append(asyncio.create_task(open_writer()))
+        await asyncio.wait_for(entered.wait(), 5)
+        # Creating tables, adding columns and changing unique indexes elsewhere
+        # in the workspace proceed while a search-indexed write is open.
+        await asyncio.wait_for(change_schema(), 5)
+        # A rename can change what search reads, so it still waits.
+        tasks.append(rename := asyncio.create_task(rename_table()))
+        await wait_for_advisory_lock_waiter(engine)
+        assert not rename.done()
+        release.set()
+        await asyncio.wait_for(asyncio.gather(*tasks), 5)
+    finally:
+        release.set()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await engine.dispose()
+
+
+async def test_table_sync_takes_the_search_lock_before_changing_a_table(
+    tables: TablesService, table: Table
+):
+    """A sync waits for row writers before it locks any table.
+
+    Adding a column locks its table without the workspace search lock. A sync
+    can later change another column, which needs that lock exclusively, so it
+    must take the lock first. Otherwise a row writer holding the lock shared
+    and waiting for the table would deadlock with it.
+    """
+    other = await tables.create_table(
+        TableCreate(
+            name="search_" + uuid4().hex,
+            columns=[TableColumnCreate(name="key", type=SqlType.TEXT)],
+        )
+    )
+    table_id, other_name = table.id, tables._full_table_name(other.name)
+    spec = WorkspaceSpec(
+        tables={
+            "synthetic": TableResourceSpec(
+                id="synthetic",
+                name=other.name,
+                columns=[
+                    TableColumnSpec(name="key", type="text"),
+                    TableColumnSpec(name="note", type="text"),
+                ],
+            )
+        }
+    )
+    engine = create_async_engine(TEST_DB_CONFIG.test_url)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def open_writer():
+        async with sessions.begin() as session:
+            service = BaseTablesService(session, tables.role)
+            live = await service.get_table(table_id)
+            await service.insert_row(live, TableRowInsert(data={"body": "held"}))
+            entered.set()
+            await release.wait()
+
+    async def sync():
+        async with sessions.begin() as session:
+            importer = WorkspaceResourceImportService(session, tables.role)
+            await importer.import_non_workflow_resources(spec)
+
+    async def other_is_locked() -> bool:
+        async with engine.connect() as conn:
+            return bool(
+                await conn.scalar(
+                    sa.text(
+                        "SELECT EXISTS (SELECT 1 FROM pg_locks "
+                        "WHERE relation = to_regclass(:name) "
+                        "AND mode = 'AccessExclusiveLock')"
+                    ),
+                    {"name": other_name},
+                )
+            )
+
+    tasks: list[asyncio.Task[None]] = []
+    try:
+        tasks.append(asyncio.create_task(open_writer()))
+        await asyncio.wait_for(entered.wait(), 5)
+        tasks.append(syncing := asyncio.create_task(sync()))
+        # The sync waits for the search lock before it touches any table.
+        await wait_for_advisory_lock_waiter(engine)
+        assert not syncing.done()
+        assert not await other_is_locked()
+        release.set()
+        await asyncio.wait_for(asyncio.gather(*tasks), 5)
+    finally:
+        release.set()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await engine.dispose()
+
+
+@pytest.mark.parametrize("change", ["delete", "update"])
+async def test_changing_a_column_another_request_deleted_is_not_found(
+    tables: TablesService, table: Table, change: Literal["delete", "update"]
+):
+    table_id = table.id
+    column_id = next(c.id for c in table.columns if c.name == "body")
+    engine = create_async_engine(TEST_DB_CONFIG.test_url)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with sessions.begin() as session:
+            service = BaseTablesService(session, tables.role)
+            stale = await service.get_column(table_id, column_id)
+            async with sessions.begin() as other:
+                peer = BaseTablesService(other, tables.role)
+                await peer.delete_column(await peer.get_column(table_id, column_id))
+            with pytest.raises(TracecatNotFoundError):
+                if change == "delete":
+                    await service.delete_column(stale)
+                else:
+                    await service.update_column(stale, TableColumnUpdate(name="note"))
+    finally:
+        await engine.dispose()
+
+
+async def test_table_sync_without_tables_does_not_wait_for_row_writers(
+    tables: TablesService, table: Table
+):
+    table_id = table.id
+    engine = create_async_engine(TEST_DB_CONFIG.test_url)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def open_writer():
+        async with sessions.begin() as session:
+            service = BaseTablesService(session, tables.role)
+            live = await service.get_table(table_id)
+            await service.insert_row(live, TableRowInsert(data={"body": "held"}))
+            entered.set()
+            await release.wait()
+
+    task = asyncio.create_task(open_writer())
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        async with sessions.begin() as session:
+            importer = WorkspaceResourceImportService(session, tables.role)
+            await asyncio.wait_for(
+                importer.import_non_workflow_resources(WorkspaceSpec()), 5
+            )
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
         await engine.dispose()
 
 

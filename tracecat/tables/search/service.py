@@ -1,8 +1,9 @@
 """Table-specific selection and transactional source lifecycle.
 
 Every operation uses the caller's transaction. Never resolve provider credentials
-or perform external work here. The workspace lock precedes all source writes,
-even while no collection exists, so enabling cannot miss a concurrent writer.
+or perform external work here. The workspace lock precedes all source row
+writes, even while no collection exists, so enabling cannot miss a concurrent
+writer.
 """
 
 from collections.abc import Sequence

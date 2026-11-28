@@ -390,6 +390,18 @@ class BaseTablesService(BaseWorkspaceService):
         # Using double quotes to allow dots in schema name
         return f"tables_{ws_id.short()}"
 
+    @staticmethod
+    def _live_column(table: Table, column_id: TableColumnID) -> TableColumn:
+        """Find a column in metadata re-read under the search lock.
+
+        The caller may have loaded the column before a concurrent rename or
+        delete committed, so look it up by id in the fresh table.
+        """
+        column = next((c for c in table.columns if c.id == column_id), None)
+        if column is None:
+            raise TracecatNotFoundError("Column not found")
+        return column
+
     def _full_table_name(
         self, table_name: str, workspace_id: WorkspaceUUID | None = None
     ) -> str:
@@ -807,9 +819,10 @@ class BaseTablesService(BaseWorkspaceService):
         """Add a new table's columns with one ALTER TABLE and one flush.
 
         The table's own create audit event covers these columns, so they are
-        not audited one by one.
+        not audited one by one. It skips the workspace search lock: the table
+        is invisible to other transactions until commit, so it cannot have a
+        search collection yet.
         """
-        await self.search.for_table(table.id)
         prepared = [self._prepare_column(table, params) for params in columns]
         self.session.add_all(column for column, _ in prepared)
         add_clauses = ", ".join(
@@ -924,10 +937,16 @@ class BaseTablesService(BaseWorkspaceService):
 
         Raises:
             ValueError: If the column type is invalid
+
+        Note:
+            Takes no workspace search lock. A transaction that later takes that
+            lock exclusively must call ``search.lock_scope()`` first; see
+            ``tracecat.search.service``.
         """
         await self._ensure_schema_unmanaged(table.id)
         column, column_def_str = self._prepare_column(table, params)
-        await self.search.for_table(table.id)
+        # No workspace search lock: a column can't be selected for search before
+        # it commits, and ALTER TABLE already makes this table's writers wait.
         self.session.add(column)
 
         # Add the column to the physical table
@@ -1020,7 +1039,7 @@ class BaseTablesService(BaseWorkspaceService):
         await self._ensure_schema_unmanaged(column.table_id)
         collection = await self.search.for_table(column.table_id)
         table = await self.search.table(column.table_id)
-        await self.session.refresh(column)
+        column = self._live_column(table, column.id)
         set_fields = params.model_dump(exclude_unset=True)
         self._assert_user_column_name_allowed(column.name)
         if "name" in set_fields:
@@ -1148,16 +1167,22 @@ class BaseTablesService(BaseWorkspaceService):
         return column
 
     async def create_unique_index(self, table: Table, column_name: str) -> None:
-        """Create a unique index on specified columns."""
+        """Create a unique index on specified columns.
 
+        Search doesn't read unique indexes, and CREATE INDEX already makes this
+        table's writers wait.
+
+        Note:
+            Takes no workspace search lock. A transaction that later takes that
+            lock exclusively must call ``search.lock_scope()`` first; see
+            ``tracecat.search.service``.
+        """
         await self._ensure_schema_unmanaged(table.id)
         # Check if another index already exists
         index = await self.get_index(table)
         if len(index) > 0:
             raise ValueError("Table cannot have multiple unique indexes")
 
-        # Get the fully qualified table name with schema
-        await self.search.for_table(table.id)
         full_table_name = self._full_table_name(table.name)
 
         # Sanitize column names to prevent SQL injection
@@ -1194,10 +1219,17 @@ class BaseTablesService(BaseWorkspaceService):
             ) from e
 
     async def drop_unique_index(self, table: Table, column_name: str) -> None:
-        """Drop the unique index on the specified column."""
+        """Drop the unique index on the specified column.
 
+        Search doesn't read unique indexes, and DROP INDEX already makes this
+        table's writers wait.
+
+        Note:
+            Takes no workspace search lock. A transaction that later takes that
+            lock exclusively must call ``search.lock_scope()`` first; see
+            ``tracecat.search.service``.
+        """
         await self._ensure_schema_unmanaged(table.id)
-        await self.search.for_table(table.id)
         schema_name = self._get_schema_name()
 
         resolved_column_name = self._resolve_external_column_name(table, column_name)
@@ -1231,6 +1263,7 @@ class BaseTablesService(BaseWorkspaceService):
         await self._ensure_schema_unmanaged(column.table_id)
         collection = await self.search.for_table(column.table_id)
         table = await self.search.table(column.table_id)
+        column = self._live_column(table, column.id)
         await self.search.column_changed(collection, column, removed=True)
         self._assert_user_column_name_allowed(column.name)
         full_table_name = self._full_table_name(table.name)
@@ -2447,8 +2480,9 @@ class TableEditorService(BaseWorkspaceService):
         service = BaseTablesService(self.session, self.role)
         if self.schema_name != service._get_schema_name():
             return None
-        # Use the same lock even if metadata is absent or being created/renamed.
-        await service.search.lock_scope()
+        # Read without the search lock. Delegated methods re-read the table and
+        # column by id under their own lock, so after a concurrent rename they
+        # act on the renamed column; create_column uses this read's table name.
         table = await self.session.scalar(
             select(Table)
             .where(
