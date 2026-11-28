@@ -180,7 +180,7 @@ const CaseAgentSessionRow = memo(function CaseAgentSessionRow({
           </span>
           {/* Fixed-width slots, so titles, icons and times line up down the
               list whatever each row holds. */}
-          <span className="flex w-3.5 shrink-0 justify-center">
+          <span className="flex w-3.5 shrink-0 justify-center [@container(max-width:10rem)]:hidden">
             {/* Only states that need attention get a status mark. */}
             {isLive ? (
               <LoaderCircleIcon
@@ -239,7 +239,7 @@ const CaseAgentSessionRow = memo(function CaseAgentSessionRow({
               </Tooltip>
             )}
           </span>
-          <span className="flex w-12 shrink-0 justify-start">
+          <span className="flex w-12 shrink-0 justify-start [@container(max-width:14rem)]:hidden">
             <UpdatedAtTimestamp updatedAt={session.updated_at} />
           </span>
         </button>
