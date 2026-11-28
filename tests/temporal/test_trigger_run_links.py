@@ -29,6 +29,7 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.pagination import CursorPaginationParams
 from tracecat.triggers.enums import TriggerKind, TriggerStatus
 from tracecat.triggers.runs import service as runs_service
+from tracecat.triggers.runs.schemas import TriggerRunRead
 from tracecat.triggers.runs.service import TriggerRunsService
 from tracecat.triggers.schemas import (
     ScheduleTriggerConfig,
@@ -215,7 +216,24 @@ async def test_a_schedule_trigger_lists_the_runs_its_schedule_started(
     assert isinstance(trigger.config, ScheduleTriggerConfigRead)
     handle = client.get_schedule_handle(trigger.config.schedule_id.to_legacy())
 
+    service = TriggerRunsService(session, svc_role)
+
+    async def _runs(expected: int) -> list[TriggerRunRead]:
+        """The trigger's runs once ``expected`` are listed, or what is there
+        at the deadline (the scheduler starts runs asynchronously)."""
+        runs: list[TriggerRunRead] = []
+        deadline = asyncio.get_running_loop().time() + 30
+        while asyncio.get_running_loop().time() < deadline:
+            page = await service.list_runs(trigger.id, CursorPaginationParams(limit=20))
+            runs = page.items
+            if len(runs) >= expected:
+                break
+            await asyncio.sleep(0.5)
+        return runs
+
+    # One fire at a time, so each is seen to start.
     await handle.trigger()
+    assert len(await _runs(1)) == 1
     # Hourly fires land on the hour: a window from 90 to 30 minutes before the
     # last hour mark holds exactly one, all in the past.
     last_hour = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
@@ -229,15 +247,7 @@ async def test_a_schedule_trigger_lists_the_runs_its_schedule_started(
     # A run some other schedule started (no trigger behind it) and an
     # unscheduled run in the same workspace are never listed.
     unscheduled = await _start(client, svc_workspace.id, None)
-
-    service = TriggerRunsService(session, svc_role)
-    runs = []
-    for _ in range(50):
-        page = await service.list_runs(trigger.id, CursorPaginationParams(limit=20))
-        runs = page.items
-        if len(runs) >= 2:
-            break
-        await asyncio.sleep(0.2)
+    runs = await _runs(2)
 
     assert len(runs) == 2
     assert unscheduled not in {r.wf_exec_id for r in runs}
