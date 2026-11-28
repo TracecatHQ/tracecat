@@ -247,6 +247,8 @@
               "tools/gmail",
               "tools/google_alert_center",
               "tools/google_api",
+              "tools/google_chrome_management",
+              "tools/google_chrome_policy",
               "tools/google_chronicle",
               "tools/google_cloud_logging",
               "tools/google_directory",

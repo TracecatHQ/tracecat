@@ -1,6 +1,6 @@
 ---
 title: "Connect to Google Workspace"
-description: "Connect Tracecat to Google Workspace audit logs, reports, Alert Center, and Directory with a service account, domain-wide delegation, and a dedicated admin user."
+description: "Connect Tracecat to Google Workspace audit logs, reports, Alert Center, Directory, and Chrome with a service account, domain-wide delegation, and a dedicated admin user."
 ---
 
 ## Overview
@@ -18,6 +18,7 @@ This setup covers these integrations:
 - [Google Workspace Reports](/tools/google_reports): audit logs (activities) for `login`, `admin`, `token`, `drive`, `gmail`, `saml`, `user_accounts`, and other applications, plus usage reports.
 - [Google Workspace Alert Center](/tools/google_alert_center): phishing, suspicious login, malware, government-backed attack, DLP, and other Alert Center alerts.
 - [Google Workspace Directory](/tools/google_directory): users, groups, devices, third-party OAuth tokens, app passwords, and sign-in sessions.
+- [Google Chrome Management](/tools/google_chrome_management) and [Google Chrome Policy](/tools/google_chrome_policy): Chrome extension inventory, and blocking an extension for an org unit.
 
 ## How domain-wide delegation works
 
@@ -62,8 +63,14 @@ The Alert Center API exposes a single `apps.alerts` scope for both reading and u
 | `https://www.googleapis.com/auth/admin.directory.device.mobile.action` | Block or wipe a managed mobile device | `tools.google_directory.action_mobile_device` |
 | `https://www.googleapis.com/auth/admin.directory.device.chromeos` | Disable or move ChromeOS devices | `tools.google_directory.batch_change_chromeos_device_status`, `move_chromeos_devices_to_ou` |
 | `https://www.googleapis.com/auth/admin.directory.orgunit.readonly` | Read organizational units | `tools.google_directory.get_orgunit`, `list_orgunits` |
+| `https://www.googleapis.com/auth/chrome.management.reports.readonly` | Inventory Chrome extensions on enrolled browsers and managed profiles | `tools.google_chrome_management.count_installed_apps`, `find_installed_app_devices`, `find_installed_app_profiles` |
+| `https://www.googleapis.com/auth/chrome.management.appdetails.readonly` | Read an extension's permissions and risk details | `tools.google_chrome_management.get_chrome_app` |
+| `https://www.googleapis.com/auth/chrome.management.policy` | Block an extension or undo the block | `tools.google_chrome_policy.block_extension`, `batch_modify_org_unit_policies`, `batch_inherit_org_unit_policies` |
+| `https://www.googleapis.com/auth/chrome.management.policy.readonly` | Check whether an extension is blocked | `tools.google_chrome_policy.resolve_policies` |
 
 `admin.directory.user.security` has no read-only variant: the same scope that lists tokens also revokes them, signs users out, and turns off 2-Step Verification. Add it, and the `Security` > `User Security Management` privilege, only when your workflows run these actions. Use `tools.google_reports.list_activities` with `application_name: token` to audit third-party app grants without it.
+
+Chrome extension inventory covers Chrome browsers enrolled in Chrome Enterprise Core and signed-in managed profiles with managed profile reporting turned on. Personal profiles are not reported.
 
 Gmail actions (`tools.gmail`) such as pulling or trashing a reported phishing email use the separate `google_gmail` integration and the `gmail.readonly` or `gmail.modify` scope. Gmail delegation impersonates the mailbox owner, not the bot user, and gives the service account access to every mailbox in the domain. Authorize those scopes on a separate service account only if your workflows remediate mailboxes.
 
@@ -78,6 +85,7 @@ Gmail actions (`tools.gmail`) such as pulling or trashing a reported phishing em
 
     - [Admin SDK API](https://console.cloud.google.com/apis/library/admin.googleapis.com) for Directory and Reports.
     - [Google Workspace Alert Center API](https://console.cloud.google.com/apis/library/alertcenter.googleapis.com) for Alert Center.
+    - [Chrome Management API](https://console.cloud.google.com/apis/library/chromemanagement.googleapis.com) and [Chrome Policy API](https://console.cloud.google.com/apis/library/chromepolicy.googleapis.com), only if you use Chrome actions.
     - [Gmail API](https://console.cloud.google.com/apis/library/gmail.googleapis.com), only if you use Gmail actions.
   </Step>
   <Step title="Create the service account">
@@ -108,6 +116,7 @@ Gmail actions (`tools.gmail`) such as pulling or trashing a reported phishing em
     - `Services` > `Alert Center` (full access to update or delete alerts, view access for read-only)
     - `Security` > `User Security Management`, only if you delegate `admin.directory.user.security`
     - `Users` > `Read`, or `Users` > `Update` to suspend users or reset passwords
+    - The Chrome management privileges for reports and settings, only if you use Chrome actions. See [Chrome Policy API setup](https://developers.google.com/chrome/policy/guides/setup).
 
     Avoid the `Super Admin` role. `User Security Management` and `Users` privileges only apply to users who are not admins; only a super admin can sign out or revoke tokens for another admin.
   </Step>
@@ -174,7 +183,7 @@ Click `Create credential`.
 
 ![google_api credential](/img/connection-guides/google-workspace/google-api-credential.png)
 
-Every scope an action requests must be delegated. Directory and Reports actions try the `google_admin` integration first; see [Google credentials](/automations/core-concepts/secrets#google-credentials) for the full resolution order.
+Every scope an action requests must be delegated. Directory, Reports, and Chrome actions try the `google_admin` integration first; see [Google credentials](/automations/core-concepts/secrets#google-credentials) for the full resolution order.
 
 ## Test the connection
 
@@ -210,5 +219,5 @@ Run these actions in a workflow:
 
 - See [Google credentials](/automations/core-concepts/secrets#google-credentials) for the order in which Google actions resolve credentials.
 - See [OAuth](/automations/integrations/oauth-integrations) for how Tracecat stores and refreshes OAuth tokens.
-- See [Google Workspace Reports](/tools/google_reports), [Google Workspace Alert Center](/tools/google_alert_center), and [Google Workspace Directory](/tools/google_directory) for action inputs.
+- See [Google Workspace Reports](/tools/google_reports), [Google Workspace Alert Center](/tools/google_alert_center), [Google Workspace Directory](/tools/google_directory), [Google Chrome Management](/tools/google_chrome_management), and [Google Chrome Policy](/tools/google_chrome_policy) for action inputs.
 - See Google's [Control API access with domain-wide delegation](https://support.google.com/a/answer/162106) and [Domain-wide delegation best practices](https://support.google.com/a/answer/14437356) for the Admin console reference.

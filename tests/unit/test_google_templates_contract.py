@@ -8,7 +8,7 @@ silently in a single YAML file:
 - every `call_api` step passes `scopes`, which is what places the
   `GOOGLE_API_CREDENTIALS` key ahead of the generic `GOOGLE_SERVICE_TOKEN`;
 - `google_admin` is the credential of the Admin SDK namespaces only, as a user
-  OAuth token first for Directory and Reports and as the service account only
+  OAuth token first for Directory, Reports, and Chrome and as the service account only
   for Alert Center.
 """
 
@@ -37,8 +37,16 @@ GOOGLE_NAMESPACES = (
     "google_directory",
     "google_reports",
     "google_alert_center",
+    "google_chrome_management",
+    "google_chrome_policy",
 )
-ADMIN_SDK_NAMESPACES = ("google_directory", "google_reports", "google_alert_center")
+ADMIN_SDK_NAMESPACES = (
+    "google_directory",
+    "google_reports",
+    "google_alert_center",
+    "google_chrome_management",
+    "google_chrome_policy",
+)
 GOOGLE_TEMPLATES = sorted(
     path for ns in GOOGLE_NAMESPACES for path in (TEMPLATES / ns).rglob("*.yml")
 )
